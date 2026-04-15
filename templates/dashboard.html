@@ -3272,7 +3272,7 @@ async function openAdModal(adId,adName,thumbnailUrl){
             <div class="modal-section">
                 <h3>&#128279; Acoes</h3>
                 <div style="display:flex;gap:12px;margin-top:12px;">
-                    <a href="${ad.ad_manager_url || ''}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:12px 24px;background:linear-gradient(135deg,#1a1a3e,#2a2a5a);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;transition:transform .15s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">&#9881; Abrir no Gerenciador</a>
+                    <a href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=1099877583362016&business_id=984796621536780&selected_campaign_ids=${ad.campaign_id||''}&selected_ad_ids=${ad.id||''}&filter_set=SEARCH_BY_ADGROUP_IDS-STRING_SET%1EANY%1E%5B%22${ad.id||''}%22%5D" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:12px 24px;background:linear-gradient(135deg,#1a1a3e,#2a2a5a);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;transition:transform .15s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">&#9881; Abrir no Gerenciador</a>
                 </div>
             </div>
 
