@@ -3758,12 +3758,12 @@ var _bdCampId = '';
 var _bdData = null;
 var _bdSorts = { gender: {key:'conversions',asc:false}, age: {key:'age',asc:true}, weekday: {key:'day_num',asc:true} };
 
-function sortBd(table, key) {
+window.sortBd = function(table, key) {
     var s = _bdSorts[table];
     if (s.key === key) s.asc = !s.asc;
     else { s.key = key; s.asc = (key === 'age' || key === 'gender' || key === 'day_num' || key === 'day'); }
     renderBdTables();
-}
+};
 
 function renderBdTables() {
     if (!_bdData) return;
