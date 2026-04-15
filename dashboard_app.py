@@ -1811,7 +1811,7 @@ def api_breakdowns():
         # Limpar None
         base_params = {k: v for k, v in base_params.items() if v is not None}
 
-        ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas"
+        ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas"
 
         # 1. Por idade
         _enforce_rate_limit()
@@ -1853,7 +1853,13 @@ def api_breakdowns():
                 if a.get("action_type") in PURCHASE_TYPES:
                     roas = float(a.get("value", 0))
                     break
-            # Fallback: calcular ROAS manualmente se API não retornar
+            # Tentar website_purchase_roas
+            if roas == 0:
+                for a in (row.get("website_purchase_roas") or []):
+                    if a.get("action_type") in PURCHASE_TYPES:
+                        roas = float(a.get("value", 0))
+                        break
+            # Fallback: calcular ROAS manualmente
             if roas == 0 and revenue > 0:
                 s = float(row.get("spend", 0))
                 if s > 0:
