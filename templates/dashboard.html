@@ -706,10 +706,7 @@
         <div class="panel" style="margin-top:20px;">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
                 <h3 style="color:var(--t1);font-size:16px;font-weight:700;" data-tip="Dados segmentados por idade, sexo e dia da semana. Clique em uma campanha na tabela acima para filtrar.">&#128202; Analise Demografica e Temporal</h3>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span id="bd-filter-label" style="font-size:12px;color:var(--t3);">Todas as campanhas de vendas</span>
-                    <button class="btn-s" id="btn-bd-load" data-tip="Carregar dados demograficos da API Meta">Carregar Analise</button>
-                </div>
+                <span id="bd-filter-label" style="font-size:12px;color:var(--t3);">Todas as campanhas de vendas</span>
             </div>
             <div id="bd-loading" style="display:none;padding:20px;text-align:center;color:var(--accent);">Carregando dados demograficos...</div>
             <div id="bd-content" style="display:none;">
@@ -1286,6 +1283,8 @@ async function loadCamp(){
         $('#camp-tbody').innerHTML=`<tr><td colspan="12" style="text-align:center;padding:32px;color:var(--red)">Erro: ${e.message}</td></tr>`;
     }
     btn.disabled=false;btn.textContent='Carregar';
+    // Carregar breakdowns automaticamente
+    loadBreakdowns();
 }
 
 // Estado de campanhas selecionadas (multi-select)
@@ -3739,10 +3738,7 @@ loadCamp();
 
 // ── Breakdowns ──
 var _bdCampId = '';
-$('#btn-bd-load').addEventListener('click', function(){
-    if(!confirmApiCall('Carregar analise demografica faz 3 chamadas a API (idade, sexo, dia da semana).\n\nDeseja continuar?')) return;
-    loadBreakdowns();
-});
+// Breakdowns carregam automaticamente com as campanhas
 
 async function loadBreakdowns() {
     var df = $('#date-from').value, dt = $('#date-to').value;

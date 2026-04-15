@@ -1793,6 +1793,11 @@ def api_breakdowns():
         date_to = request.args.get("date_to", _yesterday())
         campaign_id = request.args.get("campaign_id", "")
 
+        cache_key = f"breakdowns_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cached = get_cached(cache_key)
+        if cached:
+            return jsonify(cached)
+
         # Determinar endpoint: campanha especifica ou conta toda (só vendas)
         if campaign_id:
             endpoint = campaign_id + "/insights"
@@ -1922,13 +1927,15 @@ def api_breakdowns():
                 "clicks": t["clicks"],
             })
 
-        return jsonify({
+        response = {
             "ok": True,
             "age": age_result,
             "gender": gender_result,
             "weekday": weekday_result,
             "campaign_id": campaign_id or "all",
-        })
+        }
+        set_cached(cache_key, response, ttl_hours=24)
+        return jsonify(response)
 
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -2253,7 +2260,18 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min...")
         time.sleep(1800)
 
-        # ── ETAPA 4 (4:00): Todos criativos consolidado ──
+        # ── ETAPA 4 (3:30): Breakdowns demograficos ──
+        try:
+            print("[SCHEDULER] Etapa 4/5: Carregando breakdowns...")
+            client.get(f"/api/dashboard/breakdowns?date_from={dt_from}&date_to={dt_to}")
+            print("[SCHEDULER] Breakdowns OK")
+        except Exception as e:
+            print(f"[SCHEDULER] Erro breakdowns: {e}")
+
+        print("[SCHEDULER] Aguardando 30 min...")
+        time.sleep(1800)
+
+        # ── ETAPA 5 (4:00): Todos criativos consolidado ──
         try:
             print("[SCHEDULER] Etapa 4/4: Carregando todos criativos consolidados...")
             client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active")
