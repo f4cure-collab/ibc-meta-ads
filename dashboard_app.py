@@ -1782,6 +1782,158 @@ def api_post_comments(story_id):
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
+# ── Breakdowns (idade, sexo, dia da semana) ────────────────────────────
+
+@app.route("/api/dashboard/breakdowns")
+@login_required
+def api_breakdowns():
+    """Retorna dados segmentados por idade, sexo e dia da semana."""
+    try:
+        date_from = request.args.get("date_from", _default_date_from())
+        date_to = request.args.get("date_to", _yesterday())
+        campaign_id = request.args.get("campaign_id", "")
+
+        # Determinar endpoint: campanha especifica ou conta toda (só vendas)
+        if campaign_id:
+            endpoint = campaign_id + "/insights"
+        else:
+            endpoint = ACCOUNT_ID + "/insights"
+
+        base_params = {
+            "time_range": json.dumps({"since": date_from, "until": date_to}),
+            "filtering": json.dumps([{"field": "campaign.objective", "operator": "IN", "value": ["OUTCOME_SALES"]}]) if not campaign_id else None,
+        }
+        # Limpar None
+        base_params = {k: v for k, v in base_params.items() if v is not None}
+
+        ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas"
+
+        # 1. Por idade
+        _enforce_rate_limit()
+        age_data = meta_get_all_pages(endpoint, {
+            **base_params,
+            "fields": ins_fields,
+            "breakdowns": "age",
+        })
+
+        # 2. Por sexo
+        _enforce_rate_limit()
+        gender_data = meta_get_all_pages(endpoint, {
+            **base_params,
+            "fields": ins_fields,
+            "breakdowns": "gender",
+        })
+
+        # 3. Por dia da semana (usando time_increment=1 e agrupando por weekday)
+        _enforce_rate_limit()
+        daily_data = meta_get_all_pages(endpoint, {
+            **base_params,
+            "fields": "spend,impressions,clicks,actions,action_values,purchase_roas",
+            "time_increment": 1,
+        })
+
+        def extract_purchase(row):
+            conv = 0
+            revenue = 0
+            roas = 0
+            for a in (row.get("actions") or []):
+                if a.get("action_type") in PURCHASE_TYPES:
+                    conv = int(a.get("value", 0))
+                    break
+            for a in (row.get("action_values") or []):
+                if a.get("action_type") in PURCHASE_TYPES:
+                    revenue = float(a.get("value", 0))
+                    break
+            for a in (row.get("purchase_roas") or []):
+                if a.get("action_type") in PURCHASE_TYPES:
+                    roas = float(a.get("value", 0))
+                    break
+            return conv, revenue, roas
+
+        # Processar idade
+        age_result = []
+        for row in age_data:
+            conv, revenue, roas = extract_purchase(row)
+            spend = float(row.get("spend", 0))
+            age_result.append({
+                "age": row.get("age", "?"),
+                "spend": round(spend, 2),
+                "impressions": int(row.get("impressions", 0)),
+                "clicks": int(row.get("clicks", 0)),
+                "conversions": conv,
+                "revenue": round(revenue, 2),
+                "roas": round(roas, 2),
+                "cpa": round(spend / conv, 2) if conv > 0 else 0,
+            })
+
+        # Processar sexo
+        gender_result = []
+        gender_labels = {"male": "Masculino", "female": "Feminino", "unknown": "Desconhecido"}
+        for row in gender_data:
+            conv, revenue, roas = extract_purchase(row)
+            spend = float(row.get("spend", 0))
+            gender_result.append({
+                "gender": gender_labels.get(row.get("gender", ""), row.get("gender", "?")),
+                "spend": round(spend, 2),
+                "impressions": int(row.get("impressions", 0)),
+                "clicks": int(row.get("clicks", 0)),
+                "conversions": conv,
+                "revenue": round(revenue, 2),
+                "roas": round(roas, 2),
+                "cpa": round(spend / conv, 2) if conv > 0 else 0,
+            })
+
+        # Processar dia da semana
+        weekdays = {0: "Segunda", 1: "Terca", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sabado", 6: "Domingo"}
+        weekday_totals = {i: {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0, "days": 0} for i in range(7)}
+
+        for row in daily_data:
+            date_str = row.get("date_start", "")
+            if not date_str:
+                continue
+            try:
+                from datetime import datetime as dt
+                d = dt.strptime(date_str, "%Y-%m-%d")
+                wd = d.weekday()
+            except Exception:
+                continue
+            conv, revenue, roas = extract_purchase(row)
+            weekday_totals[wd]["spend"] += float(row.get("spend", 0))
+            weekday_totals[wd]["impressions"] += int(row.get("impressions", 0))
+            weekday_totals[wd]["clicks"] += int(row.get("clicks", 0))
+            weekday_totals[wd]["conversions"] += conv
+            weekday_totals[wd]["revenue"] += revenue
+            weekday_totals[wd]["days"] += 1
+
+        weekday_result = []
+        for i in range(7):
+            t = weekday_totals[i]
+            days_count = max(t["days"], 1)
+            weekday_result.append({
+                "day": weekdays[i],
+                "day_num": i,
+                "spend": round(t["spend"], 2),
+                "spend_avg": round(t["spend"] / days_count, 2),
+                "conversions": t["conversions"],
+                "conv_avg": round(t["conversions"] / days_count, 1),
+                "revenue": round(t["revenue"], 2),
+                "roas": round(t["revenue"] / t["spend"], 2) if t["spend"] > 0 else 0,
+                "impressions": t["impressions"],
+                "clicks": t["clicks"],
+            })
+
+        return jsonify({
+            "ok": True,
+            "age": age_result,
+            "gender": gender_result,
+            "weekday": weekday_result,
+            "campaign_id": campaign_id or "all",
+        })
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
 # ── Auto Update ────────────────────────────────────────────────────────
 
 @app.route("/api/admin/check-update")

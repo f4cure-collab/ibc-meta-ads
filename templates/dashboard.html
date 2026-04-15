@@ -701,6 +701,47 @@
             </div>
 
         </div>
+
+        <!-- ══ BREAKDOWNS: Idade, Sexo, Dia da Semana ══ -->
+        <div class="panel" style="margin-top:20px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                <h3 style="color:var(--t1);font-size:16px;font-weight:700;" data-tip="Dados segmentados por idade, sexo e dia da semana. Clique em uma campanha na tabela acima para filtrar.">&#128202; Analise Demografica e Temporal</h3>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span id="bd-filter-label" style="font-size:12px;color:var(--t3);">Todas as campanhas de vendas</span>
+                    <button class="btn-s" id="btn-bd-load" data-tip="Carregar dados demograficos da API Meta">Carregar Analise</button>
+                </div>
+            </div>
+            <div id="bd-loading" style="display:none;padding:20px;text-align:center;color:var(--accent);">Carregando dados demograficos...</div>
+            <div id="bd-content" style="display:none;">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+                    <!-- Sexo -->
+                    <div class="panel" style="padding:16px;">
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo</h4>
+                        <table style="width:100%;font-size:12px;">
+                            <thead><tr style="color:var(--t3);"><th>Sexo</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">ROAS</th><th style="text-align:right;">CPA</th></tr></thead>
+                            <tbody id="bd-gender"></tbody>
+                        </table>
+                    </div>
+                    <!-- Idade -->
+                    <div class="panel" style="padding:16px;">
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade</h4>
+                        <table style="width:100%;font-size:12px;">
+                            <thead><tr style="color:var(--t3);"><th>Faixa</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">ROAS</th><th style="text-align:right;">CPA</th></tr></thead>
+                            <tbody id="bd-age"></tbody>
+                        </table>
+                    </div>
+                    <!-- Dia da Semana -->
+                    <div class="panel" style="padding:16px;">
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana</h4>
+                        <table style="width:100%;font-size:12px;">
+                            <thead><tr style="color:var(--t3);"><th>Dia</th><th style="text-align:right;">Gasto/dia</th><th style="text-align:right;">Conv/dia</th><th style="text-align:right;">ROAS</th></tr></thead>
+                            <tbody id="bd-weekday"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <!-- ══════ TAB 2: CRIATIVOS ══════ -->
@@ -3695,6 +3736,76 @@ $$('.tab-btn').forEach(b=>{
 
 // Auto-load
 loadCamp();
+
+// ── Breakdowns ──
+var _bdCampId = '';
+$('#btn-bd-load').addEventListener('click', function(){
+    if(!confirmApiCall('Carregar analise demografica faz 3 chamadas a API (idade, sexo, dia da semana).\n\nDeseja continuar?')) return;
+    loadBreakdowns();
+});
+
+async function loadBreakdowns() {
+    var df = $('#date-from').value, dt = $('#date-to').value;
+    $('#bd-loading').style.display = 'block';
+    $('#bd-content').style.display = 'none';
+    try {
+        var url = '/api/dashboard/breakdowns?date_from=' + df + '&date_to=' + dt;
+        if (_bdCampId) url += '&campaign_id=' + _bdCampId;
+        var r = await fetch(url);
+        var d = await r.json();
+        if (!d.ok) throw new Error(d.error);
+
+        // Sexo
+        $('#bd-gender').innerHTML = d.gender.map(function(g){
+            return '<tr><td style="color:var(--t1);font-weight:600;">' + g.gender + '</td>' +
+                '<td style="text-align:right;">' + fmtM(g.spend) + '</td>' +
+                '<td style="text-align:right;color:var(--accent2);">' + g.conversions + '</td>' +
+                '<td style="text-align:right;color:' + roasC(g.roas) + ';font-weight:700;">' + fmtR(g.roas) + '</td>' +
+                '<td style="text-align:right;">' + fmtM(g.cpa) + '</td></tr>';
+        }).join('');
+
+        // Idade
+        $('#bd-age').innerHTML = d.age.sort(function(a,b){ return b.conversions - a.conversions; }).map(function(a){
+            return '<tr><td style="color:var(--t1);font-weight:600;">' + a.age + '</td>' +
+                '<td style="text-align:right;">' + fmtM(a.spend) + '</td>' +
+                '<td style="text-align:right;color:var(--accent2);">' + a.conversions + '</td>' +
+                '<td style="text-align:right;color:' + roasC(a.roas) + ';font-weight:700;">' + fmtR(a.roas) + '</td>' +
+                '<td style="text-align:right;">' + fmtM(a.cpa) + '</td></tr>';
+        }).join('');
+
+        // Dia da semana
+        $('#bd-weekday').innerHTML = d.weekday.map(function(w){
+            return '<tr><td style="color:var(--t1);font-weight:600;">' + w.day + '</td>' +
+                '<td style="text-align:right;">' + fmtM(w.spend_avg) + '</td>' +
+                '<td style="text-align:right;color:var(--accent2);">' + w.conv_avg + '</td>' +
+                '<td style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td></tr>';
+        }).join('');
+
+        $('#bd-loading').style.display = 'none';
+        $('#bd-content').style.display = 'block';
+    } catch(e) {
+        $('#bd-loading').innerHTML = '<span style="color:var(--red);">Erro: ' + e.message + '</span>';
+    }
+}
+
+// Atualizar breakdown quando clicar em campanha na tabela
+(function(){
+    var origHandler = null;
+    var tbody = $('#camp-tbody');
+    if (tbody) {
+        tbody.addEventListener('click', function(e) {
+            var tr = e.target.closest('tr');
+            if (!tr) return;
+            var campId = tr.dataset.id || '';
+            var campName = tr.dataset.name || '';
+            if (campId && campId !== _bdCampId) {
+                _bdCampId = campId;
+                $('#bd-filter-label').textContent = campName || campId;
+                if ($('#bd-content').style.display !== 'none') loadBreakdowns();
+            }
+        });
+    }
+})();
 
 // ── Post comments ──
 async function loadPostComments(storyId) {
