@@ -1813,6 +1813,21 @@ def api_breakdowns():
 
         ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas"
 
+        # 0. Buscar totais gerais para calcular ticket médio
+        _enforce_rate_limit()
+        totals_data = meta_get_all_pages(endpoint, {
+            **base_params,
+            "fields": "spend,actions,action_values",
+        })
+        total_spend = sum(float(r.get("spend", 0)) for r in totals_data)
+        total_conv = 0
+        total_revenue = 0
+        for r in totals_data:
+            c, rev, _ = extract_purchase(r)
+            total_conv += c
+            total_revenue += rev
+        ticket_medio = total_revenue / total_conv if total_conv > 0 else 0
+
         # 1. Por idade
         _enforce_rate_limit()
         age_data = meta_get_all_pages(endpoint, {
@@ -1866,13 +1881,23 @@ def api_breakdowns():
                     roas = round(revenue / s, 2)
             return conv, revenue, roas
 
+        def calc_roas_fallback(conv, revenue, roas, spend):
+            """Calcula ROAS usando ticket médio se API não retornar."""
+            if roas > 0:
+                return round(roas, 2), round(revenue, 2)
+            if revenue > 0 and spend > 0:
+                return round(revenue / spend, 2), round(revenue, 2)
+            # Estimar receita usando ticket médio
+            est_revenue = conv * ticket_medio
+            est_roas = round(est_revenue / spend, 2) if spend > 0 else 0
+            return est_roas, round(est_revenue, 2)
+
         # Processar idade
         age_result = []
         for row in age_data:
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
-            if roas == 0 and revenue > 0 and spend > 0:
-                roas = round(revenue / spend, 2)
+            roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
             age_result.append({
                 "age": row.get("age", "?"),
                 "spend": round(spend, 2),
@@ -1880,7 +1905,7 @@ def api_breakdowns():
                 "clicks": int(row.get("clicks", 0)),
                 "conversions": conv,
                 "revenue": round(revenue, 2),
-                "roas": round(roas, 2),
+                "roas": roas,
                 "cpa": round(spend / conv, 2) if conv > 0 else 0,
             })
 
@@ -1890,8 +1915,7 @@ def api_breakdowns():
         for row in gender_data:
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
-            if roas == 0 and revenue > 0 and spend > 0:
-                roas = round(revenue / spend, 2)
+            roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
             gender_result.append({
                 "gender": gender_labels.get(row.get("gender", ""), row.get("gender", "?")),
                 "spend": round(spend, 2),
@@ -1899,7 +1923,7 @@ def api_breakdowns():
                 "clicks": int(row.get("clicks", 0)),
                 "conversions": conv,
                 "revenue": round(revenue, 2),
-                "roas": round(roas, 2),
+                "roas": roas,
                 "cpa": round(spend / conv, 2) if conv > 0 else 0,
             })
 
@@ -1929,6 +1953,9 @@ def api_breakdowns():
         for i in range(7):
             t = weekday_totals[i]
             days_count = max(t["days"], 1)
+            rev = t["revenue"]
+            if rev == 0 and t["conversions"] > 0:
+                rev = t["conversions"] * ticket_medio
             weekday_result.append({
                 "day": weekdays[i],
                 "day_num": i,
@@ -1936,8 +1963,8 @@ def api_breakdowns():
                 "spend_avg": round(t["spend"] / days_count, 2),
                 "conversions": t["conversions"],
                 "conv_avg": round(t["conversions"] / days_count, 1),
-                "revenue": round(t["revenue"], 2),
-                "roas": round(t["revenue"] / t["spend"], 2) if t["spend"] > 0 else 0,
+                "revenue": round(rev, 2),
+                "roas": round(rev / t["spend"], 2) if t["spend"] > 0 else 0,
                 "impressions": t["impressions"],
                 "clicks": t["clicks"],
             })
