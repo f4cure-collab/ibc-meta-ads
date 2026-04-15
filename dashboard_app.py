@@ -1506,9 +1506,9 @@ def api_ad_insights(ad_id):
         if cached:
             return jsonify(cached)
 
-        # Buscar dados básicos do ad (nome, criativo, status, campanha, post link)
+        # Buscar dados básicos do ad (nome, criativo, status, campanha, post link, preview)
         ad_info = meta_get(ad_id, {
-            "fields": "id,name,status,created_time,campaign{id,name},creative{id,name,thumbnail_url,effective_object_story_id,object_story_spec}"
+            "fields": "id,name,status,created_time,campaign{id,name},creative{id,name,thumbnail_url,effective_object_story_id,object_story_spec},adcreatives{effective_object_story_id},previews{body}"
         })
 
         # Buscar insights di&aacute;rios
@@ -1564,9 +1564,10 @@ def api_ad_insights(ad_id):
                 "campaign_id": campaign_id,
                 "thumbnail_url": (ad_info.get("creative") or {}).get("thumbnail_url", ""),
                 "creative_name": (ad_info.get("creative") or {}).get("name", ""),
-                "story_id": (ad_info.get("creative") or {}).get("effective_object_story_id", ""),
+                "story_id": (ad_info.get("creative") or {}).get("effective_object_story_id", "") or _find_story_id(ad_info),
                 "page_id": ((ad_info.get("creative") or {}).get("object_story_spec") or {}).get("page_id", ""),
                 "instagram_user_id": ((ad_info.get("creative") or {}).get("object_story_spec") or {}).get("instagram_user_id", ""),
+                "ad_manager_url": f"https://www.facebook.com/adsmanager/manage/ads?act={ACCOUNT_ID.replace('act_','')}&selected_ad_ids={ad_id}",
             },
             "daily": daily,
             "totals": totals,
@@ -1721,6 +1722,17 @@ def _scheduled_refresh():
             print(f"[SCHEDULER] Cache atualizado: {date_from} até {date_to}")
         except Exception as e:
             print(f"[SCHEDULER] Erro: {e}")
+
+
+def _find_story_id(ad_info):
+    """Tenta encontrar o effective_object_story_id de fontes alternativas."""
+    # Tentar em adcreatives
+    adcreatives = ad_info.get("adcreatives", {}).get("data", [])
+    for ac in adcreatives:
+        sid = ac.get("effective_object_story_id", "")
+        if sid:
+            return sid
+    return ""
 
 
 # ── Post Comments ──────────────────────────────────────────────────────
