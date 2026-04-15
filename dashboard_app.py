@@ -673,7 +673,7 @@ def api_campaigns():
             })
 
         response = {"ok": True, "data": result, "summary": summary, "events": events_summary}
-        set_cached(cache_key, response, ttl_hours=20)
+        set_cached(cache_key, response, ttl_hours=24)
         return jsonify(response)
 
     except Exception as e:
@@ -808,7 +808,7 @@ def api_campaigns_multi_insights():
             print(f"[WARN] reach/frequency agregados falhou: {e}")
 
         response = {"ok": True, "campaigns": result, "aggregated": agg_totals}
-        set_cached(cache_key, response, ttl_hours=20)
+        set_cached(cache_key, response, ttl_hours=24)
         return jsonify(response)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1386,7 +1386,7 @@ def api_daily_summary():
             print(f"[WARN] Falha ao buscar reach/frequency agregados: {e}")
 
         response = {"ok": True, "data": daily, "aggregated": agg_totals}
-        set_cached(cache_key, response, ttl_hours=20)
+        set_cached(cache_key, response, ttl_hours=24)
         return jsonify(response)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1487,7 +1487,7 @@ def api_cumulative_reach():
                 pass
 
         response = {"ok": True, "data": points}
-        set_cached(cache_key, response, ttl_hours=20)
+        set_cached(cache_key, response, ttl_hours=24)
         return jsonify(response)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1569,7 +1569,7 @@ def api_ad_insights(ad_id):
             "totals": totals,
             "campaign_daily": campaign_daily,
         }
-        set_cached(cache_key, response, ttl_hours=20)
+        set_cached(cache_key, response, ttl_hours=24)
         return jsonify(response)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1604,7 +1604,7 @@ def api_all_creatives():
         result = _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings)
         response = {"ok": True, "data": result, "warnings": warnings}
         if not warnings:
-            set_cached(cache_key, response, ttl_hours=20)
+            set_cached(cache_key, response, ttl_hours=24)
         return jsonify(response)
 
     except Exception as e:
