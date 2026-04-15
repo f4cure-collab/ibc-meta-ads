@@ -26,9 +26,56 @@ BASE_URL = f"https://graph.facebook.com/{API_VERSION}"
 TOKEN = os.getenv("META_ACCESS_TOKEN", "")
 ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID", "")
 
-USERS = {
-    "ibcadmin": "ibcadmin",
-}
+ADMIN_EMAIL = "f4cure@gmail.com"
+ADMIN_DEFAULT_PASS = os.getenv("ADMIN_PASSWORD", "ibc!facure@1010")
+USERS_FILE = os.path.join(os.path.dirname(__file__), "users.json")
+
+
+def _load_users():
+    """Carrega usuarios do arquivo JSON."""
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    # Padrão: só admin
+    return {
+        ADMIN_EMAIL: {
+            "password": ADMIN_DEFAULT_PASS,
+            "role": "admin",
+            "must_reset": False
+        }
+    }
+
+
+def _save_users(users):
+    """Salva usuarios no arquivo JSON."""
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+
+
+def _get_users():
+    return _load_users()
+
+
+def _check_login(username, password):
+    users = _get_users()
+    user = users.get(username)
+    if not user:
+        return None
+    if user["password"] == password:
+        return user
+    return None
+
+
+def _is_admin(username):
+    users = _get_users()
+    user = users.get(username)
+    return user and user.get("role") == "admin"
+
+
+# Compatibilidade: USERS dict para login existente
+@property
+def USERS():
+    return {k: v["password"] for k, v in _get_users().items()}
 
 PURCHASE_TYPES = [
     "purchase",
@@ -76,12 +123,17 @@ def login_page():
     username = data.get("username", "")
     password = data.get("password", "")
 
-    if USERS.get(username) == password:
+    user = _check_login(username, password)
+    if user:
         session.permanent = True
         session["logged_in"] = True
         session["username"] = username
+        session["role"] = user.get("role", "viewer")
+        session["must_reset"] = user.get("must_reset", False)
         if request.is_json:
-            return jsonify({"ok": True})
+            return jsonify({"ok": True, "must_reset": user.get("must_reset", False)})
+        if user.get("must_reset"):
+            return redirect("/admin/reset-password")
         return redirect(url_for("dashboard"))
 
     if request.is_json:
@@ -110,11 +162,61 @@ def dashboard():
 
 # ── Meta API helpers ───────────────────────────────────────────────────
 
+# ── Rate Limit Protection ──────────────────────────────────────────────
+_rate_usage = {"call_count": 0, "total_cputime": 0, "total_time": 0, "last_check": 0}
+_MIN_DELAY = 1  # Minimo 1 segundo entre chamadas
+_last_call_time = 0
+
+
+def _enforce_rate_limit():
+    """Garante delay minimo entre chamadas e pausa se proximo do limite."""
+    global _last_call_time
+    now = time.time()
+    elapsed = now - _last_call_time
+    if elapsed < _MIN_DELAY:
+        time.sleep(_MIN_DELAY - elapsed)
+
+    # Se uso > 75%, desacelerar
+    if _rate_usage["call_count"] > 75:
+        wait = 30
+        print(f"[RATE LIMIT] Uso em {_rate_usage['call_count']}% — pausando {wait}s para seguranca")
+        time.sleep(wait)
+    elif _rate_usage["call_count"] > 50:
+        print(f"[RATE LIMIT] Uso em {_rate_usage['call_count']}% — desacelerando")
+        time.sleep(3)
+
+    _last_call_time = time.time()
+
+
+def _update_rate_from_headers(resp):
+    """Atualiza info de rate limit dos headers da resposta."""
+    import json as _json
+    usage = resp.headers.get("x-business-use-case-usage", "")
+    if usage:
+        try:
+            data = _json.loads(usage)
+            for acct, usages in data.items():
+                for u in usages:
+                    _rate_usage["call_count"] = u.get("call_count", 0)
+                    _rate_usage["total_cputime"] = u.get("total_cputime", 0)
+                    _rate_usage["total_time"] = u.get("total_time", 0)
+                    _rate_usage["last_check"] = time.time()
+        except Exception:
+            pass
+
+
+def get_dashboard_rate_info():
+    """Retorna info de rate limit para exibir no dashboard."""
+    return dict(_rate_usage)
+
+
 def meta_get(endpoint, params=None):
+    _enforce_rate_limit()
     p = {"access_token": TOKEN}
     if params:
         p.update(params)
     resp = requests.get(f"{BASE_URL}/{endpoint}", params=p, timeout=60)
+    _update_rate_from_headers(resp)
     data = resp.json()
     if "error" in data:
         raise Exception(data["error"].get("message", str(data["error"])))
@@ -159,8 +261,10 @@ def meta_get_all_pages(endpoint, params=None, max_retries=3):
     all_data = []
     attempt = 0
     while url:
+        _enforce_rate_limit()
         try:
             resp = requests.get(url, params=p, timeout=60)
+            _update_rate_from_headers(resp)
             data = resp.json()
         except Exception as e:
             attempt += 1
@@ -173,8 +277,8 @@ def meta_get_all_pages(endpoint, params=None, max_retries=3):
             err = data["error"]
             if _is_rate_limit_error(err) and attempt < max_retries:
                 attempt += 1
-                # Backoff exponencial: 2, 4, 8 segundos
-                wait = 2 ** attempt
+                # Backoff exponencial: 10, 20, 40 segundos (seguro)
+                wait = 10 * (2 ** (attempt - 1))
                 print(f"[RATE LIMIT] {endpoint} — aguardando {wait}s (tentativa {attempt}/{max_retries})")
                 time.sleep(wait)
                 continue
@@ -1611,6 +1715,14 @@ def _scheduled_refresh():
             print(f"[SCHEDULER] Erro: {e}")
 
 
+# ── Rate Limit Info ────────────────────────────────────────────────────
+
+@app.route("/api/dashboard/rate-limit")
+@login_required
+def api_dash_rate_limit():
+    return jsonify({"ok": True, "data": get_dashboard_rate_info()})
+
+
 # ── Admin ──────────────────────────────────────────────────────────────
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ibcadmin2026!")
@@ -1620,6 +1732,108 @@ def admin_page():
     if not session.get("logged_in"):
         return redirect(url_for("login_page"))
     return render_template("admin.html")
+
+@app.route("/admin/reset-password")
+def admin_reset_password():
+    if not session.get("logged_in"):
+        return redirect(url_for("login_page"))
+    return render_template("admin_reset.html")
+
+
+@app.route("/api/admin/reset-password", methods=["POST"])
+def api_reset_password():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "error": "Nao autorizado"}), 401
+    data = request.get_json()
+    new_pass = data.get("new_password", "").strip()
+    if len(new_pass) < 6:
+        return jsonify({"ok": False, "error": "Senha deve ter pelo menos 6 caracteres"}), 400
+    users = _get_users()
+    username = session.get("username")
+    if username in users:
+        users[username]["password"] = new_pass
+        users[username]["must_reset"] = False
+        _save_users(users)
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Usuario nao encontrado"}), 404
+
+
+@app.route("/api/admin/users", methods=["GET"])
+def api_list_users():
+    if not session.get("logged_in") or not _is_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    users = _get_users()
+    result = []
+    for email, u in users.items():
+        result.append({
+            "email": email,
+            "role": u.get("role", "viewer"),
+            "must_reset": u.get("must_reset", False),
+            "password": u.get("password", "")  # Admin vê as senhas
+        })
+    return jsonify({"ok": True, "data": result})
+
+
+@app.route("/api/admin/users/create", methods=["POST"])
+def api_create_user():
+    if not session.get("logged_in") or not _is_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    data = request.get_json()
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "").strip()
+    role = data.get("role", "viewer")
+    if not email or not password:
+        return jsonify({"ok": False, "error": "Email e senha obrigatorios"}), 400
+    users = _get_users()
+    if email in users:
+        return jsonify({"ok": False, "error": "Usuario ja existe"}), 400
+    users[email] = {"password": password, "role": role, "must_reset": True}
+    _save_users(users)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/users/update", methods=["POST"])
+def api_update_user():
+    if not session.get("logged_in") or not _is_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    data = request.get_json()
+    email = data.get("email", "").strip().lower()
+    users = _get_users()
+    if email not in users:
+        return jsonify({"ok": False, "error": "Usuario nao encontrado"}), 404
+    if email == ADMIN_EMAIL and data.get("action") == "delete":
+        return jsonify({"ok": False, "error": "Nao pode excluir o admin principal"}), 400
+    if data.get("action") == "delete":
+        del users[email]
+    elif data.get("action") == "reset":
+        users[email]["must_reset"] = True
+    elif data.get("new_password"):
+        users[email]["password"] = data["new_password"]
+    elif data.get("role"):
+        users[email]["role"] = data["role"]
+    _save_users(users)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/token-expiry")
+def api_token_expiry():
+    if not session.get("logged_in"):
+        return jsonify({"ok": False}), 401
+    try:
+        resp = requests.get(f"{BASE_URL}/debug_token", params={
+            "input_token": TOKEN, "access_token": TOKEN
+        }, timeout=10)
+        data = resp.json().get("data", {})
+        expires_at = data.get("expires_at", 0)
+        if expires_at:
+            from datetime import datetime
+            expires_date = datetime.fromtimestamp(expires_at)
+            days_left = (expires_date - datetime.now()).days
+            return jsonify({"ok": True, "days_left": days_left, "expires_at": expires_date.strftime("%Y-%m-%d")})
+        return jsonify({"ok": True, "days_left": -1})
+    except Exception:
+        return jsonify({"ok": True, "days_left": -1})
+
 
 @app.route("/api/admin/config", methods=["GET"])
 def admin_get_config():

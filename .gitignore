@@ -5,3 +5,5 @@ uploads/
 .claude/
 memory/
 google_sheets/
+users.json
+cache.db

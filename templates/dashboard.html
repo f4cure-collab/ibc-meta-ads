@@ -557,9 +557,16 @@
         <h1 data-tip="Dashboard de performance das campanhas Meta Ads do IBC Eventos">IBC Dashboard</h1>
         <span class="badge" data-tip="Filtrando apenas campanhas com objetivo OUTCOME_SALES (vendas)">Vendas</span>
     </div>
-    <div class="header-right">
+    <div class="header-right" style="display:flex;align-items:center;gap:12px;">
+        <span id="rateBadge" style="display:none;font-size:11px;padding:3px 10px;border-radius:6px;cursor:help;transition:all .3s;"></span>
+        <a href="/admin" style="color:var(--t3);font-size:12px;text-decoration:none;" data-tip="Configuracoes e token">Admin</a>
         <span style="color:var(--t3);font-size:13px" data-tip="Usu&aacute;rio logado">{{ username }}</span>
         <a href="/logout" class="btn-logout" data-tip="Sair do dashboard">Sair</a>
+    </div>
+
+    <!-- Rate limit overlay -->
+    <div id="rateOverlay" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:rgba(255,150,0,0.95);color:#000;padding:10px 20px;text-align:center;font-size:14px;font-weight:600;">
+        <span id="rateOverlayText">Desacelerando chamadas para proteger o limite da API Meta...</span>
     </div>
 </div>
 <div class="main">
@@ -2150,7 +2157,10 @@ $$('#camp-tbl thead th[data-key]').forEach(th=>{th.addEventListener('click',()=>
     renderCampTbl(campData);
 });});
 $('#search-camp').addEventListener('input',()=>renderCampTbl(campData));
-$('#btn-load').addEventListener('click',loadCamp);
+$('#btn-load').addEventListener('click',function(){
+    if(!confirmApiCall('Carregar campanhas faz varias chamadas a API da Meta.\n\nIsso consome parte do limite diario de requisicoes.\n\nDeseja continuar?')) return;
+    loadCamp();
+});
 
 // ── Daily Summary (gr&aacute;fico de m&eacute;trica selecionada nos cards da aba campanhas) ──
 let campDailyData=[];
@@ -2733,7 +2743,10 @@ function renderTbl(data){
 $('#v-cards').addEventListener('click',()=>{$('#v-cards').classList.add('active');$('#v-table').classList.remove('active');$('#cr-cards-wrap').style.display='';$('#cr-tbl-wrap').style.display='none';});
 $('#v-table').addEventListener('click',()=>{$('#v-table').classList.add('active');$('#v-cards').classList.remove('active');$('#cr-cards-wrap').style.display='none';$('#cr-tbl-wrap').style.display='';});
 
-$('#btn-cr-load').addEventListener('click',loadCr);
+$('#btn-cr-load').addEventListener('click',function(){
+    if(!confirmApiCall('Carregar criativos faz muitas chamadas a API da Meta (uma por campanha de vendas).\n\nIsso consome uma parte significativa do limite diario.\n\nDeseja continuar?')) return;
+    loadCr();
+});
 $('#cr-search').addEventListener('input',renderCr);
 $('#cr-sort').addEventListener('change',()=>{
     crTblSortKey=null;crTblSortDir='desc'; // resetar sort da coluna ao usar dropdown
@@ -3675,6 +3688,68 @@ $$('.tab-btn').forEach(b=>{
 
 // Auto-load
 loadCamp();
+
+// ── API call confirmation ──
+function confirmApiCall(msg) {
+    var pct = 0;
+    try {
+        var badge = document.getElementById('rateBadge');
+        if (badge) pct = parseInt(badge.textContent.replace(/[^0-9]/g,'')) || 0;
+    } catch(e){}
+
+    var extra = '';
+    if (pct > 75) {
+        extra = '\n\n⚠️ ATENCAO: O uso da API esta em ' + pct + '%. Recomendamos aguardar alguns minutos antes de fazer novas chamadas.';
+    } else if (pct > 50) {
+        extra = '\n\nO uso da API esta em ' + pct + '%. As chamadas serao desaceleradas automaticamente.';
+    } else if (pct > 0) {
+        extra = '\n\nUso atual da API: ' + pct + '% (normal).';
+    }
+
+    return confirm(msg + extra);
+}
+
+// ── Rate Limit Monitor ──
+var _rateInterval = null;
+function startRateMonitor() {
+    if (_rateInterval) return;
+    updateRateBadge();
+    _rateInterval = setInterval(updateRateBadge, 10000);
+}
+function updateRateBadge() {
+    fetch('/api/dashboard/rate-limit').then(function(r){return r.json()}).then(function(d) {
+        if (!d.ok) return;
+        var pct = d.data.call_count || 0;
+        var badge = document.getElementById('rateBadge');
+        var overlay = document.getElementById('rateOverlay');
+        badge.style.display = 'inline-block';
+        badge.textContent = 'API: ' + pct + '%';
+        badge.title = 'Uso da API Meta: ' + pct + '% das chamadas permitidas. Acima de 75% o sistema desacelera automaticamente para proteger sua conta.';
+
+        if (pct > 75) {
+            badge.style.background = 'rgba(255,107,107,0.2)';
+            badge.style.color = '#ff6b6b';
+            badge.style.border = '1px solid rgba(255,107,107,0.4)';
+            overlay.style.display = 'block';
+            overlay.style.background = 'rgba(255,80,80,0.95)';
+            document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% — Sistema pausado temporariamente para proteger sua conta. Aguarde...';
+        } else if (pct > 50) {
+            badge.style.background = 'rgba(255,200,87,0.2)';
+            badge.style.color = '#ffc857';
+            badge.style.border = '1px solid rgba(255,200,87,0.4)';
+            overlay.style.display = 'block';
+            overlay.style.background = 'rgba(255,150,0,0.95)';
+            document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% — Desacelerando chamadas para seguranca. Os dados podem demorar um pouco mais.';
+        } else {
+            badge.style.background = 'rgba(63,223,133,0.15)';
+            badge.style.color = '#3fdf85';
+            badge.style.border = '1px solid rgba(63,223,133,0.3)';
+            overlay.style.display = 'none';
+        }
+    }).catch(function(){});
+}
+startRateMonitor();
+
 })();
 </script>
 </body>

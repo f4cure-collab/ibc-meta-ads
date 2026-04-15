@@ -5,71 +5,109 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - Dashboard Meta Ads</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, sans-serif; background: #0f0f23; color: #e0e0e0; min-height: 100vh; padding: 40px; }
-        .container { max-width: 600px; margin: 0 auto; }
-        h1 { color: #4f8cff; margin-bottom: 30px; }
-        .card { background: #1a1a3e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
-        .card h2 { font-size: 16px; color: #fff; margin-bottom: 16px; }
-        label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; margin-top: 12px; }
-        input { width: 100%; padding: 10px 14px; background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 8px; color: #e0e0e0; font-size: 14px; }
-        input:focus { border-color: #4f8cff; outline: none; }
-        .info { background: #0f0f23; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; color: #4f8cff; word-break: break-all; }
-        .btn { padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 16px; }
-        .btn-primary { background: #4f8cff; color: #fff; }
-        .btn-primary:hover { background: #3a7aef; }
-        .btn-back { background: #2a2a4a; color: #ccc; text-decoration: none; display: inline-block; padding: 8px 16px; border-radius: 8px; font-size: 13px; }
-        .alert { padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 14px; display: none; }
-        .alert-success { background: #1a3a1a; border: 1px solid #2a5a2a; color: #8aff8a; }
-        .alert-error { background: #3a1a1a; border: 1px solid #5a2a2a; color: #ff8a8a; }
-        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-        .status-ok { background: #4caf50; }
-        .status-warn { background: #ff9800; }
-        .status-err { background: #f44336; }
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,sans-serif;background:#0f0f23;color:#e0e0e0;min-height:100vh;padding:40px}
+        .container{max-width:700px;margin:0 auto}
+        h1{color:#4f8cff;margin-bottom:30px}
+        .card{background:#1a1a3e;border:1px solid #2a2a4a;border-radius:12px;padding:24px;margin-bottom:20px}
+        .card h2{font-size:16px;color:#fff;margin-bottom:16px}
+        label{display:block;font-size:13px;color:#aaa;margin-bottom:6px;margin-top:12px}
+        input,select{width:100%;padding:10px 14px;background:#0f0f23;border:1px solid #2a2a4a;border-radius:8px;color:#e0e0e0;font-size:14px}
+        input:focus,select:focus{border-color:#4f8cff;outline:none}
+        .info{background:#0f0f23;padding:12px;border-radius:8px;font-family:monospace;font-size:13px;color:#4f8cff;word-break:break-all}
+        .btn{padding:10px 20px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;margin-top:12px;display:inline-block}
+        .btn-primary{background:#4f8cff;color:#fff}
+        .btn-primary:hover{background:#3a7aef}
+        .btn-danger{background:#f44336;color:#fff}
+        .btn-danger:hover{background:#d32f2f}
+        .btn-sm{padding:6px 12px;font-size:11px;margin:0}
+        .btn-back{background:#2a2a4a;color:#ccc;text-decoration:none;display:inline-block;padding:8px 16px;border-radius:8px;font-size:13px}
+        .alert{padding:12px;border-radius:8px;margin-top:12px;font-size:14px;display:none}
+        .alert-success{background:#1a3a1a;border:1px solid #2a5a2a;color:#8aff8a}
+        .alert-error{background:#3a1a1a;border:1px solid #5a2a2a;color:#ff8a8a}
+        .token-expiry{padding:16px;border-radius:10px;text-align:center;margin-bottom:20px;font-size:18px;font-weight:700}
+        .expiry-ok{background:#1a3a1a;border:1px solid #2a5a2a;color:#4caf50}
+        .expiry-warn{background:#3a3a1a;border:1px solid #5a5a2a;color:#ff9800}
+        .expiry-danger{background:#3a1a1a;border:1px solid #5a2a2a;color:#f44336}
+        table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+        th{text-align:left;padding:8px;color:#4f8cff;border-bottom:1px solid #2a2a4a;font-size:11px;text-transform:uppercase}
+        td{padding:8px;border-bottom:1px solid #1a1a3e}
+        .role-admin{color:#4f8cff;font-weight:600}
+        .role-viewer{color:#888}
+        .badge-reset{background:#3a2a1a;color:#ff9800;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+        .row{display:flex;gap:10px;align-items:flex-end}
+        .row>*{flex:1}
     </style>
 </head>
 <body>
 <div class="container">
-    <a href="/dashboard" class="btn-back">← Voltar ao Dashboard</a>
-    <h1 style="margin-top:20px;">Administracao</h1>
+    <a href="/dashboard" class="btn-back">&larr; Voltar ao Dashboard</a>
+    <h1 style="margin-top:20px;">Painel de Administracao</h1>
 
+    <!-- Token Expiry -->
+    <div id="tokenExpiry" class="token-expiry" style="display:none;"></div>
+
+    <!-- Status -->
     <div class="card">
-        <h2>Status da Conexao</h2>
+        <h2>Status</h2>
         <div id="statusInfo">Verificando...</div>
+        <div style="margin-top:12px;">
+            <label>Token (parcial)</label>
+            <div class="info" id="tokenMasked">Carregando...</div>
+        </div>
     </div>
 
+    <!-- Atualizar Token -->
     <div class="card">
-        <h2>Configuracao Atual</h2>
-        <label>Token (parcial)</label>
-        <div class="info" id="tokenMasked">Carregando...</div>
-        <label>Account ID</label>
-        <div class="info" id="accountId">Carregando...</div>
-        <label>App ID</label>
-        <div class="info" id="appId">Carregando...</div>
-    </div>
-
-    <div class="card">
-        <h2>Atualizar Token</h2>
+        <h2>Atualizar Token da Meta API</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">O token expira a cada 60 dias. Gere um novo no Graph API Explorer e cole aqui.</p>
-
         <label>Senha Admin</label>
-        <input type="password" id="adminPass" placeholder="Senha de administrador">
-
+        <input type="password" id="adminPass" placeholder="Sua senha de admin">
         <label>Novo Token</label>
-        <input type="text" id="newToken" placeholder="Cole o novo access token aqui">
-
+        <input type="text" id="newToken" placeholder="Cole o novo access token">
         <button class="btn btn-primary" onclick="updateToken()">Atualizar Token</button>
-
-        <div class="alert alert-success" id="successMsg"></div>
-        <div class="alert alert-error" id="errorMsg"></div>
+        <div class="alert alert-success" id="tokenOk"></div>
+        <div class="alert alert-error" id="tokenErr"></div>
     </div>
 
+    <!-- Gestao de Usuarios -->
     <div class="card">
-        <h2>Informacoes</h2>
+        <h2>Usuarios</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:8px;">Gerencie quem pode acessar o dashboard. Novos usuarios precisam redefinir a senha no primeiro acesso.</p>
+        <table>
+            <thead><tr><th>Email</th><th>Perfil</th><th>Status</th><th>Senha</th><th>Acoes</th></tr></thead>
+            <tbody id="usersBody"><tr><td colspan="5" style="color:#666;text-align:center;">Carregando...</td></tr></tbody>
+        </table>
+
+        <h3 style="color:#fff;font-size:14px;margin-top:24px;margin-bottom:8px;">Criar Novo Usuario</h3>
+        <div class="row">
+            <div>
+                <label>Email</label>
+                <input type="email" id="newUserEmail" placeholder="email@exemplo.com">
+            </div>
+            <div>
+                <label>Senha Temporaria</label>
+                <input type="text" id="newUserPass" placeholder="Senha inicial">
+            </div>
+            <div>
+                <label>Perfil</label>
+                <select id="newUserRole">
+                    <option value="viewer">Visualizador</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+        </div>
+        <button class="btn btn-primary" onclick="createUser()">Criar Usuario</button>
+        <div class="alert alert-success" id="userOk"></div>
+        <div class="alert alert-error" id="userErr"></div>
+    </div>
+
+    <!-- Instrucoes -->
+    <div class="card">
+        <h2>Como gerar novo token</h2>
         <p style="color:#888;font-size:13px;">
-            <strong>Como gerar novo token:</strong><br>
             1. Acesse developers.facebook.com/tools/explorer<br>
-            2. Selecione o app "integracao claude criar ads"<br>
+            2. Selecione o app correto<br>
             3. Marque: ads_management, ads_read, business_management<br>
             4. Clique "Generate Access Token"<br>
             5. Cole aqui e salve
@@ -78,67 +116,141 @@
 </div>
 
 <script>
-async function loadConfig() {
+// ── Load config + token expiry ──
+async function loadAll() {
+    // Config
     try {
-        var resp = await fetch('/api/admin/config');
-        var data = await resp.json();
-        if (data.ok) {
-            document.getElementById('tokenMasked').textContent = data.token_masked;
-            document.getElementById('accountId').textContent = data.account_id;
-            document.getElementById('appId').textContent = data.app_id || 'Nao configurado';
+        var r = await fetch('/api/admin/config');
+        var d = await r.json();
+        if (d.ok) {
+            document.getElementById('tokenMasked').textContent = d.token_masked;
+        }
+    } catch(e) {}
 
-            // Verificar conexao
-            var resp2 = await fetch('/api/dashboard/campaigns?since=2026-04-01&until=2026-04-10');
-            var status = document.getElementById('statusInfo');
-            if (resp2.ok) {
-                status.innerHTML = '<span class="status-dot status-ok"></span> Conectado e funcionando';
+    // Token expiry
+    try {
+        var r2 = await fetch('/api/admin/token-expiry');
+        var d2 = await r2.json();
+        if (d2.ok && d2.days_left >= 0) {
+            var box = document.getElementById('tokenExpiry');
+            box.style.display = 'block';
+            var days = d2.days_left;
+            if (days <= 0) {
+                box.className = 'token-expiry expiry-danger';
+                box.innerHTML = '&#9888; TOKEN EXPIRADO! Atualize agora.';
+            } else if (days <= 7) {
+                box.className = 'token-expiry expiry-danger';
+                box.innerHTML = '&#9888; Token expira em ' + days + ' dia(s)! Renove urgente.';
+            } else if (days <= 15) {
+                box.className = 'token-expiry expiry-warn';
+                box.innerHTML = '&#9888; Token expira em ' + days + ' dias. Renove em breve.';
             } else {
-                status.innerHTML = '<span class="status-dot status-err"></span> Erro na conexao - verifique o token';
+                box.className = 'token-expiry expiry-ok';
+                box.innerHTML = '&#10003; Token valido — ' + days + ' dias restantes (expira ' + d2.expires_at + ')';
             }
         }
+    } catch(e) {}
+
+    // Status
+    try {
+        var r3 = await fetch('/api/dashboard/rate-limit');
+        var status = document.getElementById('statusInfo');
+        if (r3.ok) {
+            var d3 = await r3.json();
+            var pct = d3.data ? d3.data.call_count : 0;
+            status.innerHTML = '<span style="color:#4caf50;">&#9679;</span> Conectado | API: ' + pct + '% usado';
+        } else {
+            status.innerHTML = '<span style="color:#f44336;">&#9679;</span> Erro na conexao';
+        }
     } catch(e) {
-        document.getElementById('statusInfo').innerHTML = '<span class="status-dot status-err"></span> Erro: ' + e.message;
+        document.getElementById('statusInfo').innerHTML = '<span style="color:#f44336;">&#9679;</span> Erro: ' + e.message;
     }
+
+    // Usuarios
+    loadUsers();
 }
 
+// ── Token update ──
 async function updateToken() {
     var pass = document.getElementById('adminPass').value;
     var token = document.getElementById('newToken').value;
-    var success = document.getElementById('successMsg');
-    var error = document.getElementById('errorMsg');
-    success.style.display = 'none';
-    error.style.display = 'none';
-
-    if (!pass || !token) {
-        error.textContent = 'Preencha a senha e o token';
-        error.style.display = 'block';
-        return;
-    }
-
+    hide('tokenOk'); hide('tokenErr');
+    if (!pass || !token) { show('tokenErr', 'Preencha todos os campos'); return; }
     try {
-        var resp = await fetch('/api/admin/update-token', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+        var r = await fetch('/api/admin/update-token', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
             body: JSON.stringify({admin_password: pass, new_token: token})
         });
-        var data = await resp.json();
-        if (data.ok) {
-            success.textContent = data.message;
-            success.style.display = 'block';
-            document.getElementById('newToken').value = '';
-            document.getElementById('adminPass').value = '';
-            loadConfig();
-        } else {
-            error.textContent = data.error;
-            error.style.display = 'block';
-        }
-    } catch(e) {
-        error.textContent = 'Erro: ' + e.message;
-        error.style.display = 'block';
-    }
+        var d = await r.json();
+        if (d.ok) { show('tokenOk', d.message); document.getElementById('newToken').value = ''; loadAll(); }
+        else { show('tokenErr', d.error); }
+    } catch(e) { show('tokenErr', e.message); }
 }
 
-loadConfig();
+// ── Users management ──
+async function loadUsers() {
+    try {
+        var r = await fetch('/api/admin/users');
+        var d = await r.json();
+        if (!d.ok) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" style="color:#f44336;">'+d.error+'</td></tr>'; return; }
+        var body = document.getElementById('usersBody');
+        body.innerHTML = d.data.map(function(u) {
+            var roleClass = u.role === 'admin' ? 'role-admin' : 'role-viewer';
+            var roleLabel = u.role === 'admin' ? 'Admin' : 'Visualizador';
+            var status = u.must_reset ? '<span class="badge-reset">REDEFINIR SENHA</span>' : '<span style="color:#4caf50;">Ativo</span>';
+            var passDisplay = u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password;
+            var actions = '';
+            if (u.email !== 'f4cure@gmail.com') {
+                actions = '<button class="btn btn-sm btn-danger" onclick="deleteUser(\''+u.email+'\')">Excluir</button> ';
+            }
+            actions += '<button class="btn btn-sm btn-primary" onclick="changePass(\''+u.email+'\')">Senha</button> ';
+            actions += '<button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="forceReset(\''+u.email+'\')">Forcar Reset</button>';
+            return '<tr><td>'+u.email+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td>'+actions+'</td></tr>';
+        }).join('');
+    } catch(e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" style="color:#f44336;">Erro</td></tr>'; }
+}
+
+async function createUser() {
+    var email = document.getElementById('newUserEmail').value.trim();
+    var pass = document.getElementById('newUserPass').value.trim();
+    var role = document.getElementById('newUserRole').value;
+    hide('userOk'); hide('userErr');
+    if (!email || !pass) { show('userErr', 'Preencha email e senha'); return; }
+    try {
+        var r = await fetch('/api/admin/users/create', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({email: email, password: pass, role: role})
+        });
+        var d = await r.json();
+        if (d.ok) { show('userOk', 'Usuario criado! Ele devera redefinir a senha no primeiro acesso.'); document.getElementById('newUserEmail').value=''; document.getElementById('newUserPass').value=''; loadUsers(); }
+        else { show('userErr', d.error); }
+    } catch(e) { show('userErr', e.message); }
+}
+
+async function deleteUser(email) {
+    if (!confirm('Excluir usuario ' + email + '?')) return;
+    await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,action:'delete'})});
+    loadUsers();
+}
+
+async function changePass(email) {
+    var newPass = prompt('Nova senha para ' + email + ':');
+    if (!newPass) return;
+    await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,new_password:newPass})});
+    loadUsers();
+}
+
+async function forceReset(email) {
+    if (!confirm('Forcar ' + email + ' a redefinir a senha no proximo login?')) return;
+    await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,action:'reset'})});
+    loadUsers();
+}
+
+// ── Helpers ──
+function show(id, msg) { var el=document.getElementById(id); el.textContent=msg; el.style.display='block'; }
+function hide(id) { document.getElementById(id).style.display='none'; }
+
+loadAll();
 </script>
 </body>
 </html>
