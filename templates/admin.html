@@ -57,8 +57,8 @@
         </div>
     </div>
 
-    <!-- Atualizar Token -->
-    <div class="card">
+    <!-- Atualizar Token (só super admin) -->
+    <div class="card" id="tokenCard" style="display:none;">
         <h2>Atualizar Token da Meta API</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">O token expira a cada 60 dias. Gere um novo no Graph API Explorer e cole aqui.</p>
         <label>Senha Admin</label>
@@ -170,6 +170,8 @@ async function loadAll() {
     loadUsers();
 }
 
+var _isSuper = false;
+
 // ── Token update ──
 async function updateToken() {
     var pass = document.getElementById('adminPass').value;
@@ -193,18 +195,30 @@ async function loadUsers() {
         var r = await fetch('/api/admin/users');
         var d = await r.json();
         if (!d.ok) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" style="color:#f44336;">'+d.error+'</td></tr>'; return; }
+        _isSuper = d.is_super;
+
+        // Mostrar token card só para super admin
+        document.getElementById('tokenCard').style.display = _isSuper ? 'block' : 'none';
+
         var body = document.getElementById('usersBody');
         body.innerHTML = d.data.map(function(u) {
-            var roleClass = u.role === 'admin' ? 'role-admin' : 'role-viewer';
-            var roleLabel = u.role === 'admin' ? 'Admin' : 'Visualizador';
+            var roleClass = u.role === 'admin' ? 'role-admin' : u.role === 'super_admin' ? 'role-admin' : 'role-viewer';
+            var roleLabel = u.role === 'super_admin' ? 'Admin Principal' : u.role === 'admin' ? 'Admin' : 'Visualizador';
             var status = u.must_reset ? '<span class="badge-reset">REDEFINIR SENHA</span>' : '<span style="color:#4caf50;">Ativo</span>';
-            var passDisplay = u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password;
+            var passDisplay = u.password === '********' ? '********' : (u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password);
             var actions = '';
-            if (u.email !== 'f4cure@gmail.com') {
+            // Super admin não pode ser editado por ninguém exceto ele mesmo
+            if (u.role === 'super_admin') {
+                if (_isSuper) {
+                    actions = '<button class="btn btn-sm btn-primary" onclick="changePass(\''+u.email+'\')">Senha</button>';
+                } else {
+                    actions = '<span style="color:#666;font-size:11px;">Sem permissao</span>';
+                }
+            } else {
                 actions = '<button class="btn btn-sm btn-danger" onclick="deleteUser(\''+u.email+'\')">Excluir</button> ';
+                actions += '<button class="btn btn-sm btn-primary" onclick="changePass(\''+u.email+'\')">Senha</button> ';
+                actions += '<button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="forceReset(\''+u.email+'\')">Reset</button>';
             }
-            actions += '<button class="btn btn-sm btn-primary" onclick="changePass(\''+u.email+'\')">Senha</button> ';
-            actions += '<button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="forceReset(\''+u.email+'\')">Forcar Reset</button>';
             return '<tr><td>'+u.email+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td>'+actions+'</td></tr>';
         }).join('');
     } catch(e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" style="color:#f44336;">Erro</td></tr>'; }
