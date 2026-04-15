@@ -1506,9 +1506,9 @@ def api_ad_insights(ad_id):
         if cached:
             return jsonify(cached)
 
-        # Buscar dados básicos do ad (nome, criativo, status, campanha)
+        # Buscar dados básicos do ad (nome, criativo, status, campanha, post link)
         ad_info = meta_get(ad_id, {
-            "fields": "id,name,status,created_time,campaign{id,name},creative{id,name,thumbnail_url}"
+            "fields": "id,name,status,created_time,campaign{id,name},creative{id,name,thumbnail_url,effective_object_story_id,object_story_spec}"
         })
 
         # Buscar insights di&aacute;rios
@@ -1564,6 +1564,9 @@ def api_ad_insights(ad_id):
                 "campaign_id": campaign_id,
                 "thumbnail_url": (ad_info.get("creative") or {}).get("thumbnail_url", ""),
                 "creative_name": (ad_info.get("creative") or {}).get("name", ""),
+                "story_id": (ad_info.get("creative") or {}).get("effective_object_story_id", ""),
+                "page_id": ((ad_info.get("creative") or {}).get("object_story_spec") or {}).get("page_id", ""),
+                "instagram_user_id": ((ad_info.get("creative") or {}).get("object_story_spec") or {}).get("instagram_user_id", ""),
             },
             "daily": daily,
             "totals": totals,
@@ -1718,6 +1721,40 @@ def _scheduled_refresh():
             print(f"[SCHEDULER] Cache atualizado: {date_from} até {date_to}")
         except Exception as e:
             print(f"[SCHEDULER] Erro: {e}")
+
+
+# ── Post Comments ──────────────────────────────────────────────────────
+
+@app.route("/api/dashboard/post/<path:story_id>/comments")
+@login_required
+def api_post_comments(story_id):
+    """Busca comentarios de um post do Facebook/Instagram."""
+    try:
+        _enforce_rate_limit()
+        data = meta_get(story_id + "/comments", {
+            "fields": "id,message,from{id,name},created_time,like_count,comments{id,message,from{id,name},created_time}",
+            "limit": "100",
+            "order": "reverse_chronological"
+        })
+        comments = []
+        for c in data.get("data", []):
+            comment = {
+                "message": c.get("message", ""),
+                "from": c.get("from"),
+                "created_time": c.get("created_time", ""),
+                "like_count": c.get("like_count", 0),
+                "replies": []
+            }
+            for r in (c.get("comments", {}).get("data", [])):
+                comment["replies"].append({
+                    "message": r.get("message", ""),
+                    "from": r.get("from"),
+                    "created_time": r.get("created_time", "")
+                })
+            comments.append(comment)
+        return jsonify({"ok": True, "data": comments})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
 
 
 # ── Rate Limit Info ────────────────────────────────────────────────────

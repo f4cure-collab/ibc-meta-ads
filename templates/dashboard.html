@@ -3268,6 +3268,23 @@ async function openAdModal(adId,adName,thumbnailUrl){
                 ${buildFunnelHTML(t)}
             </div>
 
+            <!-- VER PUBLICACAO -->
+            ${ad.story_id ? (function(){
+                var parts = ad.story_id.split('_');
+                var pageId = parts[0] || ad.page_id || '';
+                var postId = parts[1] || '';
+                var fbLink = 'https://www.facebook.com/' + pageId + '/posts/' + postId;
+                var igLink = ad.instagram_user_id ? 'https://www.instagram.com/p/' : '';
+                return '<div class="modal-section">' +
+                    '<h3>&#128279; Ver Publicacao</h3>' +
+                    '<div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;">' +
+                    '<a href="' + fbLink + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:12px 24px;background:linear-gradient(135deg,#1877f2,#0d65d9);color:#fff;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;transition:transform .15s;" onmouseover="this.style.transform=\'scale(1.03)\'" onmouseout="this.style.transform=\'scale(1)\'">&#127760; Ver no Facebook</a>' +
+                    '<a href="https://www.facebook.com/ads/manager/creation/editing/?act=' + ad.campaign_id + '&selected_ad_ids=' + ad.id + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:12px 24px;background:linear-gradient(135deg,#1a1a3e,#2a2a5a);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;transition:transform .15s;" onmouseover="this.style.transform=\'scale(1.03)\'" onmouseout="this.style.transform=\'scale(1)\'">&#9881; Abrir no Gerenciador</a>' +
+                    '<button onclick="loadPostComments(\'' + ad.story_id + '\')" style="display:inline-flex;align-items:center;gap:8px;padding:12px 24px;background:linear-gradient(135deg,#e1306c,#c13584);color:#fff;border:none;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;transition:transform .15s;" onmouseover="this.style.transform=\'scale(1.03)\'" onmouseout="this.style.transform=\'scale(1)\'">&#128172; Ver Comentarios</button>' +
+                    '</div>' +
+                    '<div id="post-comments" style="margin-top:16px;"></div>' +
+                    '</div>';
+            })() : '<div class="modal-section"><h3>&#128279; Ver Publicacao</h3><p style="color:var(--t3);margin-top:8px;">Link da publicacao nao disponivel para este anuncio.</p></div>'}
 
         `;
 
@@ -3688,6 +3705,43 @@ $$('.tab-btn').forEach(b=>{
 
 // Auto-load
 loadCamp();
+
+// ── Post comments ──
+async function loadPostComments(storyId) {
+    var container = document.getElementById('post-comments');
+    if (!container) return;
+    container.innerHTML = '<div style="color:var(--accent);padding:12px;">Carregando comentarios...</div>';
+    try {
+        var r = await fetch('/api/dashboard/post/' + encodeURIComponent(storyId) + '/comments');
+        var d = await r.json();
+        if (!d.ok) { container.innerHTML = '<div style="color:var(--red);padding:12px;">' + d.error + '</div>'; return; }
+        var comments = d.data || [];
+        if (comments.length === 0) {
+            container.innerHTML = '<div style="color:var(--t3);padding:12px;">Nenhum comentario encontrado.</div>';
+            return;
+        }
+        container.innerHTML = '<div style="max-height:400px;overflow-y:auto;border:1px solid var(--brd);border-radius:10px;padding:4px;">' +
+            comments.map(function(c) {
+                var time = c.created_time ? new Date(c.created_time).toLocaleString('pt-BR') : '';
+                var replies = (c.replies || []).map(function(r) {
+                    var rt = r.created_time ? new Date(r.created_time).toLocaleString('pt-BR') : '';
+                    return '<div style="margin-left:24px;padding:8px 12px;border-left:2px solid var(--brd2);margin-top:4px;">' +
+                        '<div style="font-size:12px;font-weight:600;color:var(--accent);">' + (r.from ? r.from.name : 'Pagina') + ' <span style="color:var(--t3);font-weight:400;">' + rt + '</span></div>' +
+                        '<div style="font-size:13px;color:var(--t2);margin-top:2px;">' + (r.message || '') + '</div>' +
+                    '</div>';
+                }).join('');
+                return '<div style="padding:12px;border-bottom:1px solid var(--brd);">' +
+                    '<div style="font-size:13px;font-weight:600;color:var(--t1);">' + (c.from ? c.from.name : 'Usuario') + ' <span style="color:var(--t3);font-weight:400;font-size:11px;">' + time + '</span></div>' +
+                    '<div style="font-size:14px;color:var(--t2);margin-top:4px;">' + (c.message || '') + '</div>' +
+                    (c.like_count ? '<div style="font-size:11px;color:var(--t3);margin-top:4px;">&#10084; ' + c.like_count + ' curtida(s)</div>' : '') +
+                    replies +
+                '</div>';
+            }).join('') +
+        '</div>';
+    } catch(e) {
+        container.innerHTML = '<div style="color:var(--red);padding:12px;">Erro: ' + e.message + '</div>';
+    }
+}
 
 // ── API call confirmation ──
 function confirmApiCall(msg) {
