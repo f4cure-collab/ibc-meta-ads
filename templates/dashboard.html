@@ -715,7 +715,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th>Sexo</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('gender','gender')">Sexo</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','spend')">Gasto</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','conversions')">Conv.</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','cpa')">CPA</th></tr></thead>
                             <tbody id="bd-gender"></tbody>
                         </table>
                     </div>
@@ -729,7 +729,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th>Faixa</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('age','age')">Faixa</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','spend')">Gasto</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','conversions')">Conv.</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','cpa')">CPA</th></tr></thead>
                             <tbody id="bd-age"></tbody>
                         </table>
                     </div>
@@ -743,7 +743,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th>Dia</th><th style="text-align:right;">Gasto/dia</th><th style="text-align:right;">Conv/dia</th><th style="text-align:right;">ROAS</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th></tr></thead>
                             <tbody id="bd-weekday"></tbody>
                         </table>
                     </div>
@@ -3755,6 +3755,55 @@ loadCamp();
 // ── Breakdowns ──
 var _bdCampId = '';
 // Breakdowns carregam automaticamente com as campanhas
+var _bdData = null;
+var _bdSorts = { gender: {key:'conversions',asc:false}, age: {key:'age',asc:true}, weekday: {key:'day_num',asc:true} };
+
+function sortBd(table, key) {
+    var s = _bdSorts[table];
+    if (s.key === key) s.asc = !s.asc;
+    else { s.key = key; s.asc = (key === 'age' || key === 'gender' || key === 'day_num' || key === 'day'); }
+    renderBdTables();
+}
+
+function renderBdTables() {
+    if (!_bdData) return;
+    var d = _bdData;
+
+    function sortArr(arr, key, asc) {
+        return arr.slice().sort(function(a,b){
+            var va = a[key], vb = b[key];
+            if (typeof va === 'string') return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+            return asc ? va - vb : vb - va;
+        });
+    }
+
+    // Sexo
+    var gs = sortArr(d.gender, _bdSorts.gender.key, _bdSorts.gender.asc);
+    $('#bd-gender').innerHTML = gs.map(function(g){
+        return '<tr><td style="color:var(--t1);font-weight:600;">' + g.gender + '</td>' +
+            '<td style="text-align:right;">' + fmtM(g.spend) + '</td>' +
+            '<td style="text-align:right;color:var(--accent2);">' + g.conversions + '</td>' +
+            '<td style="text-align:right;">' + fmtM(g.cpa) + '</td></tr>';
+    }).join('');
+
+    // Idade
+    var as = sortArr(d.age, _bdSorts.age.key, _bdSorts.age.asc);
+    $('#bd-age').innerHTML = as.map(function(a){
+        return '<tr><td style="color:var(--t1);font-weight:600;">' + a.age + '</td>' +
+            '<td style="text-align:right;">' + fmtM(a.spend) + '</td>' +
+            '<td style="text-align:right;color:var(--accent2);">' + a.conversions + '</td>' +
+            '<td style="text-align:right;">' + fmtM(a.cpa) + '</td></tr>';
+    }).join('');
+
+    // Dia da semana
+    var ws = sortArr(d.weekday, _bdSorts.weekday.key, _bdSorts.weekday.asc);
+    $('#bd-weekday').innerHTML = ws.map(function(w){
+        return '<tr><td style="color:var(--t1);font-weight:600;">' + w.day + '</td>' +
+            '<td style="text-align:right;">' + fmtM(w.spend_avg) + '</td>' +
+            '<td style="text-align:right;color:var(--accent2);">' + w.conv_avg + '</td>' +
+            '<td style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td></tr>';
+    }).join('');
+}
 
 async function loadBreakdowns() {
     var df = $('#date-from').value, dt = $('#date-to').value;
@@ -3767,31 +3816,8 @@ async function loadBreakdowns() {
         var d = await r.json();
         if (!d.ok) throw new Error(d.error);
 
-        // Sexo
-        $('#bd-gender').innerHTML = d.gender.map(function(g){
-            return '<tr><td style="color:var(--t1);font-weight:600;">' + g.gender + '</td>' +
-                '<td style="text-align:right;">' + fmtM(g.spend) + '</td>' +
-                '<td style="text-align:right;color:var(--accent2);">' + g.conversions + '</td>' +
-                '<td style="text-align:right;">' + fmtM(g.cpa) + '</td></tr>';
-        }).join('');
-
-        // Idade
-        $('#bd-age').innerHTML = d.age.sort(function(a,b){ return b.conversions - a.conversions; }).map(function(a){
-            return '<tr><td style="color:var(--t1);font-weight:600;">' + a.age + '</td>' +
-                '<td style="text-align:right;">' + fmtM(a.spend) + '</td>' +
-                '<td style="text-align:right;color:var(--accent2);">' + a.conversions + '</td>' +
-                '<td style="text-align:right;">' + fmtM(a.cpa) + '</td></tr>';
-        }).join('');
-
-        // Dia da semana
-        $('#bd-weekday').innerHTML = d.weekday.map(function(w){
-            return '<tr><td style="color:var(--t1);font-weight:600;">' + w.day + '</td>' +
-                '<td style="text-align:right;">' + fmtM(w.spend_avg) + '</td>' +
-                '<td style="text-align:right;color:var(--accent2);">' + w.conv_avg + '</td>' +
-                '<td style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td></tr>';
-        }).join('');
-
-        // Graficos
+        _bdData = d;
+        renderBdTables();
         renderBdCharts(d);
 
         $('#bd-loading').style.display = 'none';
