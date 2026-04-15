@@ -1922,26 +1922,88 @@ def admin_update_token():
 # ── Scheduled refresh ──────────────────────────────────────────────────
 
 def _scheduled_refresh():
-    """Pre-carrega dados de campanhas e criativos no cache automaticamente."""
-    try:
-        print("[SCHEDULER] Iniciando atualizacao automatica...")
-        clear_expired()
+    """Pre-carrega campanhas e criativos em etapas com intervalos para não sobrecarregar a API."""
+    from datetime import datetime, timedelta
 
-        with app.test_request_context():
-            # Simular periodo padrao: ultimos 17 dias ate ontem
-            from datetime import datetime, timedelta
-            dt_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            dt_from = (datetime.now() - timedelta(days=17)).strftime("%Y-%m-%d")
+    dt_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    dt_from = (datetime.now() - timedelta(days=17)).strftime("%Y-%m-%d")
 
-            # Pre-carregar campanhas
-            print("[SCHEDULER] Carregando campanhas...")
-            with app.test_client() as client:
-                client.get(f"/api/dashboard/campaigns?since={dt_from}&until={dt_to}&status=all")
-                print("[SCHEDULER] Campanhas OK")
+    print(f"[SCHEDULER] Iniciando atualizacao automatica — periodo {dt_from} a {dt_to}")
+    clear_expired()
 
-            print("[SCHEDULER] Atualizacao concluida!")
-    except Exception as e:
-        print(f"[SCHEDULER] Erro: {e}")
+    with app.test_client() as client:
+        # Simular login para acessar endpoints protegidos
+        with client.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["username"] = SUPER_ADMIN_EMAIL
+            sess["role"] = "super_admin"
+
+        # ── ETAPA 1 (2:00): Campanhas ──
+        try:
+            print("[SCHEDULER] Etapa 1/4: Carregando campanhas...")
+            client.get(f"/api/dashboard/campaigns?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
+            print("[SCHEDULER] Campanhas OK")
+        except Exception as e:
+            print(f"[SCHEDULER] Erro campanhas: {e}")
+
+        # Pausa de 30 min entre etapas
+        print("[SCHEDULER] Aguardando 30 min antes da proxima etapa...")
+        time.sleep(1800)
+
+        # ── ETAPA 2 (2:30): Resumo diario ──
+        try:
+            print("[SCHEDULER] Etapa 2/4: Carregando resumo diario...")
+            client.get(f"/api/dashboard/daily-summary?date_from={dt_from}&date_to={dt_to}&camp_status=active")
+            print("[SCHEDULER] Resumo diario OK")
+        except Exception as e:
+            print(f"[SCHEDULER] Erro resumo diario: {e}")
+
+        # Pausa
+        print("[SCHEDULER] Aguardando 30 min...")
+        time.sleep(1800)
+
+        # ── ETAPA 3 (3:00): Criativos de cada campanha ──
+        try:
+            print("[SCHEDULER] Etapa 3/4: Carregando criativos por campanha...")
+            # Buscar IDs das campanhas de vendas
+            sales_camps = []
+            try:
+                data = meta_get(f"{ACCOUNT_ID}/campaigns", {
+                    "fields": "id,name,objective",
+                    "effective_status": '["ACTIVE"]',
+                    "limit": "200"
+                })
+                sales_camps = [c for c in data.get("data", []) if c.get("objective") in PURCHASE_TYPES or c.get("objective") == "OUTCOME_SALES"]
+            except Exception as e:
+                print(f"[SCHEDULER] Erro ao buscar campanhas: {e}")
+
+            for i, camp in enumerate(sales_camps):
+                try:
+                    print(f"[SCHEDULER]   Criativos campanha {i+1}/{len(sales_camps)}: {camp.get('name', camp['id'])}")
+                    client.get(f"/api/dashboard/campaigns/{camp['id']}/creatives?date_from={dt_from}&date_to={dt_to}")
+                    # Delay entre campanhas para respeitar rate limit
+                    time.sleep(10)
+                except Exception as e:
+                    print(f"[SCHEDULER]   Erro: {e}")
+                    time.sleep(30)  # Esperar mais se deu erro
+
+            print("[SCHEDULER] Criativos OK")
+        except Exception as e:
+            print(f"[SCHEDULER] Erro criativos: {e}")
+
+        # Pausa
+        print("[SCHEDULER] Aguardando 30 min...")
+        time.sleep(1800)
+
+        # ── ETAPA 4 (4:00): Todos criativos consolidado ──
+        try:
+            print("[SCHEDULER] Etapa 4/4: Carregando todos criativos consolidados...")
+            client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active")
+            print("[SCHEDULER] Todos criativos OK")
+        except Exception as e:
+            print(f"[SCHEDULER] Erro todos criativos: {e}")
+
+    print(f"[SCHEDULER] Atualizacao completa! Tudo cacheado ate {datetime.now().strftime('%H:%M')}")
 
 
 # ── Run ────────────────────────────────────────────────────────────────
