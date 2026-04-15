@@ -3269,29 +3269,12 @@ async function openAdModal(adId,adName,thumbnailUrl){
             </div>
 
             <!-- VER PUBLICACAO -->
-            ${(function(){
-                var btnStyle = 'display:inline-flex;align-items:center;gap:8px;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;transition:transform .15s;';
-                var hover = ' onmouseover="this.style.transform=\'scale(1.03)\'" onmouseout="this.style.transform=\'scale(1)\'"';
-                var managerUrl = ad.ad_manager_url || ('https://www.facebook.com/adsmanager/manage/ads?act=${ACCOUNT_ID}&selected_ad_ids=' + ad.id);
-                var html = '<div class="modal-section"><h3>&#128279; Acoes</h3><div style="display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;">';
-
-                // Botao Gerenciador sempre disponivel
-                html += '<a href="' + managerUrl + '" target="_blank" rel="noopener" style="' + btnStyle + 'background:linear-gradient(135deg,#1a1a3e,#2a2a5a);color:#58a6ff;border:1px solid rgba(88,166,255,.3);"' + hover + '>&#9881; Abrir no Gerenciador</a>';
-
-                if (ad.story_id) {
-                    var parts = ad.story_id.split('_');
-                    var pageId = parts[0] || ad.page_id || '';
-                    var postId = parts[1] || '';
-                    var fbLink = 'https://www.facebook.com/' + pageId + '/posts/' + postId;
-                    html += '<a href="' + fbLink + '" target="_blank" rel="noopener" style="' + btnStyle + 'background:linear-gradient(135deg,#1877f2,#0d65d9);color:#fff;"' + hover + '>&#127760; Ver Post no Facebook</a>';
-                    html += '<button onclick="loadPostComments(\'' + ad.story_id + '\')" style="' + btnStyle + 'background:linear-gradient(135deg,#e1306c,#c13584);color:#fff;border:none;cursor:pointer;"' + hover + '>&#128172; Ver Comentarios</button>';
-                } else {
-                    html += '<span style="color:var(--t3);font-size:13px;padding:12px;">Post nao vinculado (criativo dinamico)</span>';
-                }
-
-                html += '</div><div id="post-comments" style="margin-top:16px;"></div></div>';
-                return html;
-            })()}
+            <div class="modal-section">
+                <h3>&#128279; Acoes</h3>
+                <div style="display:flex;gap:12px;margin-top:12px;">
+                    <a href="${ad.ad_manager_url || ''}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:8px;padding:12px 24px;background:linear-gradient(135deg,#1a1a3e,#2a2a5a);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;transition:transform .15s;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">&#9881; Abrir no Gerenciador</a>
+                </div>
+            </div>
 
         `;
 
