@@ -17,7 +17,7 @@ from event_grouper import group_campaigns_by_event
 
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=os.path.dirname(__file__), static_url_path='/static')
 app.secret_key = os.urandom(24)
 app.permanent_session_lifetime = timedelta(hours=12)
 
