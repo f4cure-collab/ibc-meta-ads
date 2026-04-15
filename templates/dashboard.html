@@ -3763,6 +3763,7 @@ window.sortBd = function(table, key) {
     if (s.key === key) s.asc = !s.asc;
     else { s.key = key; s.asc = (key === 'age' || key === 'gender' || key === 'day_num' || key === 'day'); }
     renderBdTables();
+    if (_bdData) renderBdCharts(_bdData);
 };
 
 function renderBdTables() {
@@ -3831,13 +3832,25 @@ var _bdCharts = {};
 function renderBdCharts(d) {
     Object.values(_bdCharts).forEach(function(c){ if(c) c.destroy(); });
 
+    function sortArr(arr, key, asc) {
+        return arr.slice().sort(function(a,b){
+            var va = a[key], vb = b[key];
+            if (typeof va === 'string') return asc ? va.localeCompare(vb) : vb.localeCompare(va);
+            return asc ? va - vb : vb - va;
+        });
+    }
+
+    var genderSorted = sortArr(d.gender, _bdSorts.gender.key, _bdSorts.gender.asc);
+    var ageSorted = sortArr(d.age, _bdSorts.age.key, _bdSorts.age.asc);
+    var weekdaySorted = sortArr(d.weekday, _bdSorts.weekday.key, _bdSorts.weekday.asc);
+
     // ── Sexo: Doughnut ──
     _bdCharts.gender = new Chart($('#chart-gender'), {
         type: 'doughnut',
         data: {
-            labels: d.gender.map(function(g){ return g.gender + ' (' + g.conversions + ' vendas)'; }),
+            labels: genderSorted.map(function(g){ return g.gender + ' (' + g.conversions + ' vendas)'; }),
             datasets: [{
-                data: d.gender.map(function(g){ return g.conversions; }),
+                data: genderSorted.map(function(g){ return g.conversions; }),
                 backgroundColor: ['rgba(88,166,255,.8)', 'rgba(255,107,107,.8)', 'rgba(108,92,231,.8)'],
                 borderColor: ['rgba(88,166,255,1)', 'rgba(255,107,107,1)', 'rgba(108,92,231,1)'],
                 borderWidth: 2,
@@ -3858,7 +3871,7 @@ function renderBdCharts(d) {
                     bodyColor: '#aab4c2',
                     callbacks: {
                         afterLabel: function(ctx) {
-                            var g = d.gender[ctx.dataIndex];
+                            var g = genderSorted[ctx.dataIndex];
                             return 'Gasto: R$ ' + g.spend.toLocaleString('pt-BR') + '\nCPA: R$ ' + g.cpa.toLocaleString('pt-BR');
                         }
                     }
@@ -3868,7 +3881,6 @@ function renderBdCharts(d) {
     });
 
     // ── Idade: Barras conversões + linha CPA ──
-    var ageSorted = d.age.slice().sort(function(a,b){ return a.age.localeCompare(b.age); });
     _bdCharts.age = new Chart($('#chart-age'), {
         type: 'bar',
         data: {
@@ -3919,12 +3931,12 @@ function renderBdCharts(d) {
     _bdCharts.weekday = new Chart($('#chart-weekday'), {
         type: 'bar',
         data: {
-            labels: d.weekday.map(function(w){ return w.day.substring(0,3); }),
+            labels: weekdaySorted.map(function(w){ return w.day.substring(0,3); }),
             datasets: [
                 {
                     label: 'Conv/dia',
-                    data: d.weekday.map(function(w){ return w.conv_avg; }),
-                    backgroundColor: d.weekday.map(function(w){
+                    data: weekdaySorted.map(function(w){ return w.conv_avg; }),
+                    backgroundColor: weekdaySorted.map(function(w){
                         return w.roas >= 1 ? 'rgba(63,223,133,.6)' : w.roas >= 0.7 ? 'rgba(255,200,87,.6)' : 'rgba(255,107,107,.6)';
                     }),
                     borderRadius: 8,
@@ -3932,7 +3944,7 @@ function renderBdCharts(d) {
                 },
                 {
                     label: 'ROAS',
-                    data: d.weekday.map(function(w){ return w.roas; }),
+                    data: weekdaySorted.map(function(w){ return w.roas; }),
                     type: 'line',
                     borderColor: 'rgba(88,166,255,1)',
                     backgroundColor: 'rgba(88,166,255,.1)',
