@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Dashboard Meta Ads</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, sans-serif; background: #0f0f23; color: #e0e0e0; min-height: 100vh; padding: 40px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        h1 { color: #4f8cff; margin-bottom: 30px; }
+        .card { background: #1a1a3e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+        .card h2 { font-size: 16px; color: #fff; margin-bottom: 16px; }
+        label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; margin-top: 12px; }
+        input { width: 100%; padding: 10px 14px; background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 8px; color: #e0e0e0; font-size: 14px; }
+        input:focus { border-color: #4f8cff; outline: none; }
+        .info { background: #0f0f23; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; color: #4f8cff; word-break: break-all; }
+        .btn { padding: 12px 24px; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; margin-top: 16px; }
+        .btn-primary { background: #4f8cff; color: #fff; }
+        .btn-primary:hover { background: #3a7aef; }
+        .btn-back { background: #2a2a4a; color: #ccc; text-decoration: none; display: inline-block; padding: 8px 16px; border-radius: 8px; font-size: 13px; }
+        .alert { padding: 12px; border-radius: 8px; margin-top: 12px; font-size: 14px; display: none; }
+        .alert-success { background: #1a3a1a; border: 1px solid #2a5a2a; color: #8aff8a; }
+        .alert-error { background: #3a1a1a; border: 1px solid #5a2a2a; color: #ff8a8a; }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-ok { background: #4caf50; }
+        .status-warn { background: #ff9800; }
+        .status-err { background: #f44336; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <a href="/dashboard" class="btn-back">← Voltar ao Dashboard</a>
+    <h1 style="margin-top:20px;">Administracao</h1>
+
+    <div class="card">
+        <h2>Status da Conexao</h2>
+        <div id="statusInfo">Verificando...</div>
+    </div>
+
+    <div class="card">
+        <h2>Configuracao Atual</h2>
+        <label>Token (parcial)</label>
+        <div class="info" id="tokenMasked">Carregando...</div>
+        <label>Account ID</label>
+        <div class="info" id="accountId">Carregando...</div>
+        <label>App ID</label>
+        <div class="info" id="appId">Carregando...</div>
+    </div>
+
+    <div class="card">
+        <h2>Atualizar Token</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:12px;">O token expira a cada 60 dias. Gere um novo no Graph API Explorer e cole aqui.</p>
+
+        <label>Senha Admin</label>
+        <input type="password" id="adminPass" placeholder="Senha de administrador">
+
+        <label>Novo Token</label>
+        <input type="text" id="newToken" placeholder="Cole o novo access token aqui">
+
+        <button class="btn btn-primary" onclick="updateToken()">Atualizar Token</button>
+
+        <div class="alert alert-success" id="successMsg"></div>
+        <div class="alert alert-error" id="errorMsg"></div>
+    </div>
+
+    <div class="card">
+        <h2>Informacoes</h2>
+        <p style="color:#888;font-size:13px;">
+            <strong>Como gerar novo token:</strong><br>
+            1. Acesse developers.facebook.com/tools/explorer<br>
+            2. Selecione o app "integracao claude criar ads"<br>
+            3. Marque: ads_management, ads_read, business_management<br>
+            4. Clique "Generate Access Token"<br>
+            5. Cole aqui e salve
+        </p>
+    </div>
+</div>
+
+<script>
+async function loadConfig() {
+    try {
+        var resp = await fetch('/api/admin/config');
+        var data = await resp.json();
+        if (data.ok) {
+            document.getElementById('tokenMasked').textContent = data.token_masked;
+            document.getElementById('accountId').textContent = data.account_id;
+            document.getElementById('appId').textContent = data.app_id || 'Nao configurado';
+
+            // Verificar conexao
+            var resp2 = await fetch('/api/dashboard/campaigns?since=2026-04-01&until=2026-04-10');
+            var status = document.getElementById('statusInfo');
+            if (resp2.ok) {
+                status.innerHTML = '<span class="status-dot status-ok"></span> Conectado e funcionando';
+            } else {
+                status.innerHTML = '<span class="status-dot status-err"></span> Erro na conexao - verifique o token';
+            }
+        }
+    } catch(e) {
+        document.getElementById('statusInfo').innerHTML = '<span class="status-dot status-err"></span> Erro: ' + e.message;
+    }
+}
+
+async function updateToken() {
+    var pass = document.getElementById('adminPass').value;
+    var token = document.getElementById('newToken').value;
+    var success = document.getElementById('successMsg');
+    var error = document.getElementById('errorMsg');
+    success.style.display = 'none';
+    error.style.display = 'none';
+
+    if (!pass || !token) {
+        error.textContent = 'Preencha a senha e o token';
+        error.style.display = 'block';
+        return;
+    }
+
+    try {
+        var resp = await fetch('/api/admin/update-token', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({admin_password: pass, new_token: token})
+        });
+        var data = await resp.json();
+        if (data.ok) {
+            success.textContent = data.message;
+            success.style.display = 'block';
+            document.getElementById('newToken').value = '';
+            document.getElementById('adminPass').value = '';
+            loadConfig();
+        } else {
+            error.textContent = data.error;
+            error.style.display = 'block';
+        }
+    } catch(e) {
+        error.textContent = 'Erro: ' + e.message;
+        error.style.display = 'block';
+    }
+}
+
+loadConfig();
+</script>
+</body>
+</html>

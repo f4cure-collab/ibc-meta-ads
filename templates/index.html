@@ -1,0 +1,2020 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Meta Ads - Testador de Criativos</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f23;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1a1a3e 0%, #0f0f23 100%);
+            border-bottom: 1px solid #2a2a4a;
+            padding: 20px 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header h1 { font-size: 22px; color: #fff; }
+        .header h1 span { color: #4f8cff; }
+
+        .connection-status { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+        .status-dot.ok { background: #4caf50; }
+        .status-dot.error { background: #f44336; }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 30px 20px; }
+
+        .tabs { display: flex; margin-bottom: 30px; border-bottom: 2px solid #2a2a4a; }
+        .tab {
+            padding: 12px 28px; background: transparent; border: none; color: #888;
+            font-size: 15px; cursor: pointer; border-bottom: 2px solid transparent;
+            margin-bottom: -2px; transition: all 0.2s;
+        }
+        .tab:hover { color: #bbb; }
+        .tab.active { color: #4f8cff; border-bottom-color: #4f8cff; }
+
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .step {
+            background: #1a1a3e; border: 1px solid #2a2a4a; border-radius: 12px;
+            padding: 24px; margin-bottom: 20px;
+        }
+        .step-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+        .step-number {
+            width: 32px; height: 32px; background: #4f8cff; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 14px; color: #fff;
+        }
+        .step-header h2 { font-size: 17px; color: #fff; }
+
+        select, input[type="text"], input[type="file"] {
+            width: 100%; padding: 10px 14px; background: #0f0f23;
+            border: 1px solid #2a2a4a; border-radius: 8px; color: #e0e0e0;
+            font-size: 14px; outline: none; transition: border 0.2s;
+        }
+        select:focus, input:focus { border-color: #4f8cff; }
+        select option { background: #1a1a3e; }
+
+        label { display: block; font-size: 13px; color: #aaa; margin-bottom: 6px; margin-top: 12px; }
+        label:first-child { margin-top: 0; }
+
+        .btn {
+            padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+            display: inline-flex; align-items: center; gap: 8px;
+        }
+        .btn-primary { background: #4f8cff; color: #fff; }
+        .btn-primary:hover { background: #3a7aef; }
+        .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
+        .btn-secondary { background: #2a2a4a; color: #ccc; }
+        .btn-secondary:hover { background: #3a3a5a; }
+        .btn-danger { background: #d32f2f; color: #fff; }
+        .btn-danger:hover { background: #b71c1c; }
+
+        .actions { display: flex; gap: 12px; margin-top: 24px; justify-content: flex-end; }
+
+        .creative-preview {
+            background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 8px;
+            padding: 16px; margin-top: 12px; font-size: 13px;
+        }
+        .creative-preview .field { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1a1a3e; }
+        .creative-preview .field-label { color: #4f8cff; min-width: 100px; font-weight: 600; }
+
+        /* Drop zone */
+        .drop-zone {
+            border: 2px dashed #2a2a4a; border-radius: 12px; padding: 40px 20px;
+            text-align: center; cursor: pointer; transition: all 0.2s;
+        }
+        .drop-zone:hover, .drop-zone.dragover { border-color: #4f8cff; background: #1a1a3e; }
+        .drop-zone-icon { font-size: 36px; margin-bottom: 8px; }
+        .drop-zone-text { font-size: 15px; color: #ccc; }
+        .drop-zone-hint { font-size: 12px; color: #666; margin-top: 6px; }
+
+        /* Paired list */
+        .pair-card {
+            background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 10px;
+            padding: 14px 16px; margin-bottom: 10px; display: flex;
+            align-items: center; gap: 16px; transition: border-color 0.3s;
+        }
+        .pair-card .pair-number {
+            width: 28px; height: 28px; background: #4f8cff; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 13px; color: #fff; flex-shrink: 0;
+        }
+        .pair-card .pair-info { flex: 1; }
+        .pair-card .pair-name { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+        .pair-card .pair-files { font-size: 12px; color: #888; display: flex; gap: 16px; flex-wrap: wrap; }
+        .pair-card .pair-files span { display: flex; align-items: center; gap: 4px; }
+
+        .pair-tag {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+        }
+        .pair-tag.feed { background: #1a3a2a; color: #4caf50; }
+        .pair-tag.reels { background: #1a2a4a; color: #4f8cff; }
+        .pair-tag.missing { background: #3a2a1a; color: #ff9800; }
+        .pair-tag.video { background: #2a1a3a; color: #b388ff; }
+        .pair-tag.image { background: #3a2a1a; color: #ffb74d; }
+
+        .pair-remove {
+            background: transparent; border: none; color: #666;
+            font-size: 18px; cursor: pointer; padding: 4px 8px;
+        }
+        .pair-remove:hover { color: #f44336; }
+
+        /* Progress bar */
+        .progress-container {
+            display: none; margin-bottom: 20px;
+        }
+        .progress-container.active { display: block; }
+        .progress-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 8px; font-size: 13px; color: #aaa;
+        }
+        .progress-header .progress-title { font-weight: 600; color: #fff; }
+        .progress-header .progress-stats { color: #4f8cff; }
+        .progress-bar-bg {
+            width: 100%; height: 8px; background: #1a1a3e;
+            border-radius: 4px; overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%; background: linear-gradient(90deg, #4f8cff 0%, #6c5ce7 100%);
+            border-radius: 4px; transition: width 0.4s ease;
+            width: 0%;
+        }
+        .progress-bar-fill.done { background: linear-gradient(90deg, #4caf50 0%, #43a047 100%); }
+        .progress-bar-fill.paused { background: linear-gradient(90deg, #ff9800 0%, #f57c00 100%); }
+        .progress-detail {
+            margin-top: 6px; font-size: 12px; color: #666;
+        }
+
+        /* Dashboard */
+        .dash-summary {
+            display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;
+        }
+        .dash-card {
+            background: #1a1a3e; border: 1px solid #2a2a4a; border-radius: 10px;
+            padding: 16px; text-align: center;
+        }
+        .dash-card .dash-value { font-size: 22px; font-weight: 700; color: #fff; }
+        .dash-card .dash-label { font-size: 11px; color: #888; margin-top: 4px; text-transform: uppercase; }
+        .dash-card.green .dash-value { color: #4caf50; }
+        .dash-card.blue .dash-value { color: #4f8cff; }
+        .dash-card.orange .dash-value { color: #ff9800; }
+        .dash-card.purple .dash-value { color: #b388ff; }
+
+        .dash-table {
+            width: 100%; border-collapse: collapse; font-size: 13px;
+        }
+        .dash-table th {
+            text-align: left; padding: 10px 12px; color: #888; font-weight: 600;
+            border-bottom: 2px solid #2a2a4a; font-size: 11px; text-transform: uppercase;
+            cursor: pointer; user-select: none; white-space: nowrap;
+        }
+        .dash-table th:hover { color: #4f8cff; }
+        .dash-table td {
+            padding: 10px 12px; border-bottom: 1px solid #1a1a3e; color: #e0e0e0;
+            white-space: nowrap;
+        }
+        .dash-table tr:hover td { background: #1a1a3e; }
+        .dash-table .camp-name { max-width: 320px; overflow: hidden; text-overflow: ellipsis; color: #fff; font-weight: 500; font-size: 12px; }
+        .dash-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+        .roas-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-weight: 700; font-size: 12px;
+        }
+        .roas-excellent { background: #1a3a1a; color: #00e676; }
+        .roas-good { background: #1a3a2a; color: #4caf50; }
+        .roas-ok { background: #3a3a1a; color: #ff9800; }
+        .roas-low { background: #3a2a1a; color: #ff7043; }
+        .roas-bad { background: #3a1a1a; color: #f44336; }
+
+        .confidence-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+        }
+        .conf-alto { background: #1a3a1a; color: #4caf50; }
+        .conf-medio { background: #1a2a4a; color: #4f8cff; }
+        .conf-tendencia { background: #3a3a1a; color: #ff9800; }
+        .conf-declinando { background: #3a2a1a; color: #f44336; }
+        .conf-baixo { background: #2a2a2a; color: #666; }
+
+        .trend-badge {
+            display: inline-flex; align-items: center; gap: 3px;
+            padding: 2px 8px; border-radius: 4px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase;
+        }
+        .trend-escalando { background: #1a3a1a; color: #4caf50; }
+        .trend-estavel { background: #2a2a3a; color: #888; }
+        .trend-caindo { background: #3a1a1a; color: #f44336; }
+
+        .date-picker-row {
+            display: flex; gap: 12px; align-items: center; margin-bottom: 16px;
+        }
+        .date-picker-row input[type="date"] {
+            padding: 8px 12px; background: #0f0f23; border: 1px solid #2a2a4a;
+            border-radius: 8px; color: #e0e0e0; font-size: 13px;
+        }
+        .date-picker-row label { margin: 0; font-size: 13px; color: #aaa; }
+
+        .subtab-content { display: none; }
+        .subtab-content.active { display: block; }
+        .gaintab-content { display: none; }
+        .gaintab-content.active { display: block; }
+        .losetab-content { display: none; }
+        .losetab-content.active { display: block; }
+
+        .creative-group { margin-bottom: 20px; }
+        .creative-group-title {
+            font-size: 15px; font-weight: 600; color: #4f8cff;
+            margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid #2a2a4a;
+        }
+
+        /* Search filter */
+        .search-filter {
+            position: relative; margin-bottom: 4px;
+        }
+        .search-filter input {
+            width: 100%; padding: 8px 12px 8px 32px; background: #0f0f23;
+            border: 1px solid #2a2a4a; border-radius: 8px; color: #e0e0e0;
+            font-size: 13px; outline: none;
+        }
+        .search-filter input:focus { border-color: #4f8cff; }
+        .search-filter::before {
+            content: ''; position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+            width: 14px; height: 14px; border: 2px solid #555; border-radius: 50%;
+        }
+        .search-icon {
+            position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+            color: #555; font-size: 14px; pointer-events: none;
+        }
+
+        /* Results */
+        .results { margin-top: 20px; }
+        .result-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 16px; background: #1a1a3e; border: 1px solid #2a2a4a;
+            border-radius: 8px; margin-bottom: 8px;
+        }
+        .result-item.success { border-left: 3px solid #4caf50; }
+        .result-item.error { border-left: 3px solid #f44336; }
+        .result-name { font-weight: 600; }
+        .result-status { font-size: 13px; }
+        .result-status.success { color: #4caf50; }
+        .result-status.error { color: #f44336; }
+
+        /* CSV */
+        .csv-template {
+            background: #0f0f23; border: 1px solid #2a2a4a; border-radius: 8px;
+            padding: 16px; font-family: monospace; font-size: 13px;
+            color: #4f8cff; white-space: pre; overflow-x: auto;
+        }
+
+        /* Spinner */
+        .spinner {
+            display: none; width: 20px; height: 20px;
+            border: 2px solid #333; border-top-color: #4f8cff;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading .spinner { display: inline-block; }
+        .loading .btn-text { display: none; }
+
+        /* Alert */
+        .alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+        .alert-info { background: #1a2a4a; border: 1px solid #2a4a7a; color: #8ac4ff; }
+        .alert-error { background: #3a1a1a; border: 1px solid #5a2a2a; color: #ff8a8a; }
+        .alert-success { background: #1a3a1a; border: 1px solid #2a5a2a; color: #8aff8a; }
+
+        /* Combo box */
+        .combo-box { position: relative; }
+        .combo-box input {
+            width: 100%; padding: 10px 14px; background: #0f0f23;
+            border: 1px solid #2a2a4a; border-radius: 8px; color: #e0e0e0;
+            font-size: 14px; outline: none;
+        }
+        .combo-box input:focus { border-color: #4f8cff; }
+        .combo-box input:disabled { opacity: 0.5; cursor: not-allowed; }
+        .combo-list {
+            display: none; position: absolute; top: 100%; left: 0; right: 0;
+            max-height: 220px; overflow-y: auto; background: #1a1a3e;
+            border: 1px solid #4f8cff; border-top: none; border-radius: 0 0 8px 8px;
+            z-index: 100;
+        }
+        .combo-list.open { display: block; }
+        .combo-item {
+            padding: 8px 14px; cursor: pointer; font-size: 13px; color: #e0e0e0;
+            border-bottom: 1px solid #2a2a4a;
+        }
+        .combo-item:hover { background: #2a2a5a; }
+        .combo-item:last-child { border-bottom: none; }
+        .combo-empty { padding: 12px 14px; color: #666; font-size: 13px; text-align: center; }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1><span>Meta Ads</span> Testador de Criativos</h1>
+    <div style="display:flex;align-items:center;gap:16px;">
+        <span id="rateLimitBadge" style="display:none;font-size:11px;padding:3px 8px;border-radius:6px;cursor:help;"></span>
+        <span id="tokenWarning" style="display:none;font-size:12px;padding:4px 10px;border-radius:6px;"></span>
+        <div class="connection-status">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Verificando...</span>
+        </div>
+    </div>
+</div>
+
+<div class="container">
+    <div id="alertBox" class="alert hidden"></div>
+
+    <div class="tabs">
+        <button class="tab active" data-tab="manual">Upload em Massa</button>
+        <button class="tab" data-tab="dashboard">Dashboard</button>
+    </div>
+
+    <!-- TAB: Upload em Massa -->
+    <div id="tab-manual" class="tab-content active">
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">1</div>
+                <h2>Selecione o anuncio modelo (template)</h2>
+            </div>
+
+            <label>Campanha (apenas ativas) <button onclick="loadCampaigns()" style="background:none;border:none;color:#4f8cff;cursor:pointer;font-size:12px;">&#8635; Refresh</button></label>
+            <div class="combo-box" id="combo_campaign">
+                <input type="text" id="searchCampaign" placeholder="Carregando campanhas..." onfocus="openCombo('campaign')" oninput="filterCombo('campaign')" onblur="closeCombo('campaign')">
+                <div class="combo-list" id="list_campaign"></div>
+            </div>
+            <input type="hidden" id="campaignValue">
+
+            <label>Conjunto de anuncios (Adset) <button onclick="reloadAdsets()" style="background:none;border:none;color:#4f8cff;cursor:pointer;font-size:12px;">&#8635; Refresh</button></label>
+            <div class="combo-box" id="combo_adset">
+                <input type="text" id="searchAdset" placeholder="Selecione uma campanha primeiro" disabled onfocus="openCombo('adset')" oninput="filterCombo('adset')" onblur="closeCombo('adset')">
+                <div class="combo-list" id="list_adset"></div>
+            </div>
+            <input type="hidden" id="adsetValue">
+
+            <label>Anuncio (Template) <button onclick="reloadAds()" style="background:none;border:none;color:#4f8cff;cursor:pointer;font-size:12px;">&#8635; Refresh</button></label>
+            <div class="combo-box" id="combo_ad">
+                <input type="text" id="searchAd" placeholder="Selecione um adset primeiro" disabled onfocus="openCombo('ad')" oninput="filterCombo('ad')" onblur="closeCombo('ad')">
+                <div class="combo-list" id="list_ad"></div>
+            </div>
+            <input type="hidden" id="adValue">
+
+            <div id="creativePreview" class="creative-preview hidden">
+                <strong>Configuracoes que serao mantidas:</strong>
+                <div id="creativeFields"></div>
+            </div>
+        </div>
+
+        <div class="step">
+            <div class="step-header">
+                <div class="step-number">2</div>
+                <h2>Selecione todos os arquivos de uma vez</h2>
+            </div>
+            <p style="color: #888; font-size: 13px; margin-bottom: 12px;">
+                Selecione todos os arquivos da pasta. O sistema agrupa automaticamente pelos pares
+                <strong>_Q</strong> (feed 1:1) e <strong>_V</strong> (reels 9:16) com base no nome.
+            </p>
+
+            <div id="dropZone" class="drop-zone" onclick="document.getElementById('bulkFiles').click()">
+                <div class="drop-zone-icon">&#128193;</div>
+                <div class="drop-zone-text">Clique ou arraste os arquivos aqui</div>
+                <div class="drop-zone-hint">Aceita MP4, PNG, JPG ou arquivo ZIP com pastas de criativos</div>
+                <input type="file" id="bulkFiles" multiple accept="video/*,image/*,.zip" style="display:none" onchange="handleFileInput(this.files)">
+            </div>
+        </div>
+
+        <div class="step hidden" id="stepReview">
+            <div class="step-header">
+                <div class="step-number">3</div>
+                <h2>Criativos detectados</h2>
+            </div>
+            <div id="pairedList"></div>
+        </div>
+
+        <div class="actions">
+            <button class="btn btn-secondary" id="btnReset" onclick="resetAll()" style="display:none">Resetar</button>
+            <button class="btn btn-danger" id="btnPause" onclick="pauseProcessing()" style="display:none">
+                Pausar
+            </button>
+            <button class="btn btn-primary" id="btnDuplicate" onclick="duplicateAll()" disabled>
+                <span class="btn-text">Duplicar Criativos</span>
+                <div class="spinner"></div>
+            </button>
+        </div>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-header">
+                <span class="progress-title" id="progressTitle">Processando criativos...</span>
+                <span class="progress-stats" id="progressStats">0/0</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progressFill"></div>
+            </div>
+            <div class="progress-detail" id="progressDetail">Aguardando...</div>
+        </div>
+
+        <div id="manualResults" class="results"></div>
+    </div>
+
+    <!-- TAB: Dashboard -->
+    <div id="tab-dashboard" class="tab-content">
+        <div class="date-picker-row">
+            <label>De:</label>
+            <input type="date" id="dashDateFrom">
+            <label>Ate:</label>
+            <input type="date" id="dashDateTo">
+            <select id="dashStatusFilter" style="padding:8px 12px;background:#0f0f23;border:1px solid #2a2a4a;border-radius:8px;color:#e0e0e0;font-size:13px;width:auto;">
+                <option value="active">Apenas ativos</option>
+                <option value="with_data">Com impressoes no periodo</option>
+            </select>
+            <button class="btn btn-primary" onclick="loadAllDash()" style="padding: 8px 20px; font-size: 13px;">
+                Atualizar
+            </button>
+        </div>
+
+        <!-- Sub-tabs do dashboard -->
+        <div class="tabs" style="margin-bottom: 16px;">
+            <button class="tab active" data-subtab="campanhas" onclick="switchSubTab(this)">Campanhas</button>
+            <button class="tab" data-subtab="criativos" onclick="switchSubTab(this)">Top Criativos</button>
+            <button class="tab" data-subtab="destaques" onclick="switchSubTab(this)">Destaques</button>
+            <button class="tab" data-subtab="ganhando" onclick="switchSubTab(this)">Ganhando Escala</button>
+            <button class="tab" data-subtab="piores" onclick="switchSubTab(this)">Perdendo Escala</button>
+            <button class="tab" data-subtab="pausar" onclick="switchSubTab(this)">Sugerir Pausa</button>
+        </div>
+
+        <!-- Sub: Campanhas -->
+        <div class="subtab-content active" id="subtab-campanhas">
+            <div class="dash-summary">
+                <div class="dash-card blue"><div class="dash-value" id="sumSpend">-</div><div class="dash-label">Gasto Total</div></div>
+                <div class="dash-card green"><div class="dash-value" id="sumRevenue">-</div><div class="dash-label">Receita Total</div></div>
+                <div class="dash-card purple"><div class="dash-value" id="sumRoas">-</div><div class="dash-label">ROAS Medio</div></div>
+                <div class="dash-card orange"><div class="dash-value" id="sumConversions">-</div><div class="dash-label">Conversoes</div></div>
+            </div>
+            <div class="step" style="overflow-x: auto;">
+                <table class="dash-table">
+                    <thead><tr>
+                        <th onclick="sortDash('rank')" class="num" title="Ranking por score (ROAS x vendas x gasto x tendencia)" style="cursor:pointer">#</th>
+                        <th onclick="sortDash('name')" title="Nome da campanha" style="cursor:pointer">Campanha</th>
+                        <th onclick="sortDash('health')" class="num" title="Saude: saudavel = ROAS 7d >= anterior. Atencao = ROAS caindo. Critico = ROAS < 1" style="cursor:pointer">Saude</th>
+                        <th onclick="sortDash('spend')" class="num" title="Gasto total no periodo" style="cursor:pointer">Gasto</th>
+                        <th onclick="sortDash('revenue')" class="num" title="Receita total" style="cursor:pointer">Receita</th>
+                        <th onclick="sortDash('roas')" class="num" title="ROAS do periodo total" style="cursor:pointer">ROAS</th>
+                        <th onclick="sortDash('roas_7d')" class="num" title="ROAS dos ultimos 7 dias" style="cursor:pointer">ROAS 7d</th>
+                        <th onclick="sortDash('roas_trend')" class="num" title="Tendencia ROAS: variacao do ROAS dos ult. 7 dias vs periodo anterior. Positivo = melhorando" style="cursor:pointer">Tend.</th>
+                        <th onclick="sortDash('conversions')" class="num" title="Vendas totais" style="cursor:pointer">Conv.</th>
+                        <th onclick="sortDash('conv_7d')" class="num" title="Vendas nos ult. 7 dias" style="cursor:pointer">Cv.7d</th>
+                        <th onclick="sortDash('cpa')" class="num" title="Custo por venda" style="cursor:pointer">CPA</th>
+                        <th onclick="sortDash('roas_3d')" class="num" style="cursor:pointer;border-left:1px solid #2a2a4a;" title="ROAS ultimos 3 dias">R.3d</th>
+                        <th onclick="sortDash('conv_3d')" class="num" title="Vendas ultimos 3 dias" style="cursor:pointer">Cv.3d</th>
+                        <th onclick="sortDash('spend_3d')" class="num" title="Gasto ultimos 3 dias" style="cursor:pointer">G.3d</th>
+                    </tr></thead>
+                    <tbody id="dashBody"><tr><td colspan="16" style="text-align:center;color:#666;padding:40px;">Clique em "Atualizar"</td></tr></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Sub: Top Criativos -->
+        <div class="subtab-content" id="subtab-criativos">
+            <div id="topCreativesContainer"><p style="color:#666;text-align:center;padding:40px;">Clique em "Atualizar"</p></div>
+        </div>
+
+        <!-- Sub: Destaques -->
+        <div class="subtab-content" id="subtab-destaques">
+            <p style="color:#888;font-size:13px;margin-bottom:12px;">Criativos criados nos ultimos 7 dias com conversoes — novos que ja estao performando.</p>
+            <div id="highlightsContainer"><p style="color:#666;text-align:center;padding:40px;">Clique em "Atualizar"</p></div>
+        </div>
+
+        <!-- Sub: Ganhando Escala -->
+        <div class="subtab-content" id="subtab-ganhando">
+            <div class="tabs" style="margin-bottom:12px;">
+                <button class="tab active" data-gaintab="new" onclick="switchGainTab(this)">Novos (&lt;10 dias)</button>
+                <button class="tab" data-gaintab="old" onclick="switchGainTab(this)">Maduros (10+ dias)</button>
+            </div>
+            <div class="gaintab-content active" id="gaintab-new">
+                <p style="color:#888;font-size:12px;margin-bottom:12px;">Criativos recentes que ja estao recebendo verba crescente. Participacao calculada desde a criacao do criativo.</p>
+                <div id="gainingNewContainer"><p style="color:#666;text-align:center;padding:30px;">Clique em "Atualizar"</p></div>
+            </div>
+            <div class="gaintab-content" id="gaintab-old">
+                <p style="color:#888;font-size:12px;margin-bottom:12px;">Criativos consolidados ganhando participacao no gasto da campanha nos ultimos dias.</p>
+                <div id="gainingOldContainer"><p style="color:#666;text-align:center;padding:30px;">Clique em "Atualizar"</p></div>
+            </div>
+        </div>
+
+        <!-- Sub: Piores Criativos -->
+        <div class="subtab-content" id="subtab-piores">
+            <div class="tabs" style="margin-bottom:12px;">
+                <button class="tab active" data-losetab="new" onclick="switchLoseTab(this)">Novos (&lt;10 dias)</button>
+                <button class="tab" data-losetab="old" onclick="switchLoseTab(this)">Maduros (10+ dias)</button>
+            </div>
+            <div class="losetab-content active" id="losetab-new">
+                <p style="color:#888;font-size:12px;margin-bottom:12px;">Criativos recentes que ja estao perdendo participacao. Participacao calculada desde a criacao.</p>
+                <div id="worstNewContainer"><p style="color:#666;text-align:center;padding:30px;">Clique em "Atualizar"</p></div>
+            </div>
+            <div class="losetab-content" id="losetab-old">
+                <p style="color:#888;font-size:12px;margin-bottom:12px;">Criativos consolidados perdendo participacao no gasto da campanha.</p>
+                <div id="worstOldContainer"><p style="color:#666;text-align:center;padding:30px;">Clique em "Atualizar"</p></div>
+            </div>
+        </div>
+
+        <!-- Sub: Sugerir Pausa -->
+        <div class="subtab-content" id="subtab-pausar">
+            <p style="color:#888;font-size:13px;margin-bottom:12px;">Criativos ativos ha mais de 15 dias sem nenhuma conversao — considere pausar.</p>
+            <div id="staleContainer"><p style="color:#666;text-align:center;padding:40px;">Clique em "Atualizar"</p></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── State ──
+let selectedAdId = null;
+let selectedCreativeId = null;
+let pairedCreatives = [];
+
+// ── Main Tabs (only top-level, not subtabs) ──
+document.querySelectorAll('.tabs > .tab[data-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tabs > .tab[data-tab]').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+    });
+});
+
+// ── API helpers ──
+async function api(url, options = {}) {
+    const resp = await fetch(url, options);
+    const data = await resp.json();
+    if (!data.ok) throw new Error(data.error || 'Erro desconhecido');
+    return data.data;
+}
+
+function showAlert(msg, type = 'info') {
+    const box = document.getElementById('alertBox');
+    box.className = `alert alert-${type}`;
+    box.textContent = msg;
+    box.classList.remove('hidden');
+    setTimeout(() => box.classList.add('hidden'), 8000);
+}
+
+// ── Check connection ──
+async function checkConnection() {
+    try {
+        const resp = await fetch('/api/check-connection');
+        const data = await resp.json();
+        const dot = document.getElementById('statusDot');
+        const text = document.getElementById('statusText');
+        if (data.ok) {
+            dot.classList.add('ok');
+            text.textContent = data.message;
+            loadCampaigns();
+        } else {
+            dot.classList.add('error');
+            text.textContent = data.error;
+            showAlert('Configure o arquivo .env com seu token e account ID.', 'error');
+        }
+    } catch (e) {
+        document.getElementById('statusDot').classList.add('error');
+        document.getElementById('statusText').textContent = 'Erro de conexao';
+    }
+}
+
+// ── Combo box data ──
+const comboData = { campaign: [], adset: [], ad: [] };
+let _selCampaignId = '', _selAdsetId = '';
+
+function openCombo(name) {
+    const list = document.getElementById('list_' + name);
+    renderComboList(name, document.getElementById('search' + name.charAt(0).toUpperCase() + name.slice(1)).value);
+    list.classList.add('open');
+}
+
+function closeCombo(name) {
+    setTimeout(() => document.getElementById('list_' + name).classList.remove('open'), 150);
+}
+
+function renderComboList(name, query) {
+    const list = document.getElementById('list_' + name);
+    const q = (query || '').toLowerCase();
+    const items = comboData[name].filter(item => !q || item.name.toLowerCase().includes(q));
+
+    if (items.length === 0) {
+        list.innerHTML = '<div class="combo-empty">Nenhum resultado</div>';
+        return;
+    }
+
+    list.innerHTML = items.map(item =>
+        `<div class="combo-item" onmousedown="selectCombo('${name}', '${item.id}', '${item.name.replace(/'/g, "\\'")}')">
+            ${item.name}
+        </div>`
+    ).join('');
+}
+
+function filterCombo(name) {
+    const inputId = name === 'campaign' ? 'searchCampaign' : name === 'adset' ? 'searchAdset' : 'searchAd';
+    const query = document.getElementById(inputId).value;
+    renderComboList(name, query);
+    document.getElementById('list_' + name).classList.add('open');
+}
+
+function selectCombo(name, id, text) {
+    const inputId = name === 'campaign' ? 'searchCampaign' : name === 'adset' ? 'searchAdset' : 'searchAd';
+    document.getElementById(inputId).value = text;
+    document.getElementById('list_' + name).classList.remove('open');
+
+    if (name === 'campaign') {
+        _selCampaignId = id;
+        loadAdsets(id);
+    } else if (name === 'adset') {
+        _selAdsetId = id;
+        loadAds(id);
+    } else {
+        const ad = comboData.ad.find(a => a.id === id);
+        selectedCreativeId = ad ? ad.creative : '';
+        loadCreativePreview(id);
+    }
+}
+
+function reloadAdsets() { if (_selCampaignId) loadAdsets(_selCampaignId); }
+function reloadAds() { if (_selAdsetId) loadAds(_selAdsetId); }
+
+// ── Load campaigns / adsets / ads ──
+async function loadCampaigns() {
+    const input = document.getElementById('searchCampaign');
+    input.value = ''; input.placeholder = 'Carregando...';
+    try {
+        const campaigns = await api('/api/campaigns');
+        comboData.campaign = campaigns.map(c => ({id: c.id, name: c.name}));
+        input.placeholder = `Buscar entre ${campaigns.length} campanhas...`;
+        input.disabled = false;
+    } catch (e) {
+        input.placeholder = 'Erro - clique Refresh';
+        showAlert(e.message, 'error');
+    }
+}
+
+async function loadAdsets(campaignId) {
+    const input = document.getElementById('searchAdset');
+    const adInput = document.getElementById('searchAd');
+    input.value = ''; input.placeholder = 'Carregando adsets...'; input.disabled = true;
+    adInput.value = ''; adInput.disabled = true;
+    selectedAdId = null; updateButtons();
+    if (!campaignId) return;
+
+    try {
+        const adsets = await api(`/api/adsets/${campaignId}`);
+        comboData.adset = adsets.map(a => ({id: a.id, name: a.name}));
+        input.placeholder = `Buscar entre ${adsets.length} adset(s)...`;
+        input.disabled = false;
+
+        if (adsets.length === 1) {
+            input.value = adsets[0].name;
+            _selAdsetId = adsets[0].id;
+            loadAds(adsets[0].id);
+        }
+    } catch (e) {
+        input.placeholder = 'Erro - clique Refresh';
+        showAlert('Erro adsets: ' + e.message, 'error');
+    }
+}
+
+async function loadAds(adsetId) {
+    const input = document.getElementById('searchAd');
+    input.value = ''; input.placeholder = 'Carregando anuncios...'; input.disabled = true;
+    selectedAdId = null; updateButtons();
+    if (!adsetId) return;
+
+    try {
+        const ads = await api(`/api/ads/${adsetId}`);
+        const creativeId = a => a.creative ? (typeof a.creative === 'object' ? a.creative.id : a.creative) : '';
+        comboData.ad = ads.map(a => ({id: a.id, name: a.name, creative: creativeId(a)}));
+        input.placeholder = `Buscar entre ${ads.length} anuncio(s)...`;
+        input.disabled = false;
+
+        if (ads.length === 1) {
+            input.value = ads[0].name;
+            selectedCreativeId = comboData.ad[0].creative;
+            loadCreativePreview(ads[0].id);
+        }
+    } catch (e) {
+        input.placeholder = 'Erro - clique Refresh';
+        showAlert('Erro anuncios: ' + e.message, 'error');
+    }
+}
+
+// ── Creative preview ──
+async function loadCreativePreview(adId) {
+    selectedAdId = adId || null;
+    updateButtons();
+    const preview = document.getElementById('creativePreview');
+    const fields = document.getElementById('creativeFields');
+    if (!adId) { preview.classList.add('hidden'); return; }
+
+    const creativeId = selectedCreativeId;
+    if (!creativeId) return;
+
+    try {
+        const c = await api(`/api/creative/${creativeId}`);
+        fields.innerHTML = '';
+        const oss = c.object_story_spec || {};
+        const vd = oss.video_data || oss.link_data || {};
+
+        const display = {
+            'Nome': c.name,
+            'Legenda': c.body || vd.message || '',
+            'Titulo': c.title || vd.name || '',
+            'URL': c.link_url || vd.link || '',
+            'CTA': c.call_to_action_type || (vd.call_to_action && vd.call_to_action.type) || '',
+            'URL Tags': c.url_tags || '',
+        };
+
+        for (const [label, value] of Object.entries(display)) {
+            if (!value) continue;
+            fields.innerHTML += `<div class="field"><span class="field-label">${label}</span><span>${value}</span></div>`;
+        }
+        preview.classList.remove('hidden');
+    } catch (e) { showAlert('Erro ao carregar criativo: ' + e.message, 'error'); }
+}
+
+// ── Campaign expand (all ads) ──
+let _allAdsData = [];
+
+let _expandSort = {};
+
+function toggleCampExpand(campId, titleEl) {
+    const div = document.getElementById('expand_' + campId);
+    if (!div) return;
+
+    if (div.style.display !== 'none') {
+        div.style.display = 'none';
+        titleEl.querySelector('span').textContent = '▼ ver todos';
+        return;
+    }
+
+    if (!_expandSort[campId]) _expandSort[campId] = { key: 'score', asc: false };
+    renderCampExpand(campId);
+    div.style.display = 'block';
+    titleEl.querySelector('span').textContent = '▲ fechar';
+}
+
+function sortCampExpand(campId, key) {
+    const s = _expandSort[campId] || { key: 'score', asc: false };
+    if (s.key === key) s.asc = !s.asc;
+    else { s.key = key; s.asc = key === 'ad_name'; }
+    _expandSort[campId] = s;
+    renderCampExpand(campId);
+}
+
+function renderCampExpand(campId) {
+    const div = document.getElementById('expand_' + campId);
+    const campAds = _allAdsData.filter(a => a.campaign_id === campId);
+
+    if (campAds.length === 0) {
+        div.innerHTML = '<p style="color:#666;padding:12px;">Nenhum anuncio encontrado</p>';
+        return;
+    }
+
+    // Adicionar rank por score (posição original)
+    const byScore = [...campAds].sort((a, b) => b.score - a.score);
+    byScore.forEach((a, i) => a._expandRank = i + 1);
+
+    const s = _expandSort[campId] || { key: 'score', asc: false };
+    const sorted = [...campAds].sort((a, b) => {
+        const va = a[s.key] ?? 0, vb = b[s.key] ?? 0;
+        if (typeof va === 'string') return s.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+        return s.asc ? va - vb : vb - va;
+    });
+
+    const th = (key, label, tip) => `<th class="num" onclick="sortCampExpand('${campId}','${key}')" style="cursor:pointer" title="${tip}">${label}</th>`;
+
+    div.innerHTML = `<div class="step" style="padding:12px;margin-top:8px;background:#0f0f23;">
+        <p style="color:#4f8cff;font-size:12px;margin-bottom:8px;">Todos os ${campAds.length} anuncios desta campanha:</p>
+        <table class="dash-table"><thead><tr>
+            ${th('_expandRank','#','Posicao no ranking por score')}
+            <th onclick="sortCampExpand('${campId}','ad_name')" style="cursor:pointer" title="Nome do anuncio">Criativo</th>
+            ${th('days_active','Dias','Dias desde a criacao')}
+            ${th('_diffPct','Vel.','Variacao gasto ult. 3 dias vs media')}
+            <th class="num" title="Nivel de confianca">Conf.</th>
+            ${th('share_total','Part.','Participacao no gasto total da campanha')}
+            ${th('share_3d','P.3d','Participacao no gasto da campanha nos ult. 3 dias')}
+            ${th('spend','Gasto','Gasto total no periodo')}
+            ${th('revenue','Receita','Receita no periodo')}
+            ${th('roas','ROAS','Retorno sobre investimento')}
+            ${th('conversions','Conv.','Vendas no periodo')}
+            ${th('cpa','CPA','Custo por venda')}
+            ${th('ctr','CTR','Taxa de clique')}
+        </tr></thead><tbody>
+        ${sorted.map(a => {
+            const diffPct = a._diffPct || 0;
+            const arrow = diffPct > 10 ? '&#9650;' : diffPct < -10 ? '&#9660;' : '&#9644;';
+            const color = diffPct > 10 ? '#4caf50' : diffPct < -10 ? '#f44336' : '#888';
+            const sign = diffPct > 0 ? '+' : '';
+            return `<tr>
+                <td class="num" style="color:#4f8cff;font-weight:700;">${a._expandRank}</td>
+                <td class="camp-name" title="${a.ad_name}">${a.ad_name}</td>
+                <td class="num" style="color:#4f8cff;">${a.days_active || 0}d</td>
+                <td class="num">${velCell(a)}</td>
+                <td class="num">${confBadge(a.confidence)}</td>
+                <td class="num" style="color:#888;">${a.share_total || 0}%</td>
+                <td class="num" style="color:${diffPct > 10 ? '#4caf50' : diffPct < -10 ? '#f44336' : '#888'};font-weight:600;">${a.share_3d || 0}%</td>
+                <td class="num">${R$(a.spend)}</td>
+                <td class="num">${R$(a.revenue)}</td>
+                <td class="num">${roasBadge(a.roas)}</td>
+                <td class="num">${a.conversions}</td>
+                <td class="num">${R$(a.cpa)}</td>
+                <td class="num">${a.ctr}%</td>
+            </tr>`;
+        }).join('')}
+        </tbody></table>
+    </div>`;
+}
+
+// ── Drag & drop ──
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    handleFileInput(e.dataTransfer.files);
+});
+
+// ── Handle file input (ZIP or files) ──
+async function handleFileInput(fileList) {
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
+
+    // Verificar se é um ZIP
+    const zipFile = files.find(f => f.name.toLowerCase().endsWith('.zip'));
+    if (zipFile) {
+        await processZip(zipFile);
+    } else {
+        processFiles(files);
+    }
+}
+
+async function processZip(zipFile) {
+    showAlert('Enviando ZIP para extrair...', 'info');
+
+    const formData = new FormData();
+    formData.append('zip_file', zipFile);
+
+    try {
+        const resp = await fetch('/api/extract-zip', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (!data.ok) throw new Error(data.error);
+
+        // Converter os arquivos extraídos em pares
+        pairedCreatives = data.data;
+        renderPairedList();
+        showAlert(`ZIP extraido: ${data.data.length} criativo(s) encontrado(s)`, 'success');
+    } catch (e) {
+        showAlert('Erro ao extrair ZIP: ' + e.message, 'error');
+    }
+}
+
+// ── File processing & auto-pairing ─────────────────────────────────
+
+function getMediaType(fileName) {
+    const ext = fileName.split('.').pop().toLowerCase();
+    if (['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(ext)) return 'video';
+    return 'image';
+}
+
+function sanitizeName(str) {
+    // Remover acentos
+    let s = str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    // Trocar espaços por _
+    s = s.replace(/\s+/g, '_');
+    // Remover caracteres especiais (manter letras, números, _ e -)
+    s = s.replace(/[^a-zA-Z0-9_\-]/g, '');
+    // Remover _ duplicados
+    s = s.replace(/_+/g, '_');
+    return s;
+}
+
+function processFiles(fileList) {
+    const files = Array.from(fileList);
+    if (files.length === 0) return;
+
+    const groups = {};
+
+    for (const file of files) {
+        // Remover extensão e sanitizar
+        const rawName = file.name.replace(/\.[^.]+$/, '');
+        const baseName = sanitizeName(rawName);
+        const parts = baseName.split('_');
+        const suffix = parts.length > 1 ? parts[parts.length - 1].toUpperCase() : '';
+
+        let creativeName, slot;
+        if (suffix === 'Q') {
+            creativeName = parts.slice(0, -1).join('_');
+            slot = 'feed';
+        } else if (suffix === 'V') {
+            creativeName = parts.slice(0, -1).join('_');
+            slot = 'reels';
+        } else {
+            creativeName = baseName;
+            slot = 'feed';
+        }
+
+        if (!groups[creativeName]) {
+            groups[creativeName] = { name: creativeName };
+        }
+
+        const mediaType = getMediaType(file.name);
+        if (slot === 'feed') {
+            groups[creativeName].feedFile = file;
+            groups[creativeName].feedType = mediaType;
+        } else {
+            groups[creativeName].reelsFile = file;
+            groups[creativeName].reelsType = mediaType;
+        }
+    }
+
+    pairedCreatives = Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
+    renderPairedList();
+    showAlert(`${files.length} arquivo(s) agrupados em ${pairedCreatives.length} criativo(s)`, 'success');
+}
+
+function renderPairedList() {
+    const container = document.getElementById('pairedList');
+    const step = document.getElementById('stepReview');
+
+    if (pairedCreatives.length === 0) {
+        step.classList.add('hidden');
+        updateButtons();
+        return;
+    }
+
+    step.classList.remove('hidden');
+    container.innerHTML = '';
+
+    pairedCreatives.forEach((pair, idx) => {
+        const feedName = pair.feedFile ? pair.feedFile.name : (pair.feedPath || '');
+        const reelsName = pair.reelsFile ? pair.reelsFile.name : (pair.reelsPath || '');
+
+        const feedInfo = (pair.feedFile || pair.feedPath)
+            ? `<span class="pair-tag feed">Q Feed</span> <span class="pair-tag ${pair.feedType}">${pair.feedType}</span> ${feedName}`
+            : `<span class="pair-tag missing">Feed ausente</span>`;
+
+        const reelsInfo = (pair.reelsFile || pair.reelsPath)
+            ? `<span class="pair-tag reels">V Reels</span> <span class="pair-tag ${pair.reelsType}">${pair.reelsType}</span> ${reelsName}`
+            : `<span style="color:#555">Sem reels</span>`;
+
+        container.innerHTML += `
+            <div class="pair-card" id="pair_${idx}">
+                <div class="pair-number">${idx + 1}</div>
+                <div class="pair-info">
+                    <div class="pair-name">${pair.name}</div>
+                    <div class="pair-files">
+                        <span>${feedInfo}</span>
+                        <span>${reelsInfo}</span>
+                    </div>
+                </div>
+                <button class="pair-remove" onclick="removePair(${idx})" title="Remover">&times;</button>
+            </div>`;
+    });
+
+    updateButtons();
+}
+
+function removePair(idx) {
+    pairedCreatives.splice(idx, 1);
+    renderPairedList();
+}
+
+// ── Enable/disable buttons ──
+let isPaused = false;
+let isProcessing = false;
+
+function updateButtons() {
+    const hasCreatives = pairedCreatives.length > 0;
+    document.getElementById('btnDuplicate').disabled = !(selectedAdId && hasCreatives) || isProcessing;
+    const btnBatch = document.getElementById('btnBatch');
+    if (btnBatch) btnBatch.disabled = !selectedAdId;
+    document.getElementById('btnPause').style.display = isProcessing ? 'inline-flex' : 'none';
+    document.getElementById('btnReset').style.display = (!isProcessing && (pairedCreatives.length > 0 || document.getElementById('manualResults').innerHTML)) ? 'inline-flex' : 'none';
+}
+
+function pauseProcessing() {
+    isPaused = true;
+    document.getElementById('btnPause').textContent = 'Pausando...';
+    document.getElementById('btnPause').disabled = true;
+}
+
+function resetAll() {
+    pairedCreatives = [];
+    isPaused = false;
+    isProcessing = false;
+    document.getElementById('manualResults').innerHTML = '';
+    document.getElementById('bulkFiles').value = '';
+    document.getElementById('stepReview').classList.add('hidden');
+    document.getElementById('pairedList').innerHTML = '';
+    document.getElementById('progressContainer').classList.remove('active');
+    document.querySelectorAll('.pair-card').forEach(c => c.style.borderColor = '');
+    updateButtons();
+    showAlert('Resetado. Selecione novos arquivos.', 'info');
+}
+
+function updateProgress(current, total, name, status) {
+    const container = document.getElementById('progressContainer');
+    const fill = document.getElementById('progressFill');
+    const stats = document.getElementById('progressStats');
+    const title = document.getElementById('progressTitle');
+    const detail = document.getElementById('progressDetail');
+
+    container.classList.add('active');
+    const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+    fill.style.width = pct + '%';
+    fill.className = 'progress-bar-fill';
+
+    stats.textContent = `${current}/${total} (${pct}%)`;
+
+    if (status === 'uploading') {
+        title.textContent = 'Processando criativos...';
+        detail.textContent = `Enviando: ${name}`;
+    } else if (status === 'done') {
+        title.textContent = 'Concluido!';
+        detail.textContent = `${current} criativo(s) processado(s)`;
+        fill.classList.add('done');
+    } else if (status === 'paused') {
+        title.textContent = 'Pausado';
+        detail.textContent = `${current} processado(s), ${total - current} restante(s)`;
+        fill.classList.add('paused');
+    }
+}
+
+// ── Duplicate all paired creatives ─────────────────────────────────
+
+async function duplicateAll() {
+    if (!selectedAdId || pairedCreatives.length === 0) return;
+
+    // Verificar limite de 10 por lote
+    if (pairedCreatives.length > 10) {
+        if (!confirm('Voce selecionou ' + pairedCreatives.length + ' criativos. O limite seguro e 10 por vez para respeitar os limites da API da Meta.\n\nDeseja continuar mesmo assim? Os criativos serao processados com delay entre cada um.')) return;
+    }
+
+    isPaused = false;
+    isProcessing = true;
+
+    const btn = document.getElementById('btnDuplicate');
+    btn.classList.add('loading');
+    btn.disabled = true;
+    document.getElementById('btnPause').style.display = 'inline-flex';
+    document.getElementById('btnPause').textContent = 'Pausar';
+    document.getElementById('btnPause').disabled = false;
+    document.getElementById('btnReset').style.display = 'none';
+
+    const resultsContainer = document.getElementById('manualResults');
+    resultsContainer.innerHTML = '';
+
+    let successCount = 0;
+    let processedCount = 0;
+    const total = pairedCreatives.length;
+
+    updateProgress(0, total, '', 'uploading');
+
+    for (let idx = 0; idx < pairedCreatives.length; idx++) {
+        if (isPaused) {
+            updateProgress(processedCount, total, '', 'paused');
+            resultsContainer.innerHTML += `
+                <div class="result-item" style="border-left: 3px solid #ff9800;">
+                    <span class="result-name" style="color: #ff9800;">Pausado — ${total - idx} criativo(s) restante(s)</span>
+                </div>`;
+            break;
+        }
+
+        const pair = pairedCreatives[idx];
+        const card = document.getElementById(`pair_${idx}`);
+        if (card) card.style.borderColor = '#4f8cff';
+
+        updateProgress(idx, total, pair.name, 'uploading');
+
+        const formData = new FormData();
+        formData.append('ad_id', selectedAdId);
+        formData.append('name', pair.name);
+
+        if (pair.feedFile) {
+            formData.append('feed_media_type', pair.feedType || 'video');
+            formData.append('media_feed', pair.feedFile);
+        } else if (pair.feedPath) {
+            formData.append('feed_media_type', pair.feedType || 'video');
+            formData.append('media_feed_path', pair.feedPath);
+        }
+
+        if (pair.reelsFile) {
+            formData.append('reels_media_type', pair.reelsType || 'video');
+            formData.append('media_reels', pair.reelsFile);
+        } else if (pair.reelsPath) {
+            formData.append('reels_media_type', pair.reelsType || 'video');
+            formData.append('media_reels_path', pair.reelsPath);
+        }
+
+        try {
+            const result = await api('/api/duplicate', { method: 'POST', body: formData });
+            if (card) card.style.borderColor = '#4caf50';
+            resultsContainer.innerHTML += `
+                <div class="result-item success">
+                    <span class="result-name">${pair.name}</span>
+                    <span class="result-status success">ID: ${result.id}</span>
+                </div>`;
+            successCount++;
+            updateRateLimit();
+        } catch (e) {
+            if (card) card.style.borderColor = '#f44336';
+            resultsContainer.innerHTML += `
+                <div class="result-item error">
+                    <span class="result-name">${pair.name}</span>
+                    <span class="result-status error">${e.message}</span>
+                </div>`;
+        }
+        processedCount++;
+        updateProgress(processedCount, total, pair.name, 'uploading');
+    }
+
+    if (!isPaused) {
+        updateProgress(processedCount, total, '', 'done');
+    }
+
+    const status = isPaused ? 'Pausado' : 'Concluido';
+    showAlert(`${status}: ${successCount}/${processedCount} criativos duplicados (PAUSADOS).`, successCount > 0 ? 'success' : 'error');
+
+    btn.classList.remove('loading');
+    isProcessing = false;
+    isPaused = false;
+    updateButtons();
+}
+
+function downloadCsvTemplate() {
+    const csv = 'name,feed_url,reels_url\nCriativo V1,https://exemplo.com/video1_feed.mp4,https://exemplo.com/video1_reels.mp4\nCriativo V2,https://exemplo.com/video2_feed.mp4,\n';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'template_criativos.csv';
+    a.click();
+}
+
+// ── Dashboard ──────────────────────────────────────────────────────
+
+let dashData = [];
+let dashSortKey = 'spend';
+let dashSortAsc = false;
+
+function initDashDates() {
+    const today = new Date();
+    const ago = new Date(today);
+    ago.setDate(today.getDate() - 17);
+    document.getElementById('dashDateTo').value = today.toISOString().split('T')[0];
+    document.getElementById('dashDateFrom').value = ago.toISOString().split('T')[0];
+}
+
+function switchSubTab(btn) {
+    document.querySelectorAll('[data-subtab]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.subtab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('subtab-' + btn.dataset.subtab).classList.add('active');
+}
+
+function getDates() {
+    return {
+        since: document.getElementById('dashDateFrom').value,
+        until: document.getElementById('dashDateTo').value,
+    };
+}
+
+const R$ = v => 'R$ ' + v.toLocaleString('pt-BR', {minimumFractionDigits: 2});
+const roasBadge = v => {
+    let cls, tip;
+    if (v >= 2) { cls = 'roas-excellent'; tip = 'ROAS excelente: cada R$1 retorna R$'+v; }
+    else if (v >= 1) { cls = 'roas-good'; tip = 'ROAS bom: retorno positivo de R$'+v+' por R$1'; }
+    else if (v >= 0.9) { cls = 'roas-ok'; tip = 'ROAS quase no ponto de equilibrio'; }
+    else if (v >= 0.7) { cls = 'roas-low'; tip = 'ROAS abaixo do equilibrio, monitorar'; }
+    else { cls = 'roas-bad'; tip = 'ROAS critico: prejuizo significativo'; }
+    return `<span class="roas-badge ${cls}" title="${tip}">${v}x</span>`;
+};
+const confLabels = {alto: 'Comprovado', medio: 'Consistente', tendencia: 'Tendencia', declinando: 'Declinando', baixo: 'Insuficiente'};
+const confTips = {
+    alto: 'Gasto acima de R$1.000 e 5+ conversoes. Dados solidos e confiaveis.',
+    medio: 'Gasto acima de R$500 e 3+ conversoes. Bom indicador com volume relevante.',
+    tendencia: 'Criativo novo ou com poucas conversoes mas que nao esta perdendo escala. Promissor, monitorar.',
+    declinando: 'Tem conversoes mas esta perdendo participacao no gasto da campanha ha mais de 7 dias. O Facebook esta redirecionando verba para outros criativos.',
+    baixo: 'Sem conversoes ou dados insuficientes para conclusoes.'
+};
+const confBadge = c => `<span class="confidence-badge conf-${c}" title="${confTips[c] || ''}">${confLabels[c] || c}</span>`;
+const trendIcons = {escalando: '&#9650;', estavel: '&#9644;', caindo: '&#9660;'};
+const trendLabels = {escalando: 'Escalando', estavel: 'Estavel', caindo: 'Caindo'};
+const trendTips = {
+    escalando: 'Este criativo aumentou sua participacao no gasto total da campanha nos ultimos 3 dias. O Facebook esta direcionando mais verba para ele em relacao aos outros criativos da mesma campanha.',
+    estavel: 'A participacao deste criativo no gasto da campanha esta estavel. Ele continua recebendo a mesma proporcao de verba em relacao aos demais.',
+    caindo: 'Este criativo perdeu participacao no gasto da campanha nos ultimos 3 dias. O Facebook esta redirecionando a verba dele para outros criativos que estao performando melhor.'
+};
+const trendBadge = t => `<span class="trend-badge trend-${t}" title="${trendTips[t] || ''}">${trendIcons[t] || ''} ${trendLabels[t] || t}</span>`;
+
+function velCell(a) {
+    const pct = a._diffPct || 0;
+    const days = a.days_active || 0;
+    const note = a.velocity_note || '';
+    if (days <= 3 || note === 'novo') {
+        return '<span style="color:#666;font-size:11px;" title="Criativo com menos de 3 dias, dados insuficientes para calcular velocidade">NOVO</span>';
+    }
+    const arrow = pct > 10 ? '&#9650;' : pct < -10 ? '&#9660;' : '&#9644;';
+    const color = pct > 10 ? '#4caf50' : pct < -10 ? '#f44336' : '#888';
+    const sign = pct > 0 ? '+' : '';
+    const capNote = note === 'recente' ? ' (max +-100%)' : '';
+    const tip = days <= 7
+        ? `Criativo recente (${days}d). Variacao da participacao limitada a +-100% por ter poucos dados${capNote}`
+        : `Variacao da participacao no gasto da campanha: ${sign}${pct}%`;
+    return `<span style="color:${color};font-weight:700;" title="${tip}">${arrow} ${sign}${pct}%</span>`;
+}
+
+async function loadAllDash() {
+    const {since, until} = getDates();
+    if (!since || !until) { showAlert('Selecione o periodo', 'error'); return; }
+
+    // Carregar tudo em paralelo
+    const loading = '<p style="color:#4f8cff;text-align:center;padding:30px;">Carregando...</p>';
+    document.getElementById('dashBody').innerHTML = '<tr><td colspan="12" style="text-align:center;color:#4f8cff;padding:30px;">Carregando...</td></tr>';
+    document.getElementById('topCreativesContainer').innerHTML = loading;
+    document.getElementById('gainingNewContainer').innerHTML = loading;
+    document.getElementById('gainingOldContainer').innerHTML = loading;
+    document.getElementById('highlightsContainer').innerHTML = loading;
+    document.getElementById('staleContainer').innerHTML = loading;
+
+    const statusFilter = document.getElementById('dashStatusFilter').value;
+    const qs = `since=${since}&until=${until}&status=${statusFilter}`;
+
+    try { dashData = await api(`/api/dashboard?${qs}`); renderCampaigns(); } catch(e) { document.getElementById('dashBody').innerHTML = `<tr><td colspan="12" style="color:#f44336;text-align:center;padding:30px;">${e.message}</td></tr>`; }
+    try {
+        const resp = await fetch(`/api/top-creatives?${qs}`);
+        const json = await resp.json();
+        if (!json.ok) throw new Error(json.error);
+        const allAds = json.all_ads || [];
+        allAds.forEach(a => { a._diffPct = a.velocity || 0; });
+        _allAdsData = allAds;
+
+        renderTopCreatives(json.data);
+        renderGaining(allAds);
+        renderWorst(allAds);
+    } catch(e) { document.getElementById('topCreativesContainer').innerHTML = `<p style="color:#f44336">${e.message}</p>`; document.getElementById('worstNewContainer').innerHTML = '<p style="color:#f44336">'+e.message+'</p>'; document.getElementById('worstOldContainer').innerHTML = '<p style="color:#f44336">'+e.message+'</p>'; }
+    try { const d = await api(`/api/highlights?${qs}`); renderHighlights(d); } catch(e) { document.getElementById('highlightsContainer').innerHTML = `<p style="color:#f44336">${e.message}</p>`; }
+    try { const d = await api(`/api/stale-creatives?${qs}`); renderStale(d); markStaleInWorst(); } catch(e) { document.getElementById('staleContainer').innerHTML = `<p style="color:#f44336">${e.message}</p>`; }
+}
+
+// ── Campanhas ──
+function healthBadge(h) {
+    const labels = {saudavel:'SAUDAVEL', estavel:'ESTAVEL', atencao:'ATENCAO', critico:'CRITICO'};
+    const colors = {saudavel:'#4caf50', estavel:'#4f8cff', atencao:'#ff9800', critico:'#f44336'};
+    const bgs = {saudavel:'#1a3a1a', estavel:'#1a2a3a', atencao:'#3a2a1a', critico:'#3a1a1a'};
+    const tips = {
+        saudavel: 'ROAS total e 7d ambos acima de 1. Campanha lucrativa.',
+        estavel: 'ROAS entre 0.9 e 1. Proximo do equilibrio, bom para topo de funil.',
+        atencao: 'ROAS entre 0.7 e 0.9. Abaixo do equilibrio, monitorar.',
+        critico: 'ROAS abaixo de 0.7. Prejuizo significativo.'
+    };
+    return `<span style="background:${bgs[h]};color:${colors[h]};padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;" title="${tips[h] || ''}">${labels[h] || h}</span>`;
+}
+
+function renderCampaigns() {
+    const body = document.getElementById('dashBody');
+    if (dashData.length === 0) { body.innerHTML = '<tr><td colspan="16" style="text-align:center;color:#666;padding:40px;">Nenhuma campanha de vendas com dados</td></tr>'; return; }
+
+    let tSpend=0, tRevenue=0, tConv=0;
+    dashData.forEach(c => { tSpend+=c.spend; tRevenue+=c.revenue; tConv+=c.conversions; });
+
+    document.getElementById('sumSpend').textContent = R$(tSpend);
+    document.getElementById('sumRevenue').textContent = R$(tRevenue);
+    document.getElementById('sumRoas').textContent = (tSpend > 0 ? (tRevenue/tSpend).toFixed(2) : '0') + 'x';
+    document.getElementById('sumConversions').textContent = tConv.toLocaleString('pt-BR');
+
+    const sorted = [...dashData].sort((a,b) => {
+        const va=a[dashSortKey], vb=b[dashSortKey];
+        if (typeof va==='string') return dashSortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+        return dashSortAsc ? va-vb : vb-va;
+    });
+
+    body.innerHTML = sorted.map(c => {
+        const trend = c.roas_trend || 0;
+        const trendArrow = trend > 10 ? '&#9650;' : trend < -10 ? '&#9660;' : '&#9644;';
+        const trendColor = trend > 10 ? '#4caf50' : trend < -10 ? '#f44336' : '#888';
+        const trendSign = trend > 0 ? '+' : '';
+        return `<tr>
+        <td class="num" style="color:#4f8cff;font-weight:700;">${c.rank || ''}</td>
+        <td class="camp-name" title="${c.name}">${c.name}</td>
+        <td class="num">${healthBadge(c.health || 'atencao')}</td>
+        <td class="num">${R$(c.spend)}</td>
+        <td class="num">${R$(c.revenue)}</td>
+        <td class="num">${roasBadge(c.roas)}</td>
+        <td class="num">${roasBadge(c.roas_7d || 0)}</td>
+        <td class="num" style="color:${trendColor};font-weight:700;" title="Variacao ROAS: ult. 7 dias vs periodo anterior">${trendArrow} ${trendSign}${trend}%</td>
+        <td class="num">${c.conversions}</td>
+        <td class="num">${c.conv_7d || 0}</td>
+        <td class="num">${R$(c.cpa)}</td>
+        <td class="num" style="border-left:1px solid #2a2a4a;">${roasBadge(c.roas_3d || 0)}</td>
+        <td class="num">${c.conv_3d || 0}</td>
+        <td class="num">${R$(c.spend_3d || 0)}</td>
+    </tr>`}).join('');
+}
+
+function sortDash(key) {
+    if (dashSortKey===key) dashSortAsc=!dashSortAsc;
+    else { dashSortKey=key; dashSortAsc=false; }
+    renderCampaigns();
+}
+
+// ── Top Criativos ──
+let topCreativesData = [];
+let topSortKeys = {}; // per campaign sort state
+
+function enrichAds(ads) {
+    ads.forEach((a, idx) => {
+        a._diffPct = a.velocity || 0;
+        a._rank = idx + 1;
+    });
+}
+
+function renderTopCreatives(data) {
+    topCreativesData = data;
+    const container = document.getElementById('topCreativesContainer');
+    if (data.length===0) { container.innerHTML = '<p style="color:#666;text-align:center;padding:40px;">Nenhum dado</p>'; return; }
+
+    // Enrich each campaign's ads
+    data.forEach(camp => enrichAds(camp.top_ads));
+
+    container.innerHTML = data.map((camp, ci) => {
+        const cid = 'topcr_' + ci;
+        return `
+        <div class="creative-group">
+            <div class="creative-group-title" style="cursor:pointer;" onclick="toggleCampExpand('${camp.campaign_id}', this)">${camp.campaign_name} <span style="font-size:12px;color:#888;">▼ ver todos</span></div>
+            <div class="camp-expand" id="expand_${camp.campaign_id}" style="display:none;"></div>
+            <div class="step" style="overflow-x:auto;padding:12px;">
+                <table class="dash-table"><thead><tr>
+                    <th class="num" onclick="sortTopCr(${ci},'_rank')" style="cursor:pointer" title="Posicao no ranking por score composto (ROAS x volume x tendencia)">#</th>
+                    <th onclick="sortTopCr(${ci},'ad_name')" style="cursor:pointer" title="Nome do anuncio no gerenciador">Criativo</th>
+                    <th class="num" onclick="sortTopCr(${ci},'days_active')" style="cursor:pointer" title="Quantos dias desde a criacao do anuncio">Dias</th>
+                    <th class="num" onclick="sortTopCr(${ci},'_diffPct')" style="cursor:pointer" title="Velocidade de escala: compara a % do gasto da campanha que este criativo recebeu nos ultimos 3 dias vs a media do periodo. Ex: se tinha 10% da verba e agora tem 15%, subiu +50%. Positivo = Facebook priorizando. Negativo = Facebook tirando verba.">Vel.</th>
+                    <th class="num" title="Nivel de confianca baseado em gasto e quantidade de conversoes">Confianca</th>
+                    <th class="num" onclick="sortTopCr(${ci},'share_total')" style="cursor:pointer" title="Participacao no gasto total da campanha no periodo">Part.</th>
+                    <th class="num" onclick="sortTopCr(${ci},'share_3d')" style="cursor:pointer" title="Participacao no gasto da campanha nos ultimos 3 dias">3d</th>
+                    <th class="num" onclick="sortTopCr(${ci},'spend')" style="cursor:pointer" title="Valor total gasto no periodo selecionado">Gasto</th>
+                    <th class="num" onclick="sortTopCr(${ci},'revenue')" style="cursor:pointer" title="Valor total de vendas (receita) no periodo">Receita</th>
+                    <th class="num" onclick="sortTopCr(${ci},'roas')" style="cursor:pointer" title="Retorno sobre investimento: receita / gasto">ROAS</th>
+                    <th class="num" onclick="sortTopCr(${ci},'conversions')" style="cursor:pointer" title="Numero de compras/vendas no periodo">Conv.</th>
+                    <th class="num" onclick="sortTopCr(${ci},'cpa')" style="cursor:pointer" title="Custo por aquisicao: gasto / conversoes">CPA</th>
+                    <th class="num" onclick="sortTopCr(${ci},'ctr')" style="cursor:pointer" title="Taxa de clique: cliques / impressoes x 100">CTR</th>
+                </tr></thead><tbody id="${cid}">
+                </tbody></table>
+            </div>
+        </div>`;
+    }).join('');
+
+    data.forEach((camp, ci) => renderTopCrBody(ci));
+}
+
+function renderTopCrBody(ci) {
+    const camp = topCreativesData[ci];
+    const tbody = document.getElementById('topcr_' + ci);
+    const state = topSortKeys[ci] || { key: 'score', asc: false };
+    const ads = [...camp.top_ads];
+
+    if (state.key !== '_rank') {
+        ads.sort((a, b) => {
+            const va = a[state.key], vb = b[state.key];
+            if (typeof va === 'string') return state.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+            return state.asc ? va - vb : vb - va;
+        });
+    }
+
+    tbody.innerHTML = ads.map(a => {
+        const arrow = a._diffPct > 10 ? '&#9650;' : a._diffPct < -10 ? '&#9660;' : '&#9644;';
+        const color = a._diffPct > 10 ? '#4caf50' : a._diffPct < -10 ? '#f44336' : '#888';
+        const sign = a._diffPct > 0 ? '+' : '';
+        return `<tr>
+            <td class="num" style="color:#4f8cff;font-weight:700;">${a._rank}</td>
+            <td class="camp-name" title="${a.ad_name}">${a.ad_name}</td>
+            <td class="num" style="color:#4f8cff;">${a.days_active || 0}d</td>
+            <td class="num">${velCell(a)}</td>
+            <td class="num">${confBadge(a.confidence)}</td>
+            <td class="num" style="color:#888;">${a.share_total || 0}%</td>
+            <td class="num" style="color:${a._diffPct > 10 ? '#4caf50' : a._diffPct < -10 ? '#f44336' : '#888'};font-weight:600;">${a.share_3d || 0}%</td>
+            <td class="num">${R$(a.spend)}</td>
+            <td class="num">${R$(a.revenue)}</td>
+            <td class="num">${roasBadge(a.roas)}</td><td class="num">${a.conversions}</td>
+            <td class="num">${R$(a.cpa)}</td><td class="num">${a.ctr}%</td>
+        </tr>`;
+    }).join('');
+}
+
+function sortTopCr(ci, key) {
+    const state = topSortKeys[ci] || { key: 'score', asc: false };
+    if (state.key === key) state.asc = !state.asc;
+    else { state.key = key; state.asc = key === 'ad_name'; }
+    topSortKeys[ci] = state;
+    renderTopCrBody(ci);
+}
+
+// ── Destaques ──
+let highlightsData = [];
+let hlSort = { key: 'score', asc: false };
+
+function renderHighlights(data) {
+    highlightsData = data;
+    const container = document.getElementById('highlightsContainer');
+    if (data.length===0) { container.innerHTML = '<p style="color:#666;text-align:center;padding:40px;">Nenhum criativo novo com conversoes</p>'; return; }
+
+    // Agrupar por campanha
+    const groups = {};
+    data.forEach(a => {
+        const cn = a.campaign_name || 'Sem campanha';
+        if (!groups[cn]) groups[cn] = [];
+        groups[cn].push(a);
+    });
+
+    const hlHead = `<tr>
+        <th onclick="sortHL('ad_name')" style="cursor:pointer" title="Nome do anuncio">Criativo</th>
+        <th class="num" onclick="sortHL('days_active')" style="cursor:pointer" title="Dias desde a criacao">Dias</th>
+        <th class="num" onclick="sortHL('_diffPct')" style="cursor:pointer" title="Velocidade de escala: variacao da participacao no gasto da campanha nos ultimos 3 dias vs periodo total">Vel.</th>
+        <th class="num" title="Nivel de confianca">Confianca</th>
+        <th class="num" onclick="sortHL('share_total')" style="cursor:pointer" title="Participacao no gasto total da campanha">Part.</th>
+        <th class="num" onclick="sortHL('share_3d')" style="cursor:pointer" title="Participacao no gasto da campanha nos ultimos 3 dias">P.3d</th>
+        <th class="num" onclick="sortHL('spend')" style="cursor:pointer" title="Valor gasto">Gasto</th>
+        <th class="num" onclick="sortHL('revenue')" style="cursor:pointer" title="Receita">Receita</th>
+        <th class="num" onclick="sortHL('roas')" style="cursor:pointer" title="Retorno sobre investimento">ROAS</th>
+        <th class="num" onclick="sortHL('conversions')" style="cursor:pointer" title="Vendas">Conv.</th>
+        <th class="num" onclick="sortHL('cpa')" style="cursor:pointer" title="Custo por venda">CPA</th>
+    </tr>`;
+
+    container.innerHTML = Object.entries(groups).map(([campName, ads]) => {
+        const sorted = [...ads].sort((a, b) => b.score - a.score);
+        return `<div class="creative-group">
+            <div class="creative-group-title">${campName}</div>
+            <div class="step" style="overflow-x:auto;padding:12px;">
+                <table class="dash-table"><thead>${hlHead}</thead><tbody>
+                ${sorted.map(a => {
+                    const diffPct = a._diffPct || 0;
+                    return `<tr>
+                    <td class="camp-name" title="${a.ad_name}">${a.ad_name}</td>
+                    <td class="num" style="color:#4f8cff;">${a.days_active || 0}d</td>
+                    <td class="num">${velCell(a)}</td>
+                    <td class="num">${confBadge(a.confidence)}</td>
+                    <td class="num" style="color:#888;">${a.share_total || 0}%</td>
+                    <td class="num" style="color:${diffPct > 10 ? '#4caf50' : diffPct < -10 ? '#f44336' : '#888'};font-weight:600;">${a.share_3d || 0}%</td>
+                    <td class="num">${R$(a.spend)}</td><td class="num">${R$(a.revenue)}</td>
+                    <td class="num">${roasBadge(a.roas)}</td><td class="num">${a.conversions}</td>
+                    <td class="num">${R$(a.cpa)}</td>
+                </tr>`}).join('')}
+                </tbody></table>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function sortHL(key) {
+    if (hlSort.key === key) hlSort.asc = !hlSort.asc;
+    else { hlSort.key = key; hlSort.asc = key === 'ad_name' || key === 'campaign_name'; }
+    renderHLBody();
+}
+
+function markStaleInWorst() {
+    const staleIds = new Set(staleAds.map(a => a.ad_id));
+    worstNew.forEach(a => { a._isStale = staleIds.has(a.ad_id); });
+    worstOld.forEach(a => { a._isStale = staleIds.has(a.ad_id); });
+    renderWorstSection(worstNew, document.getElementById('worstNewContainer'), worstNewSort, 'sortWorstNew');
+    renderWorstSection(worstOld, document.getElementById('worstOldContainer'), worstOldSort, 'sortWorstOld');
+}
+
+// ── Ganhando Escala ──
+function switchGainTab(btn) {
+    btn.parentElement.querySelectorAll('[data-gaintab]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.gaintab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('gaintab-' + btn.dataset.gaintab).classList.add('active');
+}
+
+let gainingNew = [];
+let gainingOld = [];
+let gainNewSort = { key: '_diffPct', asc: false };
+let gainOldSort = { key: '_diffPct', asc: false };
+
+function renderGaining(allAds) {
+    gainingNew = [];
+    gainingOld = [];
+    allAds.forEach(a => {
+        if (a._diffPct > 10 && a.spend > 5) {
+            const days = a.days_active || 0;
+            if (days < 10 && days >= 1) gainingNew.push(a);
+            else if (days >= 10) gainingOld.push(a);
+        }
+    });
+
+    renderGainingSection('New', gainingNew, document.getElementById('gainingNewContainer'), gainNewSort, 'sortGainNew');
+    renderGainingSection('Old', gainingOld, document.getElementById('gainingOldContainer'), gainOldSort, 'sortGainOld');
+}
+
+function renderGainingSection(suffix, data, container, sortState, sortFnName) {
+    if (data.length === 0) {
+        container.innerHTML = '<p style="color:#666;text-align:center;padding:20px;">Nenhum criativo nesta categoria</p>';
+        return;
+    }
+
+    const groups = {};
+    data.forEach(a => {
+        const cn = a.campaign_name || 'Sem campanha';
+        if (!groups[cn]) groups[cn] = [];
+        groups[cn].push(a);
+    });
+
+    const s = sortState;
+    const sortFn = (a, b) => {
+        const va = a[s.key] ?? 0, vb = b[s.key] ?? 0;
+        if (typeof va === 'string') return s.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+        return s.asc ? va - vb : vb - va;
+    };
+
+    const th = (key, label, tip) => `<th class="num" onclick="${sortFnName}('${key}')" style="cursor:pointer" title="${tip}">${label}</th>`;
+
+    const head = `<tr>
+        <th onclick="${sortFnName}('ad_name')" style="cursor:pointer" title="Nome do anuncio">Criativo</th>
+        ${th('days_active','Dias','Dias desde a criacao')}
+        ${th('_diffPct','Vel.','Velocidade: variacao da participacao no gasto da campanha')}
+        ${th('share_total','Part.','Participacao no gasto total da campanha')}
+        ${th('share_3d','P.3d','Participacao nos ultimos 3 dias')}
+        <th class="num" title="Nivel de confianca">Conf.</th>
+        ${th('spend','Gasto','Gasto total')}
+        ${th('revenue','Receita','Receita')}
+        ${th('roas','ROAS','Retorno sobre investimento')}
+        ${th('conversions','Conv.','Vendas')}
+        ${th('cpa','CPA','Custo por venda')}
+    </tr>`;
+
+    container.innerHTML = Object.entries(groups).map(([campName, ads]) => {
+        const sorted = [...ads].sort(sortFn);
+        return `<div class="creative-group">
+            <div class="creative-group-title">${campName}</div>
+            <div class="step" style="overflow-x:auto;padding:12px;">
+                <table class="dash-table"><thead>${head}</thead><tbody>
+                ${sorted.map(a => `<tr>
+                    <td class="camp-name" title="${a.ad_name}">${a.ad_name}</td>
+                    <td class="num" style="color:#4f8cff;">${a.days_active || 0}d</td>
+                    <td class="num">${velCell(a)}</td>
+                    <td class="num" style="color:#888;">${a.share_total || 0}%</td>
+                    <td class="num" style="color:#4caf50;font-weight:600;">${a.share_3d || 0}%</td>
+                    <td class="num">${confBadge(a.confidence)}</td>
+                    <td class="num">${R$(a.spend)}</td>
+                    <td class="num">${R$(a.revenue)}</td>
+                    <td class="num">${roasBadge(a.roas)}</td>
+                    <td class="num">${a.conversions}</td>
+                    <td class="num">${R$(a.cpa)}</td>
+                </tr>`).join('')}
+                </tbody></table>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function sortGainNew(key) {
+    if (gainNewSort.key === key) gainNewSort.asc = !gainNewSort.asc;
+    else { gainNewSort.key = key; gainNewSort.asc = key === 'ad_name'; }
+    renderGainingSection('New', gainingNew, document.getElementById('gainingNewContainer'), gainNewSort, 'sortGainNew');
+}
+
+function sortGainOld(key) {
+    if (gainOldSort.key === key) gainOldSort.asc = !gainOldSort.asc;
+    else { gainOldSort.key = key; gainOldSort.asc = key === 'ad_name'; }
+    renderGainingSection('Old', gainingOld, document.getElementById('gainingOldContainer'), gainOldSort, 'sortGainOld');
+}
+
+// ── Perdendo Escala (sortable) ──
+let worstNew = [], worstOld = [];
+let worstNewSort = { key: '_severity', asc: false };
+let worstOldSort = { key: '_severity', asc: false };
+
+function switchLoseTab(btn) {
+    btn.parentElement.querySelectorAll('[data-losetab]').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.losetab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('losetab-' + btn.dataset.losetab).classList.add('active');
+}
+
+function renderWorst(allAds) {
+    worstNew = [];
+    worstOld = [];
+    allAds.forEach(a => {
+        a._diffPct = a.velocity || 0;
+        a._recentConv = a.recent_conversions || 0;
+        a._severity = Math.abs(a._diffPct) - (a._recentConv * 15);
+        if (a._diffPct < -10 && a.spend > 5) {
+            const days = a.days_active || 0;
+            if (days >= 3 && days < 10) worstNew.push(a);
+            else if (days >= 10) worstOld.push(a);
+        }
+    });
+
+    renderWorstSection(worstNew, document.getElementById('worstNewContainer'), worstNewSort, 'sortWorstNew');
+    renderWorstSection(worstOld, document.getElementById('worstOldContainer'), worstOldSort, 'sortWorstOld');
+}
+
+function renderWorstSection(data, container, sortState, sortFnName) {
+    if (data.length === 0) {
+        container.innerHTML = '<p style="color:#4caf50;text-align:center;padding:20px;">Nenhum criativo nesta categoria</p>';
+        return;
+    }
+
+    const groups = {};
+    data.forEach(a => {
+        const cn = a.campaign_name || 'Sem campanha';
+        if (!groups[cn]) groups[cn] = [];
+        groups[cn].push(a);
+    });
+
+    const s = sortState;
+    const sortFn = (a, b) => {
+        const va = a[s.key] ?? 0, vb = b[s.key] ?? 0;
+        if (typeof va === 'string') return s.asc ? va.localeCompare(vb) : vb.localeCompare(va);
+        return s.asc ? va - vb : vb - va;
+    };
+
+    const worstHead = `<tr>
+        <th style="width:40px;"></th>
+        <th title="Nome do anuncio">Criativo</th>
+        <th class="num" title="Dias desde a criacao">Dias</th>
+        <th class="num" title="Velocidade de escala">Vel.</th>
+        <th class="num" title="Participacao no gasto da campanha">Part.</th>
+        <th class="num" title="Participacao nos ultimos 3 dias">P.3d</th>
+        <th class="num" title="RUIM = sem vendas 3d. MEDIO = ainda vendendo">Status</th>
+        <th class="num" style="border-left:1px solid #2a2a4a;" title="Gasto total">Gasto</th>
+        <th class="num" title="Vendas">Conv.</th>
+        <th class="num" title="ROAS">ROAS</th>
+        <th class="num" style="border-left:1px solid #2a2a4a;color:#6c5ce7;" title="ROAS campanha">Camp.</th>
+        <th class="num" style="border-left:1px solid #2a2a4a;" title="Gasto 7d">7d</th>
+        <th class="num" title="Conv. 7d">Cv.7d</th>
+        <th class="num" title="ROAS 7d">R.7d</th>
+        <th class="num" style="border-left:1px solid #2a2a4a;" title="Gasto 3d">3d</th>
+        <th class="num" title="Conv. 3d">Cv.3d</th>
+        <th class="num" title="ROAS 3d">R.3d</th>
+    </tr>`;
+
+    container.innerHTML = `
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
+            <label style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" class="worst-select-all" onchange="toggleAllWorst(this.checked)" style="width:16px;height:16px;">
+                <span style="font-size:13px;">Marcar todos</span>
+            </label>
+            <button class="btn btn-danger btn-pause-worst" onclick="pauseWorstAds()" style="padding:8px 20px;font-size:13px;" disabled>
+                Pausar Selecionados
+            </button>
+            <span class="worst-pause-count" style="font-size:12px;color:#888;"></span>
+        </div>` +
+    Object.entries(groups).map(([campName, ads]) => {
+        const sorted = [...ads].sort(sortFn);
+        return `<div class="creative-group">
+            <div class="creative-group-title">${campName}</div>
+            <div class="step" style="overflow-x:auto;padding:12px;">
+                <table class="dash-table"><thead>${worstHead}</thead><tbody>
+                ${sorted.map(a => {
+                    const st = a._recentConv > 0
+                        ? '<span style="color:#ff9800;font-weight:700;font-size:11px;" title="Ainda vendendo nos ult. 3 dias">MEDIO</span>'
+                        : '<span style="color:#f44336;font-weight:700;font-size:11px;" title="Sem vendas nos ult. 3 dias">RUIM</span>';
+                    const staleTag = a._isStale ? ' <span title="Tambem sugerido para pausa" style="color:#f44336;font-size:11px;">&#9724;</span>' : '';
+                    return `<tr style="${a._recentConv > 0 ? '' : 'opacity:0.7;'}">
+                        <td><input type="checkbox" class="worst-check" data-adid="${a.ad_id}" onchange="updateWorstPauseCount()" style="width:15px;height:15px;cursor:pointer;"></td>
+                        <td class="camp-name" title="${a.ad_name}">${a.ad_name}${staleTag}</td>
+                        <td class="num">${a.days_active || 0}d</td>
+                        <td class="num">${velCell(a)}</td>
+                        <td class="num" style="color:#888;">${a.share_total || 0}%</td>
+                        <td class="num" style="color:#f44336;font-weight:600;">${a.share_3d || 0}%</td>
+                        <td class="num">${st}</td>
+                        <td class="num" style="border-left:1px solid #2a2a4a;">${R$(a.spend)}</td>
+                        <td class="num">${a.conversions}</td>
+                        <td class="num">${roasBadge(a.roas)}</td>
+                        <td class="num" style="border-left:1px solid #2a2a4a;color:#6c5ce7;">${roasBadge(a.camp_roas || 0)}</td>
+                        <td class="num" style="border-left:1px solid #2a2a4a;">${R$(a.spend_7d || 0)}</td>
+                        <td class="num">${a.conv_7d || 0}</td>
+                        <td class="num">${roasBadge(a.roas_7d || 0)}</td>
+                        <td class="num" style="border-left:1px solid #2a2a4a;">${R$(a.spend_3d || 0)}</td>
+                        <td class="num">${a.conv_3d || 0}</td>
+                        <td class="num">${roasBadge(a.roas_3d || 0)}</td>
+                    </tr>`;
+                }).join('')}
+                </tbody></table>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function sortWorstNew(key) {
+    if (worstNewSort.key === key) worstNewSort.asc = !worstNewSort.asc;
+    else { worstNewSort.key = key; worstNewSort.asc = key === 'ad_name'; }
+    renderWorstSection(worstNew, document.getElementById('worstNewContainer'), worstNewSort, 'sortWorstNew');
+}
+
+function sortWorstOld(key) {
+    if (worstOldSort.key === key) worstOldSort.asc = !worstOldSort.asc;
+    else { worstOldSort.key = key; worstOldSort.asc = key === 'ad_name'; }
+    renderWorstSection(worstOld, document.getElementById('worstOldContainer'), worstOldSort, 'sortWorstOld');
+}
+
+function toggleAllWorst(checked) {
+    document.querySelectorAll('.worst-check').forEach(cb => cb.checked = checked);
+    updateWorstPauseCount();
+}
+
+function updateWorstPauseCount() {
+    const checked = document.querySelectorAll('.worst-check:checked');
+    document.querySelectorAll('.btn-pause-worst').forEach(btn => btn.disabled = checked.length === 0);
+    document.querySelectorAll('.worst-pause-count').forEach(el => el.textContent = checked.length > 0 ? `${checked.length} selecionado(s)` : '');
+}
+
+async function pauseWorstAds() {
+    const checked = document.querySelectorAll('.worst-check:checked');
+    if (checked.length === 0) return;
+
+    const adIds = Array.from(checked).map(cb => cb.dataset.adid);
+
+    if (!confirm(`Pausar ${adIds.length} anuncio(s) no Meta Ads?`)) return;
+
+    var btns = document.querySelectorAll('.btn-pause-worst');
+    btns.forEach(function(b) { b.disabled = true; b.textContent = 'Pausando...'; });
+
+    try {
+        const result = await api('/api/pause-ads', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ad_ids: adIds}),
+        });
+
+        result.forEach(r => {
+            const cb = document.querySelector(`.worst-check[data-adid="${r.id}"]`);
+            if (!cb) return;
+            const row = cb.closest('tr');
+            if (r.status === 'paused') {
+                row.style.opacity = '0.3';
+                row.style.textDecoration = 'line-through';
+                cb.disabled = true;
+                cb.checked = false;
+            }
+        });
+
+        const paused = result.filter(r => r.status === 'paused').length;
+        showAlert(`${paused}/${adIds.length} anuncio(s) pausado(s)!`, 'success');
+    } catch (e) {
+        showAlert('Erro ao pausar: ' + e.message, 'error');
+    } finally {
+        btns.forEach(function(b) { b.textContent = 'Pausar Selecionados'; });
+        updateWorstPauseCount();
+    }
+}
+
+// ── Sugerir Pausa ──
+let staleAds = [];
+
+function renderStale(data) {
+    staleAds = data;
+    const container = document.getElementById('staleContainer');
+    if (data.length===0) { container.innerHTML = '<p style="color:#4caf50;text-align:center;padding:40px;">Nenhum criativo antigo sem resultados encontrado</p>'; return; }
+
+    const zeroConv = data.filter(a => a.conversions === 0);
+    const lowPerf = data.filter(a => a.conversions > 0);
+    const wasteSpend = zeroConv.reduce((s,a) => s + a.spend, 0);
+    const lowSpend = lowPerf.reduce((s,a) => s + a.spend, 0);
+    const lowRevenue = lowPerf.reduce((s,a) => s + a.revenue, 0);
+    container.innerHTML = `
+        <div class="dash-summary" style="grid-template-columns: repeat(4,1fr); margin-bottom:16px;">
+            <div class="dash-card orange"><div class="dash-value">${data.length}</div><div class="dash-label">Criativos para avaliar</div></div>
+            <div class="dash-card" style="border-color:#f44336;"><div class="dash-value" style="color:#f44336;">${zeroConv.length}</div><div class="dash-label">Sem nenhuma venda</div></div>
+            <div class="dash-card" style="border-color:#f44336;"><div class="dash-value" style="color:#f44336;">${R$(wasteSpend)}</div><div class="dash-label">Gasto sem retorno</div></div>
+            <div class="dash-card" style="border-color:#ff9800;"><div class="dash-value" style="color:#ff9800;">${lowPerf.length}</div><div class="dash-label">Baixa performance</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
+            <label style="margin:0;display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="staleSelectAll" onchange="toggleAllStale(this.checked)" style="width:16px;height:16px;">
+                <span style="font-size:13px;">Marcar todos</span>
+            </label>
+            <button class="btn btn-danger" id="btnPauseSelected" onclick="pauseSelectedAds()" style="padding:8px 20px;font-size:13px;" disabled>
+                Pausar Selecionados
+            </button>
+            <span id="pauseCount" style="font-size:12px;color:#888;"></span>
+        </div>
+        <div id="staleGroupsContainer"></div>`;
+
+    // Adicionar urgência
+    staleAds.forEach(a => {
+        const d = a.days_active || 0;
+        if (d >= 21) { a._urgency = 3; a._urgLabel = 'CRITICO'; a._urgColor = '#f44336'; a._urgTip = '21+ dias ativo sem nenhuma conversao. Forte candidato a pausar.'; }
+        else if (d >= 15) { a._urgency = 2; a._urgLabel = 'ALTO'; a._urgColor = '#ff9800'; a._urgTip = '15-20 dias sem conversao. Considere pausar em breve.'; }
+        else { a._urgency = 1; a._urgLabel = 'MODERADO'; a._urgColor = '#4f8cff'; a._urgTip = '7-14 dias sem conversao. Monitorar, pode ser cedo para pausar.'; }
+    });
+
+    renderStaleBody();
+}
+
+let staleSort = { key: '_urgency', asc: false };
+
+function renderStaleBody() {
+    // Agrupar por campanha
+    const groups = {};
+    staleAds.forEach(a => {
+        const cn = a.campaign_name || 'Sem campanha';
+        if (!groups[cn]) groups[cn] = [];
+        groups[cn].push(a);
+    });
+
+    const reasonColors = {
+        'SEM VENDAS': '#f44336',
+        'SEM INVESTIMENTO': '#ff9800',
+        'SEM TENDENCIA': '#ff7043',
+        'IGNORADO': '#888'
+    };
+    const reasonTips = {
+        'SEM VENDAS': 'Criativo com gasto mas zero conversoes no periodo',
+        'SEM INVESTIMENTO': 'Meta nao esta investindo nenhum valor neste criativo (0 impressoes)',
+        'SEM TENDENCIA': 'Poucas conversoes e perdendo participacao na campanha. Sem sinais de melhora',
+        'IGNORADO': 'Participacao insignificante (<0.5%) no gasto da campanha e sem vendas relevantes'
+    };
+
+    const staleHead = `<tr>
+        <th style="width:40px;"></th>
+        <th title="Nome do anuncio">Criativo</th>
+        <th class="num" title="Motivo da sugestao de pausa">Motivo</th>
+        <th class="num" title="Nivel de urgencia">Urg.</th>
+        <th class="num" title="Dias desde a criacao">Dias</th>
+        <th class="num" title="Participacao no gasto da campanha no periodo" style="border-left:1px solid #2a2a4a;">Part.</th>
+        <th class="num" title="Participacao nos ultimos 7 dias">P.7d</th>
+        <th class="num" title="Participacao nos ultimos 3 dias">P.3d</th>
+        <th class="num" title="Gasto no periodo" style="border-left:1px solid #2a2a4a;">Gasto</th>
+        <th class="num" title="Conversoes no periodo">Conv.</th>
+        <th class="num" title="ROAS no periodo">ROAS</th>
+        <th class="num" title="Gasto ultimos 7 dias" style="border-left:1px solid #2a2a4a;">G.7d</th>
+        <th class="num" title="Conv. ultimos 7 dias">Cv.7d</th>
+        <th class="num" title="ROAS ultimos 7 dias">R.7d</th>
+        <th class="num" title="Gasto ultimos 3 dias" style="border-left:1px solid #2a2a4a;">G.3d</th>
+        <th class="num" title="Conv. ultimos 3 dias">Cv.3d</th>
+        <th class="num" title="ROAS ultimos 3 dias">R.3d</th>
+    </tr>`;
+
+    document.getElementById('staleGroupsContainer').innerHTML = Object.entries(groups).map(([campName, ads]) => {
+        const sorted = [...ads].sort((a, b) => b._urgency - a._urgency || b.spend - a.spend);
+        return `<div class="creative-group">
+            <div class="creative-group-title">${campName}</div>
+            <div class="step" style="overflow-x:auto;padding:12px;">
+                <table class="dash-table"><thead>${staleHead}</thead><tbody>
+                ${sorted.map((a, i) => {
+                    const reason = a.reason || 'SEM VENDAS';
+                    const rColor = reasonColors[reason] || '#f44336';
+                    const rTip = reasonTips[reason] || '';
+                    return `<tr id="stale_row_${a.ad_id}" style="${reason === 'IGNORADO' || reason === 'SEM INVESTIMENTO' ? 'opacity:0.6;' : ''}">
+            <td><input type="checkbox" class="stale-check" data-idx="${i}" data-adid="${a.ad_id}" onchange="updatePauseCount()" style="width:15px;height:15px;cursor:pointer;"></td>
+            <td class="camp-name" title="${a.ad_name}">${a.ad_name}</td>
+            <td class="num"><span style="color:${rColor};font-weight:700;font-size:10px;" title="${rTip}">${reason}</span></td>
+            <td class="num"><span style="color:${a._urgColor};font-weight:700;font-size:10px;" title="${a._urgTip || ''}">${a._urgLabel}</span></td>
+            <td class="num" style="color:#ff9800;">${a.days_active}d</td>
+            <td class="num" style="color:#888;border-left:1px solid #2a2a4a;">${a.share || 0}%</td>
+            <td class="num" style="color:${(a.share_7d || 0) < (a.share || 0) * 0.7 ? '#f44336' : '#888'};">${a.share_7d || 0}%</td>
+            <td class="num" style="color:${(a.share_3d || 0) < (a.share || 0) * 0.5 ? '#f44336' : '#888'};">${a.share_3d || 0}%</td>
+            <td class="num" style="border-left:1px solid #2a2a4a;">${R$(a.spend)}</td>
+            <td class="num">${a.conversions}</td>
+            <td class="num">${roasBadge(a.roas)}</td>
+            <td class="num" style="border-left:1px solid #2a2a4a;">${R$(a.spend_7d || 0)}</td>
+            <td class="num">${a.conv_7d || 0}</td>
+            <td class="num">${roasBadge(a.roas_7d || 0)}</td>
+            <td class="num" style="border-left:1px solid #2a2a4a;">${R$(a.spend_3d || 0)}</td>
+            <td class="num">${a.conv_3d || 0}</td>
+            <td class="num">${roasBadge(a.roas_3d || 0)}</td>
+        </tr>`}).join('')}
+                </tbody></table>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function toggleAllStale(checked) {
+    document.querySelectorAll('.stale-check').forEach(cb => cb.checked = checked);
+    updatePauseCount();
+}
+
+function updatePauseCount() {
+    const checked = document.querySelectorAll('.stale-check:checked');
+    const btn = document.getElementById('btnPauseSelected');
+    const count = document.getElementById('pauseCount');
+    btn.disabled = checked.length === 0;
+    count.textContent = checked.length > 0 ? `${checked.length} selecionado(s)` : '';
+}
+
+async function pauseSelectedAds() {
+    const checked = document.querySelectorAll('.stale-check:checked');
+    if (checked.length === 0) return;
+
+    const adIds = Array.from(checked).map(cb => cb.dataset.adid);
+
+    if (!confirm(`Pausar ${adIds.length} anuncio(s) no Meta Ads?\n\nEssa acao vai pausar os criativos diretamente no Gerenciador de Anuncios.`)) return;
+
+    const btn = document.getElementById('btnPauseSelected');
+    btn.disabled = true;
+    btn.textContent = 'Pausando...';
+
+    try {
+        const result = await api('/api/pause-ads', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ad_ids: adIds}),
+        });
+
+        // Marcar linhas pausadas
+        result.forEach(r => {
+            const cb = document.querySelector(`.stale-check[data-adid="${r.id}"]`);
+            if (!cb) return;
+            const row = cb.closest('tr');
+            if (r.status === 'paused') {
+                row.style.opacity = '0.4';
+                row.style.textDecoration = 'line-through';
+                cb.disabled = true;
+                cb.checked = false;
+            }
+        });
+
+        const paused = result.filter(r => r.status === 'paused').length;
+        showAlert(`${paused}/${adIds.length} anuncio(s) pausado(s) com sucesso!`, 'success');
+    } catch (e) {
+        showAlert('Erro ao pausar: ' + e.message, 'error');
+    } finally {
+        btn.textContent = 'Pausar Selecionados';
+        updatePauseCount();
+    }
+}
+
+// ── Token expiry check ──
+async function checkTokenExpiry() {
+    try {
+        const resp = await fetch('/api/token-info');
+        const data = await resp.json();
+        if (!data.ok) return;
+
+        const warn = document.getElementById('tokenWarning');
+        const days = data.days_left;
+
+        if (days < 0 || days === null) return;
+
+        warn.style.display = 'inline-block';
+
+        if (days <= 0) {
+            warn.textContent = 'TOKEN EXPIRADO! Gere um novo token.';
+            warn.style.background = '#3a1a1a';
+            warn.style.color = '#f44336';
+        } else if (days <= 7) {
+            warn.textContent = `Token expira em ${days} dia(s)! Renove em breve.`;
+            warn.style.background = '#3a2a1a';
+            warn.style.color = '#ff9800';
+        } else if (days <= 15) {
+            warn.textContent = `Token expira em ${days} dias`;
+            warn.style.background = '#2a2a3a';
+            warn.style.color = '#4f8cff';
+        } else {
+            warn.textContent = `Token: ${days}d restantes`;
+            warn.style.background = '#1a2a1a';
+            warn.style.color = '#4caf50';
+        }
+    } catch(e) {}
+}
+
+// ── Rate limit monitor ──
+async function updateRateLimit() {
+    try {
+        var resp = await fetch('/api/rate-limit');
+        var data = await resp.json();
+        if (!data.ok) return;
+        var r = data.data;
+        var badge = document.getElementById('rateLimitBadge');
+        badge.style.display = 'inline-block';
+        var pct = r.call_count || 0;
+        badge.textContent = 'API: ' + pct + '%';
+        badge.title = 'Uso da API Meta: ' + pct + '% das chamadas | CPU: ' + r.total_cputime + '% | Tier: ' + r.tier + ' | Max por lote: ' + data.max_batch;
+        if (pct > 80) { badge.style.background = '#3a1a1a'; badge.style.color = '#f44336'; }
+        else if (pct > 50) { badge.style.background = '#3a2a1a'; badge.style.color = '#ff9800'; }
+        else { badge.style.background = '#1a2a1a'; badge.style.color = '#4caf50'; }
+    } catch(e) {}
+}
+
+// ── Init ──
+checkConnection();
+checkTokenExpiry();
+updateRateLimit();
+initDashDates();
+</script>
+
+</body>
+</html>

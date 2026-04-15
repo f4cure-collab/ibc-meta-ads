@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IBC Dashboard - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f1117;
+            color: #e1e4e8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .login-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            padding: 48px 40px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .login-card h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #f0f6fc;
+            text-align: center;
+        }
+        .login-card .subtitle {
+            color: #8b949e;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 32px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: #c9d1d9;
+            margin-bottom: 6px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px 14px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            color: #e1e4e8;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus {
+            border-color: #58a6ff;
+        }
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 8px;
+        }
+        .btn-login:hover { background: #2ea043; }
+        .btn-login:disabled { background: #21262d; cursor: not-allowed; }
+        .error-msg {
+            background: #da363340;
+            border: 1px solid #da3633;
+            color: #f85149;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .logo {
+            text-align: center;
+            margin-bottom: 24px;
+            font-size: 36px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="logo">&#128202;</div>
+        <h1>IBC Dashboard</h1>
+        <p class="subtitle">Performance de Campanhas Meta Ads</p>
+
+        {% if error %}
+        <div class="error-msg">{{ error }}</div>
+        {% endif %}
+
+        <div id="error-box" class="error-msg" style="display:none"></div>
+
+        <form id="login-form">
+            <div class="form-group">
+                <label for="username">Usu&aacute;rio</label>
+                <input type="text" id="username" name="username" autocomplete="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password">Senha</label>
+                <input type="password" id="password" name="password" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn-login" id="btn-submit">Entrar</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btn-submit');
+            const errBox = document.getElementById('error-box');
+            btn.disabled = true;
+            btn.textContent = 'Entrando...';
+            errBox.style.display = 'none';
+
+            try {
+                const resp = await fetch('/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        username: document.getElementById('username').value,
+                        password: document.getElementById('password').value,
+                    }),
+                });
+                const data = await resp.json();
+                if (data.ok) {
+                    window.location.href = '/dashboard';
+                } else {
+                    errBox.textContent = data.error || 'Credenciais inv\u00e1lidas';
+                    errBox.style.display = 'block';
+                }
+            } catch (err) {
+                errBox.textContent = 'Erro de conex\u00e3o';
+                errBox.style.display = 'block';
+            }
+            btn.disabled = false;
+            btn.textContent = 'Entrar';
+        });
+    </script>
+</body>
+</html>
