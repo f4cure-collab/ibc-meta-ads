@@ -1919,17 +1919,43 @@ def admin_update_token():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+# ── Scheduled refresh ──────────────────────────────────────────────────
+
+def _scheduled_refresh():
+    """Pre-carrega dados de campanhas e criativos no cache automaticamente."""
+    try:
+        print("[SCHEDULER] Iniciando atualizacao automatica...")
+        clear_expired()
+
+        with app.test_request_context():
+            # Simular periodo padrao: ultimos 17 dias ate ontem
+            from datetime import datetime, timedelta
+            dt_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            dt_from = (datetime.now() - timedelta(days=17)).strftime("%Y-%m-%d")
+
+            # Pre-carregar campanhas
+            print("[SCHEDULER] Carregando campanhas...")
+            with app.test_client() as client:
+                client.get(f"/api/dashboard/campaigns?since={dt_from}&until={dt_to}&status=all")
+                print("[SCHEDULER] Campanhas OK")
+
+            print("[SCHEDULER] Atualizacao concluida!")
+    except Exception as e:
+        print(f"[SCHEDULER] Erro: {e}")
+
+
 # ── Run ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("=" * 60)
     print("  IBC Dashboard de Performance - http://localhost:5001")
-    print("  Login: ibcadmin / ibcadmin")
+    print(f"  Login: {SUPER_ADMIN_EMAIL}")
     print("=" * 60)
 
     # Iniciar scheduler para atualização automática às 2h
     start_scheduler(_scheduled_refresh)
-    print("  Scheduler ativo: atualização automática às 2:00")
+    print("  Scheduler ativo: atualizacao automatica as 2:00")
+    print("  Cache TTL: 20 horas")
     print("=" * 60)
 
     app.run(host="0.0.0.0", port=5001, debug=True)
