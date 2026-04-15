@@ -1567,7 +1567,7 @@ def api_ad_insights(ad_id):
                 "story_id": (ad_info.get("creative") or {}).get("effective_object_story_id", "") or _find_story_id(ad_info),
                 "page_id": ((ad_info.get("creative") or {}).get("object_story_spec") or {}).get("page_id", ""),
                 "instagram_user_id": ((ad_info.get("creative") or {}).get("object_story_spec") or {}).get("instagram_user_id", ""),
-                "ad_manager_url": f"https://www.facebook.com/adsmanager/manage/ads?act={ACCOUNT_ID.replace('act_','')}&selected_ad_ids={ad_id}",
+                "ad_manager_url": f"https://adsmanager.facebook.com/adsmanager/manage/ads?act={ACCOUNT_ID.replace('act_','')}&business_id=984796621536780&selected_campaign_ids={campaign_id}&selected_ad_ids={ad_id}&filter_set=SEARCH_BY_ADGROUP_IDS-STRING_SET%1EANY%1E%5B%22{ad_id}%22%5D",
             },
             "daily": daily,
             "totals": totals,
