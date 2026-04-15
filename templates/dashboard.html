@@ -715,7 +715,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th>Sexo</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">ROAS</th><th style="text-align:right;">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th>Sexo</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">CPA</th></tr></thead>
                             <tbody id="bd-gender"></tbody>
                         </table>
                     </div>
@@ -729,7 +729,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th>Faixa</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">ROAS</th><th style="text-align:right;">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th>Faixa</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">CPA</th></tr></thead>
                             <tbody id="bd-age"></tbody>
                         </table>
                     </div>
@@ -3772,7 +3772,6 @@ async function loadBreakdowns() {
             return '<tr><td style="color:var(--t1);font-weight:600;">' + g.gender + '</td>' +
                 '<td style="text-align:right;">' + fmtM(g.spend) + '</td>' +
                 '<td style="text-align:right;color:var(--accent2);">' + g.conversions + '</td>' +
-                '<td style="text-align:right;color:' + roasC(g.roas) + ';font-weight:700;">' + fmtR(g.roas) + '</td>' +
                 '<td style="text-align:right;">' + fmtM(g.cpa) + '</td></tr>';
         }).join('');
 
@@ -3781,7 +3780,6 @@ async function loadBreakdowns() {
             return '<tr><td style="color:var(--t1);font-weight:600;">' + a.age + '</td>' +
                 '<td style="text-align:right;">' + fmtM(a.spend) + '</td>' +
                 '<td style="text-align:right;color:var(--accent2);">' + a.conversions + '</td>' +
-                '<td style="text-align:right;color:' + roasC(a.roas) + ';font-weight:700;">' + fmtR(a.roas) + '</td>' +
                 '<td style="text-align:right;">' + fmtM(a.cpa) + '</td></tr>';
         }).join('');
 
@@ -3807,7 +3805,7 @@ var _bdCharts = {};
 function renderBdCharts(d) {
     Object.values(_bdCharts).forEach(function(c){ if(c) c.destroy(); });
 
-    // ── Sexo: Doughnut (pizza moderna) ──
+    // ── Sexo: Doughnut ──
     _bdCharts.gender = new Chart($('#chart-gender'), {
         type: 'doughnut',
         data: {
@@ -3835,7 +3833,7 @@ function renderBdCharts(d) {
                     callbacks: {
                         afterLabel: function(ctx) {
                             var g = d.gender[ctx.dataIndex];
-                            return 'Gasto: R$ ' + g.spend.toLocaleString('pt-BR') + '\nROAS: ' + g.roas + 'x\nCPA: R$ ' + g.cpa.toLocaleString('pt-BR');
+                            return 'Gasto: R$ ' + g.spend.toLocaleString('pt-BR') + '\nCPA: R$ ' + g.cpa.toLocaleString('pt-BR');
                         }
                     }
                 }
@@ -3843,7 +3841,7 @@ function renderBdCharts(d) {
         }
     });
 
-    // ── Idade: Barras horizontais gradiente ──
+    // ── Idade: Barras conversões + linha CPA ──
     var ageSorted = d.age.slice().sort(function(a,b){ return a.age.localeCompare(b.age); });
     _bdCharts.age = new Chart($('#chart-age'), {
         type: 'bar',
@@ -3861,12 +3859,12 @@ function renderBdCharts(d) {
                     borderSkipped: false
                 },
                 {
-                    label: 'ROAS',
-                    data: ageSorted.map(function(a){ return a.roas; }),
+                    label: 'CPA',
+                    data: ageSorted.map(function(a){ return a.cpa; }),
                     type: 'line',
-                    borderColor: 'rgba(63,223,133,1)',
-                    backgroundColor: 'rgba(63,223,133,.15)',
-                    pointBackgroundColor: 'rgba(63,223,133,1)',
+                    borderColor: 'rgba(255,200,87,1)',
+                    backgroundColor: 'rgba(255,200,87,.1)',
+                    pointBackgroundColor: 'rgba(255,200,87,1)',
                     pointRadius: 5,
                     pointHoverRadius: 7,
                     borderWidth: 2,
@@ -3886,7 +3884,7 @@ function renderBdCharts(d) {
             scales: {
                 x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
                 y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.08)' } },
-                y1: { position: 'right', ticks: { color: '#3fdf85', font: { size: 10 }, callback: function(v){ return v+'x'; } }, grid: { display: false } }
+                y1: { position: 'right', ticks: { color: '#ffc857', font: { size: 10 }, callback: function(v){ return 'R$'+v; } }, grid: { display: false } }
             }
         }
     });
