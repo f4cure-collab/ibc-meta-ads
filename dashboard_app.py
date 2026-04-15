@@ -1732,6 +1732,19 @@ def _find_story_id(ad_info):
         sid = ac.get("effective_object_story_id", "")
         if sid:
             return sid
+    # Tentar buscar o effective_object_story_id do criativo diretamente
+    creative = ad_info.get("creative", {})
+    creative_id = creative.get("id", "")
+    if creative_id:
+        try:
+            cr_data = meta_get(creative_id, {
+                "fields": "effective_object_story_id"
+            })
+            sid = cr_data.get("effective_object_story_id", "")
+            if sid:
+                return sid
+        except Exception:
+            pass
     return ""
 
 
