@@ -710,30 +710,46 @@
             </div>
             <div id="bd-loading" style="display:none;padding:20px;text-align:center;color:var(--accent);">Carregando dados demograficos...</div>
             <div id="bd-content" style="display:none;">
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
-                    <!-- Sexo -->
+                <!-- Sexo -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
                     <div class="panel" style="padding:16px;">
-                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo</h4>
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
                             <thead><tr style="color:var(--t3);"><th>Sexo</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">ROAS</th><th style="text-align:right;">CPA</th></tr></thead>
                             <tbody id="bd-gender"></tbody>
                         </table>
                     </div>
-                    <!-- Idade -->
                     <div class="panel" style="padding:16px;">
-                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade</h4>
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo — Grafico</h4>
+                        <canvas id="chart-gender" height="200"></canvas>
+                    </div>
+                </div>
+                <!-- Idade -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+                    <div class="panel" style="padding:16px;">
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
                             <thead><tr style="color:var(--t3);"><th>Faixa</th><th style="text-align:right;">Gasto</th><th style="text-align:right;">Conv.</th><th style="text-align:right;">ROAS</th><th style="text-align:right;">CPA</th></tr></thead>
                             <tbody id="bd-age"></tbody>
                         </table>
                     </div>
-                    <!-- Dia da Semana -->
                     <div class="panel" style="padding:16px;">
-                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana</h4>
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade — Grafico</h4>
+                        <canvas id="chart-age" height="200"></canvas>
+                    </div>
+                </div>
+                <!-- Dia da Semana -->
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+                    <div class="panel" style="padding:16px;">
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
                             <thead><tr style="color:var(--t3);"><th>Dia</th><th style="text-align:right;">Gasto/dia</th><th style="text-align:right;">Conv/dia</th><th style="text-align:right;">ROAS</th></tr></thead>
                             <tbody id="bd-weekday"></tbody>
                         </table>
+                    </div>
+                    <div class="panel" style="padding:16px;">
+                        <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana — Grafico</h4>
+                        <canvas id="chart-weekday" height="200"></canvas>
                     </div>
                 </div>
             </div>
@@ -3777,11 +3793,71 @@ async function loadBreakdowns() {
                 '<td style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td></tr>';
         }).join('');
 
+        // Graficos
+        renderBdCharts(d);
+
         $('#bd-loading').style.display = 'none';
         $('#bd-content').style.display = 'block';
     } catch(e) {
         $('#bd-loading').innerHTML = '<span style="color:var(--red);">Erro: ' + e.message + '</span>';
     }
+}
+
+var _bdCharts = {};
+function renderBdCharts(d) {
+    // Destruir charts antigos
+    Object.values(_bdCharts).forEach(function(c){ if(c) c.destroy(); });
+
+    var chartOpts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
+            y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.1)' } },
+            y1: { position: 'right', ticks: { color: '#3fdf85', font: { size: 10 } }, grid: { display: false } }
+        }
+    };
+
+    // Sexo
+    _bdCharts.gender = new Chart($('#chart-gender'), {
+        type: 'bar',
+        data: {
+            labels: d.gender.map(function(g){ return g.gender; }),
+            datasets: [
+                { label: 'Conversoes', data: d.gender.map(function(g){ return g.conversions; }), backgroundColor: 'rgba(88,166,255,.7)', borderRadius: 6, yAxisID: 'y' },
+                { label: 'ROAS', data: d.gender.map(function(g){ return g.roas; }), backgroundColor: 'rgba(63,223,133,.7)', borderRadius: 6, yAxisID: 'y1' }
+            ]
+        },
+        options: chartOpts
+    });
+
+    // Idade (ordenar por faixa)
+    var ageSorted = d.age.slice().sort(function(a,b){ return a.age.localeCompare(b.age); });
+    _bdCharts.age = new Chart($('#chart-age'), {
+        type: 'bar',
+        data: {
+            labels: ageSorted.map(function(a){ return a.age; }),
+            datasets: [
+                { label: 'Conversoes', data: ageSorted.map(function(a){ return a.conversions; }), backgroundColor: 'rgba(188,140,255,.7)', borderRadius: 6, yAxisID: 'y' },
+                { label: 'ROAS', data: ageSorted.map(function(a){ return a.roas; }), backgroundColor: 'rgba(63,223,133,.7)', borderRadius: 6, yAxisID: 'y1' }
+            ]
+        },
+        options: chartOpts
+    });
+
+    // Dia da semana
+    _bdCharts.weekday = new Chart($('#chart-weekday'), {
+        type: 'bar',
+        data: {
+            labels: d.weekday.map(function(w){ return w.day.substring(0,3); }),
+            datasets: [
+                { label: 'Conv/dia', data: d.weekday.map(function(w){ return w.conv_avg; }), backgroundColor: 'rgba(255,149,88,.7)', borderRadius: 6, yAxisID: 'y' },
+                { label: 'ROAS', data: d.weekday.map(function(w){ return w.roas; }), backgroundColor: 'rgba(63,223,133,.7)', borderRadius: 6, yAxisID: 'y1' }
+            ]
+        },
+        options: chartOpts
+    });
 }
 
 // Atualizar breakdown quando clicar em campanha na tabela
