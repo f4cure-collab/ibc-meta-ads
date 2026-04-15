@@ -3805,58 +3805,136 @@ async function loadBreakdowns() {
 
 var _bdCharts = {};
 function renderBdCharts(d) {
-    // Destruir charts antigos
     Object.values(_bdCharts).forEach(function(c){ if(c) c.destroy(); });
 
-    var chartOpts = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: {
-            x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
-            y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.1)' } },
-            y1: { position: 'right', ticks: { color: '#3fdf85', font: { size: 10 } }, grid: { display: false } }
-        }
-    };
-
-    // Sexo
+    // ── Sexo: Doughnut (pizza moderna) ──
     _bdCharts.gender = new Chart($('#chart-gender'), {
-        type: 'bar',
+        type: 'doughnut',
         data: {
-            labels: d.gender.map(function(g){ return g.gender; }),
-            datasets: [
-                { label: 'Conversoes', data: d.gender.map(function(g){ return g.conversions; }), backgroundColor: 'rgba(88,166,255,.7)', borderRadius: 6, yAxisID: 'y' },
-                { label: 'ROAS', data: d.gender.map(function(g){ return g.roas; }), backgroundColor: 'rgba(63,223,133,.7)', borderRadius: 6, yAxisID: 'y1' }
-            ]
+            labels: d.gender.map(function(g){ return g.gender + ' (' + g.conversions + ' vendas)'; }),
+            datasets: [{
+                data: d.gender.map(function(g){ return g.conversions; }),
+                backgroundColor: ['rgba(88,166,255,.8)', 'rgba(255,107,107,.8)', 'rgba(108,92,231,.8)'],
+                borderColor: ['rgba(88,166,255,1)', 'rgba(255,107,107,1)', 'rgba(108,92,231,1)'],
+                borderWidth: 2,
+                hoverOffset: 8
+            }]
         },
-        options: chartOpts
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '55%',
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#aab4c2', font: { size: 12 }, padding: 16, usePointStyle: true, pointStyleWidth: 10 } },
+                tooltip: {
+                    backgroundColor: 'rgba(14,19,32,.95)',
+                    borderColor: 'rgba(88,166,255,.3)',
+                    borderWidth: 1,
+                    titleColor: '#e6edf3',
+                    bodyColor: '#aab4c2',
+                    callbacks: {
+                        afterLabel: function(ctx) {
+                            var g = d.gender[ctx.dataIndex];
+                            return 'Gasto: R$ ' + g.spend.toLocaleString('pt-BR') + '\nROAS: ' + g.roas + 'x\nCPA: R$ ' + g.cpa.toLocaleString('pt-BR');
+                        }
+                    }
+                }
+            }
+        }
     });
 
-    // Idade (ordenar por faixa)
+    // ── Idade: Barras horizontais gradiente ──
     var ageSorted = d.age.slice().sort(function(a,b){ return a.age.localeCompare(b.age); });
     _bdCharts.age = new Chart($('#chart-age'), {
         type: 'bar',
         data: {
             labels: ageSorted.map(function(a){ return a.age; }),
             datasets: [
-                { label: 'Conversoes', data: ageSorted.map(function(a){ return a.conversions; }), backgroundColor: 'rgba(188,140,255,.7)', borderRadius: 6, yAxisID: 'y' },
-                { label: 'ROAS', data: ageSorted.map(function(a){ return a.roas; }), backgroundColor: 'rgba(63,223,133,.7)', borderRadius: 6, yAxisID: 'y1' }
+                {
+                    label: 'Conversoes',
+                    data: ageSorted.map(function(a){ return a.conversions; }),
+                    backgroundColor: ageSorted.map(function(a,i){
+                        var colors = ['rgba(88,166,255,.7)','rgba(86,212,221,.7)','rgba(126,231,135,.7)','rgba(188,140,255,.7)','rgba(255,126,182,.7)','rgba(255,200,87,.7)','rgba(255,149,88,.7)'];
+                        return colors[i % colors.length];
+                    }),
+                    borderRadius: 8,
+                    borderSkipped: false
+                },
+                {
+                    label: 'ROAS',
+                    data: ageSorted.map(function(a){ return a.roas; }),
+                    type: 'line',
+                    borderColor: 'rgba(63,223,133,1)',
+                    backgroundColor: 'rgba(63,223,133,.15)',
+                    pointBackgroundColor: 'rgba(63,223,133,1)',
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y1'
+                }
             ]
         },
-        options: chartOpts
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true, position: 'top', labels: { color: '#6e7886', font: { size: 10 }, usePointStyle: true, padding: 12 } },
+                tooltip: { backgroundColor: 'rgba(14,19,32,.95)', borderColor: 'rgba(88,166,255,.3)', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#aab4c2' }
+            },
+            scales: {
+                x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
+                y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.08)' } },
+                y1: { position: 'right', ticks: { color: '#3fdf85', font: { size: 10 }, callback: function(v){ return v+'x'; } }, grid: { display: false } }
+            }
+        }
     });
 
-    // Dia da semana
+    // ── Dia da semana: Barras + Linha de ROAS ──
     _bdCharts.weekday = new Chart($('#chart-weekday'), {
         type: 'bar',
         data: {
             labels: d.weekday.map(function(w){ return w.day.substring(0,3); }),
             datasets: [
-                { label: 'Conv/dia', data: d.weekday.map(function(w){ return w.conv_avg; }), backgroundColor: 'rgba(255,149,88,.7)', borderRadius: 6, yAxisID: 'y' },
-                { label: 'ROAS', data: d.weekday.map(function(w){ return w.roas; }), backgroundColor: 'rgba(63,223,133,.7)', borderRadius: 6, yAxisID: 'y1' }
+                {
+                    label: 'Conv/dia',
+                    data: d.weekday.map(function(w){ return w.conv_avg; }),
+                    backgroundColor: d.weekday.map(function(w){
+                        return w.roas >= 1 ? 'rgba(63,223,133,.6)' : w.roas >= 0.7 ? 'rgba(255,200,87,.6)' : 'rgba(255,107,107,.6)';
+                    }),
+                    borderRadius: 8,
+                    borderSkipped: false
+                },
+                {
+                    label: 'ROAS',
+                    data: d.weekday.map(function(w){ return w.roas; }),
+                    type: 'line',
+                    borderColor: 'rgba(88,166,255,1)',
+                    backgroundColor: 'rgba(88,166,255,.1)',
+                    pointBackgroundColor: 'rgba(88,166,255,1)',
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y1'
+                }
             ]
         },
-        options: chartOpts
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true, position: 'top', labels: { color: '#6e7886', font: { size: 10 }, usePointStyle: true, padding: 12 } },
+                tooltip: { backgroundColor: 'rgba(14,19,32,.95)', borderColor: 'rgba(88,166,255,.3)', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#aab4c2' }
+            },
+            scales: {
+                x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
+                y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.08)' } },
+                y1: { position: 'right', ticks: { color: '#58a6ff', font: { size: 10 }, callback: function(v){ return v+'x'; } }, grid: { display: false } }
+            }
+        }
     });
 }
 
