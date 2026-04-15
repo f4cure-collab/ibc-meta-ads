@@ -1782,6 +1782,50 @@ def api_post_comments(story_id):
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
+# ── Auto Update ────────────────────────────────────────────────────────
+
+@app.route("/api/admin/check-update")
+def api_check_update():
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        import subprocess
+        result = subprocess.run(["git", "fetch", "origin", "master"], capture_output=True, text=True, timeout=30,
+                                cwd=os.path.dirname(__file__))
+        local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                               cwd=os.path.dirname(__file__)).stdout.strip()
+        remote = subprocess.run(["git", "rev-parse", "origin/master"], capture_output=True, text=True,
+                                cwd=os.path.dirname(__file__)).stdout.strip()
+        has_update = local != remote
+        return jsonify({
+            "ok": True,
+            "has_update": has_update,
+            "local": local[:7] if local else "?",
+            "remote": remote[:7] if remote else "?",
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/admin/apply-update", methods=["POST"])
+def api_apply_update():
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        import subprocess
+        cwd = os.path.dirname(__file__)
+        subprocess.run(["git", "stash"], capture_output=True, text=True, cwd=cwd, timeout=15)
+        pull = subprocess.run(["git", "pull", "origin", "master"], capture_output=True, text=True, cwd=cwd, timeout=60)
+        pip = subprocess.run(["pip", "install", "-r", "requirements.txt"], capture_output=True, text=True, cwd=cwd, timeout=120)
+        return jsonify({
+            "ok": True,
+            "message": "Atualizado! Reinicie o servico para aplicar.",
+            "git_output": pull.stdout + pull.stderr,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 # ── Rate Limit Info ────────────────────────────────────────────────────
 
 @app.route("/api/dashboard/rate-limit")

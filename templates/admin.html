@@ -102,6 +102,16 @@
         <div class="alert alert-error" id="userErr"></div>
     </div>
 
+    <!-- Atualizacao do Sistema -->
+    <div class="card" id="updateCard" style="display:none;">
+        <h2>Atualizacao do Sistema</h2>
+        <div id="updateStatus" style="padding:12px;border-radius:8px;margin-bottom:12px;"></div>
+        <button class="btn btn-primary" id="btnCheckUpdate" onclick="checkUpdate()">Verificar Atualizacoes</button>
+        <button class="btn" id="btnApplyUpdate" style="display:none;background:#4caf50;color:#fff;margin-left:8px;" onclick="applyUpdate()">Aplicar Atualizacao</button>
+        <div class="alert alert-success" id="updateOk"></div>
+        <div class="alert alert-error" id="updateErr"></div>
+    </div>
+
     <!-- Instrucoes -->
     <div class="card">
         <h2>Como gerar novo token</h2>
@@ -197,8 +207,10 @@ async function loadUsers() {
         if (!d.ok) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" style="color:#f44336;">'+d.error+'</td></tr>'; return; }
         _isSuper = d.is_super;
 
-        // Mostrar token card só para super admin
+        // Mostrar cards só para super admin
         document.getElementById('tokenCard').style.display = _isSuper ? 'block' : 'none';
+        document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
+        if (_isSuper) checkUpdate();
 
         var body = document.getElementById('usersBody');
         body.innerHTML = d.data.map(function(u) {
@@ -258,6 +270,44 @@ async function forceReset(email) {
     if (!confirm('Forcar ' + email + ' a redefinir a senha no proximo login?')) return;
     await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,action:'reset'})});
     loadUsers();
+}
+
+// ── Updates ──
+async function checkUpdate() {
+    hide('updateOk'); hide('updateErr');
+    document.getElementById('updateStatus').innerHTML = '<span style="color:var(--accent,#4f8cff);">Verificando...</span>';
+    try {
+        var r = await fetch('/api/admin/check-update');
+        var d = await r.json();
+        if (!d.ok) { document.getElementById('updateStatus').innerHTML = '<span style="color:#f44336;">Erro: '+d.error+'</span>'; return; }
+        if (d.has_update) {
+            document.getElementById('updateStatus').innerHTML = '<span style="color:#ff9800;font-weight:600;">&#9888; Atualizacao disponivel!</span><br><span style="color:#888;font-size:12px;">Local: '+d.local+' → Remoto: '+d.remote+'</span>';
+            document.getElementById('btnApplyUpdate').style.display = 'inline-block';
+        } else {
+            document.getElementById('updateStatus').innerHTML = '<span style="color:#4caf50;">&#10003; Sistema atualizado (versao '+d.local+')</span>';
+            document.getElementById('btnApplyUpdate').style.display = 'none';
+        }
+    } catch(e) { document.getElementById('updateStatus').innerHTML = '<span style="color:#f44336;">Erro: '+e.message+'</span>'; }
+}
+
+async function applyUpdate() {
+    if (!confirm('Aplicar atualizacao? O dashboard pode ficar offline por alguns segundos.')) return;
+    hide('updateOk'); hide('updateErr');
+    document.getElementById('btnApplyUpdate').disabled = true;
+    document.getElementById('btnApplyUpdate').textContent = 'Atualizando...';
+    try {
+        var r = await fetch('/api/admin/apply-update', {method:'POST'});
+        var d = await r.json();
+        if (d.ok) {
+            show('updateOk', d.message);
+            document.getElementById('btnApplyUpdate').style.display = 'none';
+            checkUpdate();
+        } else {
+            show('updateErr', d.error);
+        }
+    } catch(e) { show('updateErr', e.message); }
+    document.getElementById('btnApplyUpdate').disabled = false;
+    document.getElementById('btnApplyUpdate').textContent = 'Aplicar Atualizacao';
 }
 
 // ── Helpers ──
