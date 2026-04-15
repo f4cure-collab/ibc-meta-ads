@@ -1853,6 +1853,11 @@ def api_breakdowns():
                 if a.get("action_type") in PURCHASE_TYPES:
                     roas = float(a.get("value", 0))
                     break
+            # Fallback: calcular ROAS manualmente se API não retornar
+            if roas == 0 and revenue > 0:
+                s = float(row.get("spend", 0))
+                if s > 0:
+                    roas = round(revenue / s, 2)
             return conv, revenue, roas
 
         # Processar idade
@@ -1860,6 +1865,8 @@ def api_breakdowns():
         for row in age_data:
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
+            if roas == 0 and revenue > 0 and spend > 0:
+                roas = round(revenue / spend, 2)
             age_result.append({
                 "age": row.get("age", "?"),
                 "spend": round(spend, 2),
@@ -1877,6 +1884,8 @@ def api_breakdowns():
         for row in gender_data:
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
+            if roas == 0 and revenue > 0 and spend > 0:
+                roas = round(revenue / spend, 2)
             gender_result.append({
                 "gender": gender_labels.get(row.get("gender", ""), row.get("gender", "?")),
                 "spend": round(spend, 2),
