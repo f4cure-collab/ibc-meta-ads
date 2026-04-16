@@ -9,7 +9,9 @@ import requests
 import json
 from dotenv import load_dotenv
 
-load_dotenv()
+# Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
+_ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+load_dotenv(_ENV_PATH)
 
 API_VERSION = "v21.0"
 BASE_URL = f"https://graph.facebook.com/{API_VERSION}"

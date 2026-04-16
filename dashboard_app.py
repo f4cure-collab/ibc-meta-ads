@@ -16,7 +16,9 @@ from dotenv import load_dotenv
 from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired
 from event_grouper import group_campaigns_by_event
 
-load_dotenv()
+# Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
+_ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+load_dotenv(_ENV_PATH)
 
 app = Flask(__name__, static_folder=os.path.dirname(__file__), static_url_path='/static')
 # Usa FLASK_SECRET_KEY do .env (estavel entre restarts e workers do gunicorn).
