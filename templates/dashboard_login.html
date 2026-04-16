@@ -138,7 +138,8 @@
                 });
                 const data = await resp.json();
                 if (data.ok) {
-                    window.location.href = '/dashboard';
+                    // Primeiro acesso / reset forcado: vai para a tela de nova senha
+                    window.location.href = data.must_reset ? '/admin/reset-password' : '/dashboard';
                 } else {
                     errBox.textContent = data.error || 'Credenciais inv\u00e1lidas';
                     errBox.style.display = 'block';
