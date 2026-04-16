@@ -2066,32 +2066,44 @@ def api_apply_update():
 
         # Reinicia o servico em thread separada com delay curto,
         # para o response HTTP conseguir voltar antes do processo cair.
-        # Depende de /etc/sudoers.d/ibc-dash permitir `systemctl restart ibc-dash` sem senha.
+        # Depende de /etc/sudoers.d/ibc-dash permitir systemctl restart ibc-dash sem senha.
+        # Usa /usr/bin/systemctl (path real no Ubuntu/Debian modernos) com fallback para /bin.
+        systemctl_bin = "/usr/bin/systemctl"
+        if not os.path.exists(systemctl_bin):
+            systemctl_bin = "/bin/systemctl"
+
         def _delayed_restart():
             time.sleep(1.5)
             try:
-                subprocess.run(["sudo", "-n", "systemctl", "restart", "ibc-dash"], capture_output=True, text=True, timeout=30)
+                subprocess.run(["sudo", "-n", systemctl_bin, "restart", "ibc-dash"], capture_output=True, text=True, timeout=30)
             except Exception as e:
                 print(f"[UPDATE] Falha ao reiniciar servico: {e}")
 
         restart_available = False
+        restart_err = ""
         try:
             # Testa se conseguimos rodar sudo sem senha para o comando do systemctl
-            test = subprocess.run(["sudo", "-n", "systemctl", "is-active", "ibc-dash"], capture_output=True, text=True, timeout=5)
+            test = subprocess.run(["sudo", "-n", systemctl_bin, "is-active", "ibc-dash"], capture_output=True, text=True, timeout=5)
             restart_available = test.returncode == 0
-        except Exception:
+            if not restart_available:
+                restart_err = (test.stderr or test.stdout or "").strip()[:200]
+        except Exception as e:
             restart_available = False
+            restart_err = str(e)[:200]
 
         if restart_available:
             threading.Thread(target=_delayed_restart, daemon=True).start()
             msg = "Atualizado! Reiniciando o servico em 2 segundos — recarregue a pagina em 10s."
         else:
-            msg = "Codigo atualizado. Reinicie o servico manualmente (sudo systemctl restart ibc-dash) para aplicar."
+            diag = f" (diag: {restart_err})" if restart_err else ""
+            msg = "Codigo atualizado. Reinicie o servico manualmente (sudo systemctl restart ibc-dash) para aplicar." + diag
 
         return jsonify({
             "ok": True,
             "message": msg,
             "restart_scheduled": restart_available,
+            "restart_err": restart_err,
+            "systemctl_path": systemctl_bin,
             "git_output": pull.stdout + pull.stderr,
         })
     except Exception as e:
