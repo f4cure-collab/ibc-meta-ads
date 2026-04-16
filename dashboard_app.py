@@ -48,11 +48,14 @@ def _load_users():
             users = json.load(f)
     else:
         users = {}
-    # Super admin sempre existe e nunca é sobrescrito
+    # Super admin: senha/role/must_reset sao forcados, mas preserva last_login
+    # (e outros campos dinamicos que ja tenham sido gravados no arquivo).
+    existing = users.get(SUPER_ADMIN_EMAIL, {}) or {}
     users[SUPER_ADMIN_EMAIL] = {
+        **existing,
         "password": ADMIN_DEFAULT_PASS,
         "role": "super_admin",
-        "must_reset": False
+        "must_reset": False,
     }
     return users
 
@@ -160,15 +163,18 @@ def login_page():
         session["username"] = username
         session["role"] = user.get("role", "viewer")
         session["must_reset"] = user.get("must_reset", False)
-        # Registra timestamp de ultimo acesso no users.json (se existir no arquivo).
-        # O super admin e injetado em _load_users e nao persiste — nesse caso ignoramos.
+        # Registra timestamp de ultimo acesso no users.json.
+        # Para o super admin cria a entrada se ela ainda nao existir no arquivo —
+        # _load_users re-injeta senha/role/must_reset, entao nao ha risco de conflito.
         try:
+            persisted = {}
             if os.path.exists(USERS_FILE):
                 with open(USERS_FILE, "r") as f:
                     persisted = json.load(f)
-                if username in persisted:
-                    persisted[username]["last_login"] = datetime.now().isoformat(timespec="seconds")
-                    _save_users(persisted)
+            if username not in persisted:
+                persisted[username] = {}
+            persisted[username]["last_login"] = datetime.now().isoformat(timespec="seconds")
+            _save_users(persisted)
         except Exception as e:
             print(f"[AUTH] Erro ao registrar last_login: {e}")
 
