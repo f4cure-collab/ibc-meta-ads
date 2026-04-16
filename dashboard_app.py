@@ -2227,13 +2227,19 @@ def admin_update_token():
 # ── Scheduled refresh ──────────────────────────────────────────────────
 
 def _scheduled_refresh():
-    """Pre-carrega campanhas e criativos em etapas com intervalos para não sobrecarregar a API."""
+    """Pre-carrega campanhas e criativos em etapas com intervalos para não sobrecarregar a API.
+
+    Cobre os ranges mais usados (7d, 14d, 30d, 60d) para que o cache sirva
+    qualquer seleção de periodo no dashboard sem precisar bater na API.
+    """
     from datetime import datetime, timedelta
 
     dt_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    dt_from = (datetime.now() - timedelta(days=17)).strftime("%Y-%m-%d")
+    # Ranges pre-carregados: (dias, label). 30d e o range principal usado no /criativos
+    preload_ranges = [7, 14, 30, 60]
+    ranges = [(d, (datetime.now() - timedelta(days=d)).strftime("%Y-%m-%d")) for d in preload_ranges]
 
-    print(f"[SCHEDULER] Iniciando atualizacao automatica — periodo {dt_from} a {dt_to}")
+    print(f"[SCHEDULER] Iniciando atualizacao automatica — ranges: {preload_ranges} dias, ate {dt_to}")
     clear_expired()
 
     with app.test_client() as client:
@@ -2243,10 +2249,13 @@ def _scheduled_refresh():
             sess["username"] = SUPER_ADMIN_EMAIL
             sess["role"] = "super_admin"
 
-        # ── ETAPA 1 (2:00): Campanhas ──
+        # ── ETAPA 1 (2:00): Campanhas (todos os ranges) ──
         try:
-            print("[SCHEDULER] Etapa 1/4: Carregando campanhas...")
-            client.get(f"/api/dashboard/campaigns?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
+            print("[SCHEDULER] Etapa 1/5: Carregando campanhas (4 ranges)...")
+            for days, dt_from in ranges:
+                print(f"[SCHEDULER]   Campanhas {days}d ({dt_from} a {dt_to})")
+                client.get(f"/api/dashboard/campaigns?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
+                time.sleep(5)
             print("[SCHEDULER] Campanhas OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro campanhas: {e}")
@@ -2255,10 +2264,13 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min antes da proxima etapa...")
         time.sleep(1800)
 
-        # ── ETAPA 2 (2:30): Resumo diario ──
+        # ── ETAPA 2 (2:30): Resumo diario (todos os ranges) ──
         try:
-            print("[SCHEDULER] Etapa 2/4: Carregando resumo diario...")
-            client.get(f"/api/dashboard/daily-summary?date_from={dt_from}&date_to={dt_to}&camp_status=active")
+            print("[SCHEDULER] Etapa 2/5: Carregando resumo diario (4 ranges)...")
+            for days, dt_from in ranges:
+                print(f"[SCHEDULER]   Resumo diario {days}d")
+                client.get(f"/api/dashboard/daily-summary?date_from={dt_from}&date_to={dt_to}&camp_status=active")
+                time.sleep(5)
             print("[SCHEDULER] Resumo diario OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro resumo diario: {e}")
@@ -2267,10 +2279,10 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min...")
         time.sleep(1800)
 
-        # ── ETAPA 3 (3:00): Criativos de cada campanha ──
+        # ── ETAPA 3 (3:00): Criativos de cada campanha (apenas 30d — aba campanha individual) ──
         try:
-            print("[SCHEDULER] Etapa 3/4: Carregando criativos por campanha...")
-            # Buscar IDs das campanhas de vendas
+            print("[SCHEDULER] Etapa 3/5: Carregando criativos por campanha (range 30d)...")
+            dt_from_30 = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
             sales_camps = []
             try:
                 data = meta_get(f"{ACCOUNT_ID}/campaigns", {
@@ -2285,12 +2297,11 @@ def _scheduled_refresh():
             for i, camp in enumerate(sales_camps):
                 try:
                     print(f"[SCHEDULER]   Criativos campanha {i+1}/{len(sales_camps)}: {camp.get('name', camp['id'])}")
-                    client.get(f"/api/dashboard/campaigns/{camp['id']}/creatives?date_from={dt_from}&date_to={dt_to}")
-                    # Delay entre campanhas para respeitar rate limit
+                    client.get(f"/api/dashboard/campaigns/{camp['id']}/creatives?date_from={dt_from_30}&date_to={dt_to}")
                     time.sleep(10)
                 except Exception as e:
                     print(f"[SCHEDULER]   Erro: {e}")
-                    time.sleep(30)  # Esperar mais se deu erro
+                    time.sleep(30)
 
             print("[SCHEDULER] Criativos OK")
         except Exception as e:
@@ -2300,10 +2311,13 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min...")
         time.sleep(1800)
 
-        # ── ETAPA 4 (3:30): Breakdowns demograficos ──
+        # ── ETAPA 4 (3:30): Breakdowns demograficos (todos os ranges) ──
         try:
-            print("[SCHEDULER] Etapa 4/5: Carregando breakdowns...")
-            client.get(f"/api/dashboard/breakdowns?date_from={dt_from}&date_to={dt_to}")
+            print("[SCHEDULER] Etapa 4/5: Carregando breakdowns (4 ranges)...")
+            for days, dt_from in ranges:
+                print(f"[SCHEDULER]   Breakdowns {days}d")
+                client.get(f"/api/dashboard/breakdowns?date_from={dt_from}&date_to={dt_to}")
+                time.sleep(10)
             print("[SCHEDULER] Breakdowns OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro breakdowns: {e}")
@@ -2311,10 +2325,13 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min...")
         time.sleep(1800)
 
-        # ── ETAPA 5 (4:00): Todos criativos consolidado ──
+        # ── ETAPA 5 (4:00): Todos criativos consolidado (todos os ranges) ──
         try:
-            print("[SCHEDULER] Etapa 4/4: Carregando todos criativos consolidados...")
-            client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active")
+            print("[SCHEDULER] Etapa 5/5: Carregando todos criativos consolidados (4 ranges)...")
+            for days, dt_from in ranges:
+                print(f"[SCHEDULER]   All-creatives {days}d")
+                client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active")
+                time.sleep(30)
             print("[SCHEDULER] Todos criativos OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro todos criativos: {e}")
