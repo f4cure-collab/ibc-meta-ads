@@ -11,6 +11,7 @@ import functools
 import requests
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
 from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired
 from event_grouper import group_campaigns_by_event
@@ -18,8 +19,14 @@ from event_grouper import group_campaigns_by_event
 load_dotenv()
 
 app = Flask(__name__, static_folder=os.path.dirname(__file__), static_url_path='/static')
-app.secret_key = os.urandom(24)
+# Usa FLASK_SECRET_KEY do .env (estavel entre restarts e workers do gunicorn).
+# Sem isso, cada worker gera uma chave diferente e a sessao quebra a cada request.
+app.secret_key = os.getenv("FLASK_SECRET_KEY") or os.urandom(24)
 app.permanent_session_lifetime = timedelta(hours=12)
+
+# Atras do NGINX em HTTPS: respeita X-Forwarded-Proto/For/Host
+# para que cookies Secure e url_for funcionem com o esquema correto.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
 API_VERSION = "v21.0"
 BASE_URL = f"https://graph.facebook.com/{API_VERSION}"
