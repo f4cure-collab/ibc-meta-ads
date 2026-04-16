@@ -126,6 +126,21 @@ def login_required(f):
     return decorated
 
 
+def not_viewer_required(f):
+    """Exige login e role != viewer. Usado em endpoints que o perfil
+    Visualizador nao deve poder acessar (campanhas, projecao, breakdowns)."""
+    @functools.wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("logged_in"):
+            if request.path.startswith("/api/"):
+                return jsonify({"ok": False, "error": "Não autenticado"}), 401
+            return redirect(url_for("login_page"))
+        if session.get("role") == "viewer":
+            return jsonify({"ok": False, "error": "Acesso restrito a administradores"}), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login_page():
     if request.method == "GET":
@@ -543,7 +558,7 @@ INSIGHT_FIELDS_DAILY_CAMP = (
 # ── API Endpoints ──────────────────────────────────────────────────────
 
 @app.route("/api/dashboard/campaigns")
-@login_required
+@not_viewer_required
 def api_campaigns():
     """Lista campanhas de vendas com métricas agregadas."""
     try:
@@ -706,7 +721,7 @@ def api_campaigns():
 
 
 @app.route("/api/dashboard/campaigns/<campaign_id>/insights")
-@login_required
+@not_viewer_required
 def api_campaign_insights(campaign_id):
     """Insights diários de uma campanha para gráficos temporais."""
     try:
@@ -737,7 +752,7 @@ def api_campaign_insights(campaign_id):
 
 
 @app.route("/api/dashboard/campaigns/multi-insights")
-@login_required
+@not_viewer_required
 def api_campaigns_multi_insights():
     """Insights diários por campanha para várias campanhas. ?ids=id1,id2,id3 ou ?ids=all."""
     try:
@@ -1290,7 +1305,7 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
 
 
 @app.route("/api/dashboard/campaigns/<campaign_id>/creatives")
-@login_required
+@not_viewer_required
 def api_campaign_creatives(campaign_id):
     """Lista criativos de uma campanha com métricas avançadas."""
     try:
@@ -1309,7 +1324,7 @@ def api_campaign_creatives(campaign_id):
 
 
 @app.route("/api/dashboard/daily-summary")
-@login_required
+@not_viewer_required
 def api_daily_summary():
     """Insights diários agregados de TODAS as campanhas de vendas (somatório)."""
     try:
@@ -1418,7 +1433,7 @@ def api_daily_summary():
 
 
 @app.route("/api/dashboard/cumulative-reach")
-@login_required
+@not_viewer_required
 def api_cumulative_reach():
     """Reach e Frequency cumulativos reais (janela crescente dia a dia).
 
@@ -1641,7 +1656,7 @@ def api_all_creatives():
 
 
 @app.route("/api/dashboard/comparison")
-@login_required
+@not_viewer_required
 def api_comparison():
     """Insights diários de múltiplas campanhas para comparação."""
     try:
@@ -1810,7 +1825,7 @@ def api_post_comments(story_id):
 # ── Breakdowns (idade, sexo, dia da semana) ────────────────────────────
 
 @app.route("/api/dashboard/breakdowns")
-@login_required
+@not_viewer_required
 def api_breakdowns():
     """Retorna dados segmentados por idade, sexo e dia da semana."""
     try:
