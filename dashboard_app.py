@@ -2065,6 +2065,41 @@ def api_apply_update():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@app.route("/api/admin/update-history")
+def api_update_history():
+    """Retorna os ultimos commits aplicados no servidor (git log)."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        import subprocess
+        cwd = os.path.dirname(__file__)
+        # %h = hash curto, %aI = autor ISO strict, %s = assunto, separados por |
+        result = subprocess.run(
+            ["git", "log", "-n", "20", "--format=%h|%aI|%s"],
+            capture_output=True, text=True, timeout=15, cwd=cwd
+        )
+        if result.returncode != 0:
+            return jsonify({"ok": False, "error": "Git nao disponivel: " + result.stderr.strip()})
+
+        commits = []
+        for line in result.stdout.strip().split("\n"):
+            if not line:
+                continue
+            parts = line.split("|", 2)
+            if len(parts) == 3:
+                commits.append({"hash": parts[0], "date": parts[1], "message": parts[2]})
+
+        # Data da ultima aplicacao: mtime do .git/FETCH_HEAD (quando foi o ultimo git fetch/pull)
+        last_applied = None
+        fetch_head = os.path.join(cwd, ".git", "FETCH_HEAD")
+        if os.path.exists(fetch_head):
+            last_applied = datetime.fromtimestamp(os.path.getmtime(fetch_head)).isoformat(timespec="seconds")
+
+        return jsonify({"ok": True, "commits": commits, "last_applied": last_applied})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 # ── Rate Limit Info ────────────────────────────────────────────────────
 
 @app.route("/api/dashboard/rate-limit")

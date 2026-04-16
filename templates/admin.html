@@ -108,8 +108,17 @@
         <div id="updateStatus" style="padding:12px;border-radius:8px;margin-bottom:12px;"></div>
         <button class="btn btn-primary" id="btnCheckUpdate" onclick="checkUpdate()">Verificar Atualizacoes</button>
         <button class="btn" id="btnApplyUpdate" style="display:none;background:#4caf50;color:#fff;margin-left:8px;" onclick="applyUpdate()">Aplicar Atualizacao</button>
+        <button class="btn" style="background:#2a2a4a;color:#ccc;margin-left:8px;" onclick="toggleHistory()">Historico de Atualizacoes</button>
         <div class="alert alert-success" id="updateOk"></div>
         <div class="alert alert-error" id="updateErr"></div>
+
+        <div id="updateHistoryBox" style="display:none;margin-top:16px;padding:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <strong style="color:#ccc;font-size:13px;">Historico (ultimos 20 commits)</strong>
+                <span id="updateLastApplied" style="color:#888;font-size:11px;"></span>
+            </div>
+            <div id="updateHistoryList" style="max-height:320px;overflow-y:auto;"></div>
+        </div>
     </div>
 
     <!-- Instrucoes -->
@@ -282,6 +291,50 @@ async function forceReset(email) {
 }
 
 // ── Updates ──
+async function toggleHistory() {
+    var box = document.getElementById('updateHistoryBox');
+    if (box.style.display === 'block') { box.style.display = 'none'; return; }
+    box.style.display = 'block';
+    document.getElementById('updateHistoryList').innerHTML = '<span style="color:#888;font-size:12px;">Carregando...</span>';
+    try {
+        var r = await fetch('/api/admin/update-history');
+        var d = await r.json();
+        if (!d.ok) { document.getElementById('updateHistoryList').innerHTML = '<span style="color:#f44336;">Erro: '+d.error+'</span>'; return; }
+
+        var lastAppliedEl = document.getElementById('updateLastApplied');
+        if (d.last_applied) {
+            try {
+                var dt = new Date(d.last_applied);
+                lastAppliedEl.textContent = 'Ultima sincronizacao: ' + dt.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+            } catch(e) { lastAppliedEl.textContent = ''; }
+        } else {
+            lastAppliedEl.textContent = '';
+        }
+
+        if (!d.commits || !d.commits.length) {
+            document.getElementById('updateHistoryList').innerHTML = '<span style="color:#888;font-size:12px;">Nenhum commit encontrado.</span>';
+            return;
+        }
+        var html = d.commits.map(function(c) {
+            var when = '';
+            try {
+                var cd = new Date(c.date);
+                when = cd.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+            } catch(e) { when = c.date; }
+            return '<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);">'
+                + '<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;">'
+                + '<code style="color:#4f8cff;font-size:11px;font-family:monospace;">'+c.hash+'</code>'
+                + '<span style="color:#888;font-size:11px;">'+when+'</span>'
+                + '</div>'
+                + '<div style="color:#ccc;font-size:12px;margin-top:4px;line-height:1.4;">'+c.message.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>'
+                + '</div>';
+        }).join('');
+        document.getElementById('updateHistoryList').innerHTML = html;
+    } catch(e) {
+        document.getElementById('updateHistoryList').innerHTML = '<span style="color:#f44336;">Erro: '+e.message+'</span>';
+    }
+}
+
 async function checkUpdate() {
     hide('updateOk'); hide('updateErr');
     document.getElementById('updateStatus').innerHTML = '<span style="color:var(--accent,#4f8cff);">Verificando...</span>';
