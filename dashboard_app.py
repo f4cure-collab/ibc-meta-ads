@@ -2116,6 +2116,9 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ibcadmin2026!")
 def admin_page():
     if not session.get("logged_in"):
         return redirect(url_for("login_page"))
+    # Viewer nao acessa o painel admin: manda de volta pro dashboard (aba Criativos)
+    if session.get("role") == "viewer":
+        return redirect(url_for("dashboard"))
     return render_template("admin.html")
 
 @app.route("/admin/reset-password")
