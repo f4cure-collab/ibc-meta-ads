@@ -1452,6 +1452,7 @@ function renderCampTbl(data){
             }
             $('#btn-camp-clear-sel').style.display=selectedCampIds.size>0?'':'none';
             refreshCampDetail();
+            syncBreakdownsWithSelection();
         });
     });
 }
@@ -1482,6 +1483,8 @@ function toggleCampSelection(id){
     }
     $('#btn-camp-clear-sel').style.display=selectedCampIds.size>0?'':'none';
     refreshCampDetail();
+    // Sincronizar breakdowns com campanhas selecionadas
+    syncBreakdownsWithSelection();
 }
 
 // Recria um <canvas> dentro do mesmo wrap (evita bugs do Chart.js ao re-renderizar)
@@ -2203,6 +2206,7 @@ $('#btn-camp-clear-sel').addEventListener('click',()=>{
     renderCampTbl(campData);
     $('#btn-camp-clear-sel').style.display='none';
     refreshCampDetail();
+    syncBreakdownsWithSelection();
 });
 
 let sKey='spend',sDir='desc';
@@ -3754,6 +3758,33 @@ loadCamp();
 
 // ── Breakdowns ──
 var _bdCampId = '';
+// Sincronizar breakdowns com seleção de campanhas
+var _bdDebounce = null;
+function syncBreakdownsWithSelection() {
+    if (_bdDebounce) clearTimeout(_bdDebounce);
+    _bdDebounce = setTimeout(function() {
+        var ids = Array.from(selectedCampIds);
+        if (ids.length === 0) {
+            _bdCampId = '';
+            $('#bd-filter-label').textContent = 'Todas as campanhas de vendas';
+        } else if (ids.length === 1) {
+            _bdCampId = ids[0];
+            var campName = '';
+            var tr = document.querySelector('#camp-tbody tr[data-id="' + ids[0] + '"]');
+            if (tr) campName = tr.dataset.name || ids[0];
+            $('#bd-filter-label').textContent = campName;
+        } else {
+            _bdCampId = ids[0];
+            var names = ids.map(function(id) {
+                var tr = document.querySelector('#camp-tbody tr[data-id="' + id + '"]');
+                return tr ? (tr.dataset.name || id) : id;
+            });
+            $('#bd-filter-label').textContent = ids.length + ' campanhas: ' + names.join(', ').substring(0, 60);
+        }
+        loadBreakdowns();
+    }, 800);
+}
+
 // Breakdowns carregam automaticamente com as campanhas
 var _bdData = null;
 var _bdSorts = { gender: {key:'conversions',asc:false}, age: {key:'age',asc:true}, weekday: {key:'day_num',asc:true} };
@@ -3973,25 +4004,6 @@ function renderBdCharts(d) {
         }
     });
 }
-
-// Atualizar breakdown quando clicar em campanha na tabela
-(function(){
-    var origHandler = null;
-    var tbody = $('#camp-tbody');
-    if (tbody) {
-        tbody.addEventListener('click', function(e) {
-            var tr = e.target.closest('tr');
-            if (!tr) return;
-            var campId = tr.dataset.id || '';
-            var campName = tr.dataset.name || '';
-            if (campId && campId !== _bdCampId) {
-                _bdCampId = campId;
-                $('#bd-filter-label').textContent = campName || campId;
-                if ($('#bd-content').style.display !== 'none') loadBreakdowns();
-            }
-        });
-    }
-})();
 
 // ── Post comments ──
 async function loadPostComments(storyId) {

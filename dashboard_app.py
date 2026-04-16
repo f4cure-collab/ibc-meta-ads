@@ -1813,6 +1813,33 @@ def api_breakdowns():
 
         ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas"
 
+        def extract_purchase(row):
+            conv = 0
+            revenue = 0
+            roas = 0
+            for a in (row.get("actions") or []):
+                if a.get("action_type") in PURCHASE_TYPES:
+                    conv = int(a.get("value", 0))
+                    break
+            for a in (row.get("action_values") or []):
+                if a.get("action_type") in PURCHASE_TYPES:
+                    revenue = float(a.get("value", 0))
+                    break
+            for a in (row.get("purchase_roas") or []):
+                if a.get("action_type") in PURCHASE_TYPES:
+                    roas = float(a.get("value", 0))
+                    break
+            if roas == 0:
+                for a in (row.get("website_purchase_roas") or []):
+                    if a.get("action_type") in PURCHASE_TYPES:
+                        roas = float(a.get("value", 0))
+                        break
+            if roas == 0 and revenue > 0:
+                s = float(row.get("spend", 0))
+                if s > 0:
+                    roas = round(revenue / s, 2)
+            return conv, revenue, roas
+
         # 0. Buscar totais gerais para calcular ticket médio
         _enforce_rate_limit()
         totals_data = meta_get_all_pages(endpoint, {
@@ -1851,35 +1878,6 @@ def api_breakdowns():
             "fields": "spend,impressions,clicks,actions,action_values,purchase_roas",
             "time_increment": 1,
         })
-
-        def extract_purchase(row):
-            conv = 0
-            revenue = 0
-            roas = 0
-            for a in (row.get("actions") or []):
-                if a.get("action_type") in PURCHASE_TYPES:
-                    conv = int(a.get("value", 0))
-                    break
-            for a in (row.get("action_values") or []):
-                if a.get("action_type") in PURCHASE_TYPES:
-                    revenue = float(a.get("value", 0))
-                    break
-            for a in (row.get("purchase_roas") or []):
-                if a.get("action_type") in PURCHASE_TYPES:
-                    roas = float(a.get("value", 0))
-                    break
-            # Tentar website_purchase_roas
-            if roas == 0:
-                for a in (row.get("website_purchase_roas") or []):
-                    if a.get("action_type") in PURCHASE_TYPES:
-                        roas = float(a.get("value", 0))
-                        break
-            # Fallback: calcular ROAS manualmente
-            if roas == 0 and revenue > 0:
-                s = float(row.get("spend", 0))
-                if s > 0:
-                    roas = round(revenue / s, 2)
-            return conv, revenue, roas
 
         def calc_roas_fallback(conv, revenue, roas, spend):
             """Calcula ROAS usando ticket médio se API não retornar."""

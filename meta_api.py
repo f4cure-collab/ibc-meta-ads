@@ -87,12 +87,12 @@ def get_ad_account_id():
 # ── Campanhas e Adsets ──────────────────────────────────────────────
 
 def list_campaigns():
-    """Lista campanhas ativas da conta."""
+    """Lista campanhas ativas e em analise da conta."""
     url = f"{BASE_URL}/{get_ad_account_id()}/campaigns"
     params = {
         "access_token": get_token(),
         "fields": "id,name,status,objective",
-        "effective_status": '["ACTIVE"]',
+        "effective_status": '["ACTIVE","IN_PROCESS","WITH_ISSUES","PENDING_REVIEW"]',
         "limit": 500,
     }
     resp = requests.get(url, params=params)
@@ -103,12 +103,12 @@ def list_campaigns():
 
 
 def list_adsets(campaign_id):
-    """Lista adsets ativos de uma campanha."""
+    """Lista adsets ativos e em analise de uma campanha."""
     url = f"{BASE_URL}/{campaign_id}/adsets"
     params = {
         "access_token": get_token(),
         "fields": "id,name,status",
-        "effective_status": '["ACTIVE"]',
+        "effective_status": '["ACTIVE","IN_PROCESS","WITH_ISSUES","PENDING_REVIEW"]',
         "limit": 100,
     }
     resp = requests.get(url, params=params)
@@ -117,12 +117,12 @@ def list_adsets(campaign_id):
 
 
 def list_ads(adset_id):
-    """Lista anúncios ativos de um adset."""
+    """Lista anuncios ativos e em analise de um adset."""
     url = f"{BASE_URL}/{adset_id}/ads"
     params = {
         "access_token": get_token(),
         "fields": "id,name,status,creative{id,name}",
-        "effective_status": '["ACTIVE"]',
+        "effective_status": '["ACTIVE","IN_PROCESS","WITH_ISSUES","PENDING_REVIEW","PENDING_BILLING_INFO"]',
         "limit": 100,
     }
     resp = requests.get(url, params=params)
@@ -463,6 +463,24 @@ def _copy_creative_with_new_media(
                 for rule in afs["asset_customization_rules"]:
                     if "video_label" in rule:
                         rule["image_label"] = rule.pop("video_label")
+
+        # Simplificar: manter apenas 1 body/title/description (o original)
+        # e remover adlabels dos textos + limpar rules de texto
+        # Isso evita conflitos de labels quando a IA Advantage+ gerou variações extras
+        for key in ["bodies", "titles", "descriptions"]:
+            if key in afs and len(afs[key]) > 0:
+                # Manter só o texto do primeiro, sem adlabels
+                first_text = afs[key][0].get("text", "")
+                afs[key] = [{"text": first_text}]
+                print(f"[INFO] {key}: simplificado para 1 item sem adlabels")
+
+        # Remover referências de body/title/description das rules (manter só video/image)
+        if "asset_customization_rules" in afs:
+            for rule in afs["asset_customization_rules"]:
+                rule.pop("body_label", None)
+                rule.pop("title_label", None)
+                rule.pop("description_label", None)
+            print(f"[INFO] Rules: removidas referencias de body/title/description")
 
         payload["asset_feed_spec"] = _json.dumps(afs)
         payload["object_story_spec"] = _json.dumps(oss)
