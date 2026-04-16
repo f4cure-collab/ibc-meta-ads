@@ -4,6 +4,7 @@ Servidor Flask na porta 5001 (separado do app.py principal).
 """
 
 import os
+import sys
 import json
 import math
 import time
@@ -2052,13 +2053,45 @@ def api_apply_update():
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     try:
         import subprocess
+        import threading
         cwd = os.path.dirname(__file__)
         subprocess.run(["git", "stash"], capture_output=True, text=True, cwd=cwd, timeout=15)
         pull = subprocess.run(["git", "pull", "origin", "master"], capture_output=True, text=True, cwd=cwd, timeout=60)
-        pip = subprocess.run(["pip", "install", "-r", "requirements.txt"], capture_output=True, text=True, cwd=cwd, timeout=120)
+        # pip do venv ativo (gunicorn pode nao ter pip no PATH em producao)
+        pip_bin = os.path.join(os.path.dirname(sys.executable), "pip")
+        try:
+            subprocess.run([pip_bin, "install", "-r", "requirements.txt"], capture_output=True, text=True, cwd=cwd, timeout=120)
+        except FileNotFoundError:
+            subprocess.run(["pip", "install", "-r", "requirements.txt"], capture_output=True, text=True, cwd=cwd, timeout=120)
+
+        # Reinicia o servico em thread separada com delay curto,
+        # para o response HTTP conseguir voltar antes do processo cair.
+        # Depende de /etc/sudoers.d/ibc-dash permitir `systemctl restart ibc-dash` sem senha.
+        def _delayed_restart():
+            time.sleep(1.5)
+            try:
+                subprocess.run(["sudo", "-n", "systemctl", "restart", "ibc-dash"], capture_output=True, text=True, timeout=30)
+            except Exception as e:
+                print(f"[UPDATE] Falha ao reiniciar servico: {e}")
+
+        restart_available = False
+        try:
+            # Testa se conseguimos rodar sudo sem senha para o comando do systemctl
+            test = subprocess.run(["sudo", "-n", "systemctl", "is-active", "ibc-dash"], capture_output=True, text=True, timeout=5)
+            restart_available = test.returncode == 0
+        except Exception:
+            restart_available = False
+
+        if restart_available:
+            threading.Thread(target=_delayed_restart, daemon=True).start()
+            msg = "Atualizado! Reiniciando o servico em 2 segundos — recarregue a pagina em 10s."
+        else:
+            msg = "Codigo atualizado. Reinicie o servico manualmente (sudo systemctl restart ibc-dash) para aplicar."
+
         return jsonify({
             "ok": True,
-            "message": "Atualizado! Reinicie o servico para aplicar.",
+            "message": msg,
+            "restart_scheduled": restart_available,
             "git_output": pull.stdout + pull.stderr,
         })
     except Exception as e:
