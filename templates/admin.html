@@ -75,8 +75,8 @@
         <h2>Usuarios</h2>
         <p style="color:#888;font-size:13px;margin-bottom:8px;">Gerencie quem pode acessar o dashboard. Novos usuarios precisam redefinir a senha no primeiro acesso.</p>
         <table>
-            <thead><tr><th>Email</th><th>Perfil</th><th>Status</th><th>Senha</th><th>Acoes</th></tr></thead>
-            <tbody id="usersBody"><tr><td colspan="5" style="color:#666;text-align:center;">Carregando...</td></tr></tbody>
+            <thead><tr><th>Email</th><th>Perfil</th><th>Status</th><th>Ultimo acesso</th><th>Senha</th><th>Acoes</th></tr></thead>
+            <tbody id="usersBody"><tr><td colspan="6" style="color:#666;text-align:center;">Carregando...</td></tr></tbody>
         </table>
 
         <h3 style="color:#fff;font-size:14px;margin-top:24px;margin-bottom:8px;">Criar Novo Usuario</h3>
@@ -204,7 +204,7 @@ async function loadUsers() {
     try {
         var r = await fetch('/api/admin/users');
         var d = await r.json();
-        if (!d.ok) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" style="color:#f44336;">'+d.error+'</td></tr>'; return; }
+        if (!d.ok) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6" style="color:#f44336;">'+d.error+'</td></tr>'; return; }
         _isSuper = d.is_super;
 
         // Mostrar cards só para super admin
@@ -217,6 +217,15 @@ async function loadUsers() {
             var roleClass = u.role === 'admin' ? 'role-admin' : u.role === 'super_admin' ? 'role-admin' : 'role-viewer';
             var roleLabel = u.role === 'super_admin' ? 'Admin Principal' : u.role === 'admin' ? 'Admin' : 'Visualizador';
             var status = u.must_reset ? '<span class="badge-reset">REDEFINIR SENHA</span>' : '<span style="color:#4caf50;">Ativo</span>';
+            var lastLogin = '<span style="color:#666;">Nunca acessou</span>';
+            if (u.last_login) {
+                try {
+                    var dt = new Date(u.last_login);
+                    if (!isNaN(dt.getTime())) {
+                        lastLogin = '<span style="color:#ccc;font-size:12px;">' + dt.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) + '</span>';
+                    }
+                } catch(e) {}
+            }
             var passDisplay = u.password === '********' ? '********' : (u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password);
             var actions = '';
             // Super admin não pode ser editado por ninguém exceto ele mesmo
@@ -231,9 +240,9 @@ async function loadUsers() {
                 actions += '<button class="btn btn-sm btn-primary" onclick="changePass(\''+u.email+'\')">Senha</button> ';
                 actions += '<button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="forceReset(\''+u.email+'\')">Reset</button>';
             }
-            return '<tr><td>'+u.email+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td>'+actions+'</td></tr>';
+            return '<tr><td>'+u.email+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td>'+lastLogin+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td>'+actions+'</td></tr>';
         }).join('');
-    } catch(e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="5" style="color:#f44336;">Erro</td></tr>'; }
+    } catch(e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6" style="color:#f44336;">Erro</td></tr>'; }
 }
 
 async function createUser() {

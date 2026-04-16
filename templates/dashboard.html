@@ -571,13 +571,17 @@
 </div>
 <div class="main">
     <div class="tabs">
+        {% if role != 'viewer' %}
         <button class="tab-btn active" data-tab="campaigns" data-tip="Vis&atilde;o geral das campanhas com funil agregado e gr&aacute;ficos di&aacute;rios">Campanhas</button>
         <button class="tab-btn" data-tab="creatives" data-tip="An&aacute;lise individual de cada criativo (an&uacute;ncio) com m&eacute;tricas avan&ccedil;adas">Criativos</button>
         <button class="tab-btn" data-tab="projection" data-tip="Proje&ccedil;&atilde;o baseada em tend&ecirc;ncia: prev&ecirc; o que acontecer&aacute; nos pr&oacute;ximos dias">Proje&ccedil;&atilde;o</button>
+        {% else %}
+        <button class="tab-btn active" data-tab="creatives" data-tip="An&aacute;lise individual de cada criativo (an&uacute;ncio) com m&eacute;tricas avan&ccedil;adas">Criativos</button>
+        {% endif %}
     </div>
 
     <!-- ══════ TAB 1: CAMPANHAS ══════ -->
-    <div id="tab-campaigns" class="tab-content active">
+    <div id="tab-campaigns" class="tab-content{% if role != 'viewer' %} active{% endif %}">
         <!-- Barra de loading fixa no topo (n&atilde;o bloqueia uso) -->
         <div id="camp-full-loading" style="display:none;position:sticky;top:62px;z-index:50;margin:-20px -28px 16px;padding:10px 20px;background:linear-gradient(90deg,rgba(31,111,235,.15),rgba(88,166,255,.08));border-bottom:1px solid rgba(88,166,255,.3);display:none;align-items:center;gap:12px">
             <div class="spin" style="width:18px;height:18px;border-width:2px;flex-shrink:0"></div>
@@ -758,7 +762,7 @@
     </div>
 
     <!-- ══════ TAB 2: CRIATIVOS ══════ -->
-    <div id="tab-creatives" class="tab-content">
+    <div id="tab-creatives" class="tab-content{% if role == 'viewer' %} active{% endif %}">
         <!-- Top toolbar: período + carregar + busca + view -->
         <div class="filters">
             <div class="fg"><label data-tip="Per&iacute;odo de an&aacute;lise dos criativos">Per&iacute;odo</label>
@@ -4102,6 +4106,11 @@ function updateRateBadge() {
     }).catch(function(){});
 }
 startRateMonitor();
+
+{% if role == 'viewer' %}
+// Viewer: carrega criativos automaticamente no primeiro acesso, ja que as outras tabs nao existem
+setTimeout(function(){ try{ if(typeof loadCr === 'function' && (typeof crData === 'undefined' || !crData.length)) loadCr(); }catch(e){ console.warn('viewer auto-load falhou:', e); } }, 400);
+{% endif %}
 
 })();
 </script>

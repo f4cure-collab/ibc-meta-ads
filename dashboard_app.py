@@ -144,6 +144,18 @@ def login_page():
         session["username"] = username
         session["role"] = user.get("role", "viewer")
         session["must_reset"] = user.get("must_reset", False)
+        # Registra timestamp de ultimo acesso no users.json (se existir no arquivo).
+        # O super admin e injetado em _load_users e nao persiste — nesse caso ignoramos.
+        try:
+            if os.path.exists(USERS_FILE):
+                with open(USERS_FILE, "r") as f:
+                    persisted = json.load(f)
+                if username in persisted:
+                    persisted[username]["last_login"] = datetime.now().isoformat(timespec="seconds")
+                    _save_users(persisted)
+        except Exception as e:
+            print(f"[AUTH] Erro ao registrar last_login: {e}")
+
         if request.is_json:
             return jsonify({"ok": True, "must_reset": user.get("must_reset", False)})
         if user.get("must_reset"):
@@ -171,7 +183,11 @@ def index():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    return render_template("dashboard.html", username=session.get("username"))
+    return render_template(
+        "dashboard.html",
+        username=session.get("username"),
+        role=session.get("role", "viewer"),
+    )
 
 
 # ── Meta API helpers ───────────────────────────────────────────────────
@@ -2093,6 +2109,7 @@ def api_list_users():
             "email": email,
             "role": u.get("role", "viewer"),
             "must_reset": u.get("must_reset", False),
+            "last_login": u.get("last_login", ""),
             "password": u.get("password", "") if is_super else "********"  # Só super admin vê senhas
         })
     return jsonify({"ok": True, "data": result, "is_super": is_super})
