@@ -1508,7 +1508,7 @@ def api_ad_insights(ad_id):
 
         # Buscar dados básicos do ad (nome, criativo, status, campanha, post link, preview)
         ad_info = meta_get(ad_id, {
-            "fields": "id,name,status,created_time,campaign{id,name},creative{id,name,thumbnail_url,effective_object_story_id,object_story_spec},adcreatives{effective_object_story_id},previews{body}"
+            "fields": "id,name,status,created_time,campaign{id,name},creative{id,name,thumbnail_url,effective_object_story_id,object_story_spec},adcreatives{effective_object_story_id}"
         })
 
         # Buscar insights di&aacute;rios
