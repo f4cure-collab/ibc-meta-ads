@@ -1177,8 +1177,10 @@ function makeGradient(ctx,colorHex){
 }
 
 // Sempre usar ONTEM como data final — dados de hoje estão incompletos
-function yesterday(){const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().split('T')[0];}
-function dAgo(n){const d=new Date();d.setDate(d.getDate()-1-n);return d.toISOString().split('T')[0];}
+// YYYY-MM-DD no fuso local (evita bug do toISOString que retorna UTC — datas viravam um dia adiantado a noite)
+function toYMD(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function yesterday(){const d=new Date();d.setDate(d.getDate()-1);return toYMD(d);}
+function dAgo(n){const d=new Date();d.setDate(d.getDate()-1-n);return toYMD(d);}
 function initD(){const t=yesterday(),f=dAgo(29);['#date-from','#cr-df','#an-df'].forEach(s=>{if($(s))$(s).value=f;});['#date-to','#cr-dt','#an-dt'].forEach(s=>{if($(s))$(s).value=t;});}
 initD();
 
@@ -3569,9 +3571,11 @@ function linReg(ys){
 }
 
 function addDays(dateStr,days){
-    const d=new Date(dateStr);
+    // dateStr no formato YYYY-MM-DD. Parse manual pra evitar interpretacao UTC do new Date(str).
+    const p=dateStr.split('-').map(Number);
+    const d=new Date(p[0],p[1]-1,p[2]);
     d.setDate(d.getDate()+days);
-    return d.toISOString().split('T')[0];
+    return toYMD(d);
 }
 
 function projectSeries(base,nDays){
