@@ -131,8 +131,8 @@ def login_required(f):
 
 
 def not_viewer_required(f):
-    """Exige login e role != viewer. Usado em endpoints que o perfil
-    Visualizador nao deve poder acessar (campanhas, projecao, breakdowns)."""
+    """Exige login e role != viewer. Viewer2 acessa (campanhas/projecao/breakdowns),
+    so o viewer simples e bloqueado."""
     @functools.wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("logged_in"):
@@ -143,6 +143,30 @@ def not_viewer_required(f):
             return jsonify({"ok": False, "error": "Acesso restrito a administradores"}), 403
         return f(*args, **kwargs)
     return decorated
+
+
+def _enforce_range_for_role(date_from, date_to):
+    """Bloqueia ranges pesados para perfis restritos.
+    - viewer: delegado a logica especifica de cache em /all-creatives
+    - viewer2: limite de 60 dias (nao pode puxar 90d ou ranges customizados longos)
+    Retorna None se OK, ou um tuple (response, status) pra retornar direto do endpoint.
+    """
+    role = session.get("role")
+    if role != "viewer2":
+        return None
+    try:
+        d_from = datetime.strptime(date_from, "%Y-%m-%d")
+        d_to = datetime.strptime(date_to, "%Y-%m-%d")
+        diff_days = (d_to - d_from).days + 1
+    except Exception:
+        return None
+    if diff_days > 60:
+        return jsonify({
+            "ok": False,
+            "error": "Periodo maximo para o perfil Visualizador Plus e 60 dias.",
+            "role_limited": True,
+        }), 403
+    return None
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -575,6 +599,10 @@ def api_campaigns():
         camp_status = request.args.get("camp_status", "active")
         force = request.args.get("force", "false") == "true"
 
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
+
         cache_key = f"campaigns_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
@@ -736,6 +764,10 @@ def api_campaign_insights(campaign_id):
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
 
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
+
         rows = meta_get_all_pages(
             f"{campaign_id}/insights",
             {
@@ -766,6 +798,10 @@ def api_campaigns_multi_insights():
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
         ids_param = request.args.get("ids", "all")
         camp_status = request.args.get("camp_status", "all")
         force = request.args.get("force", "false") == "true"
@@ -1320,6 +1356,10 @@ def api_campaign_creatives(campaign_id):
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
 
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
+
         # Buscar nome da campanha
         camp_info = meta_get(campaign_id, {"fields": "id,name,objective"})
         camp = {"id": campaign_id, "name": camp_info.get("name", "")}
@@ -1340,6 +1380,10 @@ def api_daily_summary():
         date_to = request.args.get("date_to", _yesterday())
         camp_status = request.args.get("camp_status", "active")
         force = request.args.get("force", "false") == "true"
+
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
 
         cache_key = f"daily_summary_{camp_status}_{date_from}_{date_to}"
         if not force:
@@ -1451,6 +1495,10 @@ def api_cumulative_reach():
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
         campaign_id = request.args.get("campaign_id", "")  # 1 ID ou vários separados por vírgula
         force = request.args.get("force", "false") == "true"
 
@@ -1684,6 +1732,10 @@ def api_comparison():
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
 
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
+
         if not campaign_ids:
             return jsonify({"ok": False, "error": "Nenhuma campanha selecionada"}), 400
 
@@ -1850,6 +1902,10 @@ def api_breakdowns():
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
         campaign_id = request.args.get("campaign_id", "")
 
         cache_key = f"breakdowns_{campaign_id or 'all'}_{date_from}_{date_to}"
@@ -2180,8 +2236,8 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ibcadmin2026!")
 def admin_page():
     if not session.get("logged_in"):
         return redirect(url_for("login_page"))
-    # Viewer nao acessa o painel admin: manda de volta pro dashboard (aba Criativos)
-    if session.get("role") == "viewer":
+    # Viewer e viewer2 nao acessam o painel admin: manda de volta pro dashboard
+    if session.get("role") in ("viewer", "viewer2"):
         return redirect(url_for("dashboard"))
     return render_template("admin.html")
 

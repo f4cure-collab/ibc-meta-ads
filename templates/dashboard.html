@@ -559,7 +559,7 @@
     </div>
     <div class="header-right" style="display:flex;align-items:center;gap:12px;">
         <span id="rateBadge" style="display:none;font-size:11px;padding:3px 10px;border-radius:6px;cursor:help;transition:all .3s;"></span>
-        <a href="/admin" style="color:var(--t3);font-size:12px;text-decoration:none;" data-tip="Configuracoes e token">Admin</a>
+        {% if role in ('admin', 'super_admin') %}<a href="/admin" style="color:var(--t3);font-size:12px;text-decoration:none;" data-tip="Configuracoes e token">Admin</a>{% endif %}
         <span style="color:var(--t3);font-size:13px" data-tip="Usu&aacute;rio logado">{{ username }}</span>
         <a href="/logout" class="btn-logout" data-tip="Sair do dashboard">Sair</a>
     </div>
@@ -596,7 +596,7 @@
                     <button class="pbtn" data-days="14" data-tip="&Uacute;ltimos 14 dias completos">14d</button>
                     <button class="pbtn active" data-days="30" data-tip="&Uacute;ltimos 30 dias completos">30d</button>
                     <button class="pbtn" data-days="60" data-tip="&Uacute;ltimos 60 dias completos">60d</button>
-                    <button class="pbtn" data-days="90" data-tip="&Uacute;ltimos 90 dias completos">90d</button>
+                    {% if role in ('admin', 'super_admin') %}<button class="pbtn" data-days="90" data-tip="&Uacute;ltimos 90 dias completos">90d</button>{% endif %}
                 </div>
             </div>
             <div class="fg"><label data-tip="Filtrar campanhas por status (ativa ou pausada)">Status</label>

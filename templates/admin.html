@@ -125,6 +125,7 @@
                 <label>Perfil</label>
                 <select id="newUserRole">
                     <option value="viewer">Visualizador</option>
+                    <option value="viewer2">Visualizador Plus</option>
                     <option value="admin">Admin</option>
                 </select>
             </div>
@@ -341,8 +342,11 @@ function changePage(delta) {
 }
 
 function renderUserRow(u) {
-    var roleClass = u.role === 'admin' ? 'role-admin' : u.role === 'super_admin' ? 'role-admin' : 'role-viewer';
-    var roleLabel = u.role === 'super_admin' ? 'Admin Principal' : u.role === 'admin' ? 'Admin' : 'Visualizador';
+    var roleClass = (u.role === 'admin' || u.role === 'super_admin') ? 'role-admin' : 'role-viewer';
+    var roleLabel = 'Visualizador';
+    if (u.role === 'super_admin') roleLabel = 'Admin Principal';
+    else if (u.role === 'admin') roleLabel = 'Admin';
+    else if (u.role === 'viewer2') roleLabel = 'Visualizador Plus';
     var status = u.must_reset ? '<span class="badge-reset">REDEFINIR SENHA</span>' : '<span style="color:#4caf50;">Ativo</span>';
     var lastLogin = '<span style="color:#666;">Nunca acessou</span>';
     if (u.last_login) {
@@ -397,15 +401,22 @@ function renderUserRow(u) {
             actions = '<span style="color:#666;font-size:11px;">Sem permissao</span>';
         }
     } else {
-        var swapRole = u.role === 'admin' ? 'viewer' : 'admin';
-        var swapLabel = u.role === 'admin' ? 'Tornar Visualizador' : 'Tornar Admin';
+        // Opcoes de troca de perfil: tudo que nao e o role atual
+        var roleOptions = [
+            { v: 'viewer',  label: 'Tornar Visualizador' },
+            { v: 'viewer2', label: 'Tornar Visualizador Plus' },
+            { v: 'admin',   label: 'Tornar Admin' },
+        ].filter(function(o){ return o.v !== u.role; });
+        var swapItems = roleOptions.map(function(o){
+            return '<button class="action-item" onclick="changeRole(\''+u.email+'\',\''+o.v+'\');closeAllMenus()">'+o.label+'</button>';
+        }).join('');
         actions = '<div class="action-wrap">'
             + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
             + '<div class="action-menu" id="'+menuId+'">'
             + '<button class="action-item" onclick="openEditModal(\''+u.email+'\');closeAllMenus()">Alterar dados</button>'
             + viewPassItem
             + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
-            + '<button class="action-item" onclick="changeRole(\''+u.email+'\',\''+swapRole+'\');closeAllMenus()">'+swapLabel+'</button>'
+            + swapItems
             + '<button class="action-item" onclick="forceReset(\''+u.email+'\');closeAllMenus()">Forcar reset de senha</button>'
             + '<div class="action-divider"></div>'
             + '<button class="action-item danger" onclick="deleteUser(\''+u.email+'\');closeAllMenus()">Excluir usuario</button>'
@@ -517,7 +528,8 @@ function viewPassword(email) {
 }
 
 async function changeRole(email, newRole) {
-    var label = newRole === 'admin' ? 'Administrador' : 'Visualizador';
+    var labels = { admin: 'Administrador', viewer: 'Visualizador', viewer2: 'Visualizador Plus' };
+    var label = labels[newRole] || newRole;
     if (!confirm('Alterar perfil de ' + email + ' para ' + label + '?')) return;
     var r = await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,role:newRole})});
     var d = await r.json();
