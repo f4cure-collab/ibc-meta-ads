@@ -37,6 +37,17 @@
         .badge-reset{background:#3a2a1a;color:#ff9800;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
         .row{display:flex;gap:10px;align-items:flex-end}
         .row>*{flex:1}
+        /* Dropdown de acoes */
+        .action-wrap{position:relative;display:inline-block}
+        .action-gear{background:#2a2a4a;color:#ccc;border:1px solid #3a3a5a;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:14px;line-height:1;transition:all .15s}
+        .action-gear:hover{background:#3a3a5a;color:#fff}
+        .action-menu{display:none;position:absolute;right:0;top:calc(100% + 4px);background:#1a1a3e;border:1px solid #2a2a4a;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);min-width:180px;z-index:100;padding:4px}
+        .action-menu.open{display:block}
+        .action-item{display:block;width:100%;text-align:left;padding:8px 12px;border:none;background:transparent;color:#ccc;font-size:13px;cursor:pointer;border-radius:6px}
+        .action-item:hover{background:#2a2a4a;color:#fff}
+        .action-item.danger{color:#f88}
+        .action-item.danger:hover{background:#3a1a1a;color:#f44336}
+        .action-divider{height:1px;background:#2a2a4a;margin:4px 0}
     </style>
 </head>
 <body>
@@ -237,19 +248,32 @@ async function loadUsers() {
             }
             var passDisplay = u.password === '********' ? '********' : (u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password);
             var actions = '';
-            // Super admin não pode ser editado por ninguém exceto ele mesmo
+            var menuId = 'menu-' + u.email.replace(/[^a-zA-Z0-9]/g,'_');
+            // Super admin: so o proprio super pode mudar a senha, ninguem pode excluir/mudar role
             if (u.role === 'super_admin') {
                 if (_isSuper) {
-                    actions = '<button class="btn btn-sm btn-primary" onclick="changePass(\''+u.email+'\')">Senha</button>';
+                    actions = '<div class="action-wrap">'
+                        + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
+                        + '<div class="action-menu" id="'+menuId+'">'
+                        + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
+                        + '</div></div>';
                 } else {
                     actions = '<span style="color:#666;font-size:11px;">Sem permissao</span>';
                 }
             } else {
-                actions = '<button class="btn btn-sm btn-danger" onclick="deleteUser(\''+u.email+'\')">Excluir</button> ';
-                actions += '<button class="btn btn-sm btn-primary" onclick="changePass(\''+u.email+'\')">Senha</button> ';
-                actions += '<button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="forceReset(\''+u.email+'\')">Reset</button>';
+                var swapRole = u.role === 'admin' ? 'viewer' : 'admin';
+                var swapLabel = u.role === 'admin' ? 'Tornar Visualizador' : 'Tornar Admin';
+                actions = '<div class="action-wrap">'
+                    + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
+                    + '<div class="action-menu" id="'+menuId+'">'
+                    + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
+                    + '<button class="action-item" onclick="changeRole(\''+u.email+'\',\''+swapRole+'\');closeAllMenus()">'+swapLabel+'</button>'
+                    + '<button class="action-item" onclick="forceReset(\''+u.email+'\');closeAllMenus()">Forcar reset de senha</button>'
+                    + '<div class="action-divider"></div>'
+                    + '<button class="action-item danger" onclick="deleteUser(\''+u.email+'\');closeAllMenus()">Excluir usuario</button>'
+                    + '</div></div>';
             }
-            return '<tr><td>'+u.email+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td>'+lastLogin+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td>'+actions+'</td></tr>';
+            return '<tr><td>'+u.email+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td>'+lastLogin+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td style="text-align:right;">'+actions+'</td></tr>';
         }).join('');
     } catch(e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6" style="color:#f44336;">Erro</td></tr>'; }
 }
@@ -283,6 +307,29 @@ async function changePass(email) {
     await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,new_password:newPass})});
     loadUsers();
 }
+
+async function changeRole(email, newRole) {
+    var label = newRole === 'admin' ? 'Administrador' : 'Visualizador';
+    if (!confirm('Alterar perfil de ' + email + ' para ' + label + '?')) return;
+    var r = await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,role:newRole})});
+    var d = await r.json();
+    if (!d.ok) alert('Erro: ' + (d.error || 'falhou'));
+    loadUsers();
+}
+
+// Dropdown de acoes: abre/fecha e fecha ao clicar fora
+function toggleMenu(id) {
+    var me = document.getElementById(id);
+    var wasOpen = me && me.classList.contains('open');
+    closeAllMenus();
+    if (me && !wasOpen) me.classList.add('open');
+}
+function closeAllMenus() {
+    document.querySelectorAll('.action-menu.open').forEach(function(m){ m.classList.remove('open'); });
+}
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.action-wrap')) closeAllMenus();
+});
 
 async function forceReset(email) {
     if (!confirm('Forcar ' + email + ' a redefinir a senha no proximo login?')) return;
