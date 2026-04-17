@@ -4121,6 +4121,12 @@ function updateRateBadge() {
 }
 startRateMonitor();
 
+// Heartbeat: a cada 60s envia um ping para registrar tempo online.
+// Usado pelo super admin para ver quanto tempo o usuario ficou ativo.
+function sendHeartbeat(){ try{ fetch('/api/dashboard/heartbeat',{method:'POST'}).catch(function(){}); }catch(e){} }
+sendHeartbeat();
+setInterval(sendHeartbeat, 60000);
+
 {% if role == 'viewer' %}
 // Viewer: carrega criativos automaticamente no primeiro acesso, ja que as outras tabs nao existem
 setTimeout(function(){ try{ if(typeof loadCr === 'function' && (typeof crData === 'undefined' || !crData.length)) loadCr(); }catch(e){ console.warn('viewer auto-load falhou:', e); } }, 400);

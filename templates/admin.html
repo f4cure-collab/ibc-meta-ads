@@ -167,6 +167,18 @@
     </div>
 </div>
 
+<!-- Modal Log de Atividade do Usuario -->
+<div id="userLogModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#1a1a3e;border:1px solid #2a2a4a;border-radius:12px;padding:24px;width:100%;max-width:720px;max-height:90vh;display:flex;flex-direction:column;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <h2 style="color:#fff;font-size:16px;">Log de Atividade</h2>
+            <button class="btn" style="background:#2a2a4a;color:#ccc;padding:6px 12px;font-size:11px;" onclick="closeLogModal()">Fechar</button>
+        </div>
+        <div id="userLogSubtitle" style="color:#888;font-size:12px;margin-bottom:12px;"></div>
+        <div id="userLogContent" style="overflow-y:auto;flex:1;"></div>
+    </div>
+</div>
+
 <!-- Modal Editar Dados do Usuario -->
 <div id="editUserModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;">
     <div style="background:#1a1a3e;border:1px solid #2a2a4a;border-radius:12px;padding:24px;width:100%;max-width:420px;">
@@ -385,8 +397,9 @@ function renderUserRow(u) {
     var passDisplay = '********';
     var actions = '';
     var menuId = 'menu-' + u.email.replace(/[^a-zA-Z0-9]/g,'_');
-    // "Ver senha" so para super admin (backend so manda password real pra ele)
+    // "Ver senha" e "Ver log" so para super admin
     var viewPassItem = _isSuper ? '<button class="action-item" onclick="viewPassword(\''+u.email+'\');closeAllMenus()">Ver senha</button>' : '';
+    var viewLogItem = _isSuper ? '<button class="action-item" onclick="viewLog(\''+u.email+'\');closeAllMenus()">Ver log de atividade</button>' : '';
 
     if (u.role === 'super_admin') {
         if (_isSuper) {
@@ -395,6 +408,7 @@ function renderUserRow(u) {
                 + '<div class="action-menu" id="'+menuId+'">'
                 + '<button class="action-item" onclick="openEditModal(\''+u.email+'\');closeAllMenus()">Alterar dados</button>'
                 + viewPassItem
+                + viewLogItem
                 + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
                 + '</div></div>';
         } else {
@@ -415,6 +429,7 @@ function renderUserRow(u) {
             + '<div class="action-menu" id="'+menuId+'">'
             + '<button class="action-item" onclick="openEditModal(\''+u.email+'\');closeAllMenus()">Alterar dados</button>'
             + viewPassItem
+            + viewLogItem
             + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
             + swapItems
             + '<button class="action-item" onclick="forceReset(\''+u.email+'\');closeAllMenus()">Forcar reset de senha</button>'
@@ -514,6 +529,56 @@ async function changePass(email) {
     if (!newPass) return;
     await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,new_password:newPass})});
     loadUsers();
+}
+
+function closeLogModal() { document.getElementById('userLogModal').style.display = 'none'; }
+
+function formatDuration(seconds) {
+    if (seconds == null) return '—';
+    if (seconds < 60) return seconds + 's';
+    var m = Math.floor(seconds / 60);
+    if (m < 60) return m + 'min';
+    var h = Math.floor(m / 60);
+    var rm = m % 60;
+    return h + 'h ' + rm + 'min';
+}
+
+async function viewLog(email) {
+    var user = _allUsers.find(function(u){return u.email===email;}) || {};
+    document.getElementById('userLogSubtitle').textContent = (user.name ? user.name + ' (' + email + ')' : email);
+    var content = document.getElementById('userLogContent');
+    content.innerHTML = '<div style="color:#888;text-align:center;padding:24px;">Carregando...</div>';
+    document.getElementById('userLogModal').style.display = 'flex';
+
+    try {
+        var r = await fetch('/api/admin/users/' + encodeURIComponent(email) + '/log');
+        var d = await r.json();
+        if (!d.ok) { content.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + d.error + '</div>'; return; }
+        if (!d.sessions.length) { content.innerHTML = '<div style="color:#888;text-align:center;padding:24px;">Sem registros de atividade.</div>'; return; }
+
+        var html = '<table style="width:100%;font-size:12px;"><thead><tr>'
+            + '<th style="text-align:left;padding:8px;color:#4f8cff;">Inicio</th>'
+            + '<th style="text-align:left;padding:8px;color:#4f8cff;">Fim</th>'
+            + '<th style="text-align:left;padding:8px;color:#4f8cff;">Tempo online</th>'
+            + '<th style="text-align:left;padding:8px;color:#4f8cff;">IP</th>'
+            + '<th style="text-align:left;padding:8px;color:#4f8cff;">Status</th>'
+            + '</tr></thead><tbody>';
+        html += d.sessions.map(function(s) {
+            var start = s.start ? new Date(s.start).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '—';
+            var end = s.end ? new Date(s.end).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '—';
+            var status = s.closed ? '<span style="color:#888;">Encerrada</span>' : '<span style="color:#4caf50;">Ativa</span>';
+            return '<tr><td style="padding:8px;border-bottom:1px solid #2a2a4a;">'+start+'</td>'
+                + '<td style="padding:8px;border-bottom:1px solid #2a2a4a;">'+end+'</td>'
+                + '<td style="padding:8px;border-bottom:1px solid #2a2a4a;color:#ccc;">'+formatDuration(s.duration_seconds)+'</td>'
+                + '<td style="padding:8px;border-bottom:1px solid #2a2a4a;font-family:monospace;color:#aaa;">'+(s.ip || '—')+'</td>'
+                + '<td style="padding:8px;border-bottom:1px solid #2a2a4a;">'+status+'</td></tr>';
+        }).join('');
+        html += '</tbody></table>';
+        html += '<div style="margin-top:12px;color:#666;font-size:11px;">Ultimas ' + d.sessions.length + ' sessoes. "Ativa" significa que nao houve logout explicito — o usuario fechou a aba ou a sessao ainda esta aberta.</div>';
+        content.innerHTML = html;
+    } catch(e) {
+        content.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + e.message + '</div>';
+    }
 }
 
 function viewPassword(email) {

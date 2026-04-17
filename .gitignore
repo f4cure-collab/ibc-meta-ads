@@ -7,3 +7,4 @@ memory/
 google_sheets/
 users.json
 cache.db
+activity_log.json

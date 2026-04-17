@@ -8,6 +8,8 @@ import sys
 import json
 import math
 import time
+import uuid
+import threading
 import functools
 import requests
 from datetime import datetime, timedelta, timezone
@@ -39,6 +41,43 @@ ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID", "")
 SUPER_ADMIN_EMAIL = "f4cure@gmail.com"  # Admin principal — invisível e intocável
 ADMIN_DEFAULT_PASS = os.getenv("ADMIN_PASSWORD", "ibc!facure@1010")
 USERS_FILE = os.path.join(os.path.dirname(__file__), "users.json")
+ACTIVITY_LOG_FILE = os.path.join(os.path.dirname(__file__), "activity_log.json")
+ACTIVITY_LOG_MAX = 5000  # Mantem so os 5000 eventos mais recentes
+_activity_lock = threading.Lock()
+
+
+def _client_ip():
+    """Retorna IP real do cliente (ProxyFix ja aplica X-Forwarded-For)."""
+    return request.headers.get("X-Real-IP") or request.remote_addr or ""
+
+
+def log_activity(email, event, session_id="", extra=None):
+    """Grava um evento no activity_log.json. Append com limite para evitar arquivo infinito."""
+    try:
+        entry = {
+            "email": email,
+            "event": event,  # login | logout | heartbeat
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "ip": _client_ip(),
+            "session_id": session_id or "",
+        }
+        if extra:
+            entry.update(extra)
+        with _activity_lock:
+            log = []
+            if os.path.exists(ACTIVITY_LOG_FILE):
+                try:
+                    with open(ACTIVITY_LOG_FILE, "r") as f:
+                        log = json.load(f)
+                except Exception:
+                    log = []
+            log.append(entry)
+            if len(log) > ACTIVITY_LOG_MAX:
+                log = log[-ACTIVITY_LOG_MAX:]
+            with open(ACTIVITY_LOG_FILE, "w") as f:
+                json.dump(log, f)
+    except Exception as e:
+        print(f"[LOG] Falha ao gravar atividade: {e}")
 
 
 def _load_users():
@@ -187,6 +226,9 @@ def login_page():
         session["username"] = username
         session["role"] = user.get("role", "viewer")
         session["must_reset"] = user.get("must_reset", False)
+        session["session_id"] = str(uuid.uuid4())
+        # Registra evento de login no log de atividade
+        log_activity(username, "login", session_id=session["session_id"])
         # Registra timestamp de ultimo acesso no users.json.
         # Para o super admin cria a entrada se ela ainda nao existir no arquivo —
         # _load_users re-injeta senha/role/must_reset, entao nao ha risco de conflito.
@@ -216,6 +258,8 @@ def login_page():
 
 @app.route("/logout")
 def logout():
+    if session.get("logged_in"):
+        log_activity(session.get("username", ""), "logout", session_id=session.get("session_id", ""))
     session.clear()
     return redirect(url_for("login_page"))
 
@@ -2316,6 +2360,80 @@ def api_create_user():
     }
     _save_users(users)
     return jsonify({"ok": True})
+
+
+@app.route("/api/dashboard/heartbeat", methods=["POST"])
+def api_heartbeat():
+    """Chamado pelo frontend a cada ~60s enquanto o dashboard esta aberto.
+    Usado pra calcular tempo online (diferenca entre login e ultimo heartbeat)."""
+    if not session.get("logged_in"):
+        return jsonify({"ok": False}), 401
+    log_activity(session.get("username", ""), "heartbeat", session_id=session.get("session_id", ""))
+    return jsonify({"ok": True})
+
+
+@app.route("/api/admin/users/<path:email>/log")
+def api_user_log(email):
+    """Retorna historico de atividade do usuario, agrupado por sessao.
+    Acessivel apenas pelo super admin."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+
+    email = (email or "").strip().lower()
+    if not os.path.exists(ACTIVITY_LOG_FILE):
+        return jsonify({"ok": True, "sessions": []})
+
+    try:
+        with open(ACTIVITY_LOG_FILE, "r") as f:
+            log = json.load(f)
+    except Exception:
+        log = []
+
+    # Filtra eventos do usuario
+    user_events = [e for e in log if (e.get("email") or "").lower() == email]
+
+    # Agrupa por session_id
+    sessions_map = {}
+    for e in user_events:
+        sid = e.get("session_id") or "_nosession"
+        if sid not in sessions_map:
+            sessions_map[sid] = {"session_id": sid, "events": []}
+        sessions_map[sid]["events"].append(e)
+
+    # Monta resumo de cada sessao
+    sessions = []
+    for sid, data in sessions_map.items():
+        evs = sorted(data["events"], key=lambda x: x.get("ts", ""))
+        login_ev = next((e for e in evs if e.get("event") == "login"), None)
+        logout_ev = next((e for e in reversed(evs) if e.get("event") == "logout"), None)
+        # Ultimo evento (heartbeat ou logout ou login)
+        last_ev = evs[-1] if evs else None
+        start = login_ev.get("ts") if login_ev else (evs[0].get("ts") if evs else "")
+        end = logout_ev.get("ts") if logout_ev else (last_ev.get("ts") if last_ev else "")
+        ip = (login_ev or last_ev or {}).get("ip", "")
+        # Duracao em segundos
+        duration = None
+        try:
+            if start and end:
+                ds = datetime.fromisoformat(start.replace("Z", "+00:00"))
+                de = datetime.fromisoformat(end.replace("Z", "+00:00"))
+                duration = int((de - ds).total_seconds())
+        except Exception:
+            duration = None
+        sessions.append({
+            "session_id": sid,
+            "start": start,
+            "end": end,
+            "ip": ip,
+            "duration_seconds": duration,
+            "closed": logout_ev is not None,
+            "heartbeats": sum(1 for e in evs if e.get("event") == "heartbeat"),
+        })
+
+    sessions.sort(key=lambda s: s.get("start") or "", reverse=True)
+    # Limita a 30 sessoes mais recentes
+    sessions = sessions[:30]
+    return jsonify({"ok": True, "sessions": sessions})
 
 
 @app.route("/api/admin/users/backfill-creators", methods=["POST"])
