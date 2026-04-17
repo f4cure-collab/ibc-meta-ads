@@ -2227,6 +2227,8 @@ def api_list_users():
             "role": u.get("role", "viewer"),
             "must_reset": u.get("must_reset", False),
             "last_login": u.get("last_login", ""),
+            "created_by": u.get("created_by", ""),
+            "created_at": u.get("created_at", ""),
             "password": u.get("password", "") if is_super else "********"  # Só super admin vê senhas
         })
     return jsonify({"ok": True, "data": result, "is_super": is_super})
@@ -2247,7 +2249,13 @@ def api_create_user():
     users = _get_users()
     if email in users:
         return jsonify({"ok": False, "error": "Usuario ja existe"}), 400
-    users[email] = {"password": password, "role": role, "must_reset": True}
+    users[email] = {
+        "password": password,
+        "role": role,
+        "must_reset": True,
+        "created_by": session.get("username", ""),
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
     _save_users(users)
     return jsonify({"ok": True})
 

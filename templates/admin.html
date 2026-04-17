@@ -246,6 +246,24 @@ async function loadUsers() {
                     }
                 } catch(e) {}
             }
+            // Info de criacao: "Adicionado por X em DD/MM/AAAA" como linha secundaria do email
+            var createdInfo = '';
+            if (u.created_by || u.created_at) {
+                var createdWhen = '';
+                if (u.created_at) {
+                    try {
+                        var cdt = new Date(u.created_at);
+                        if (!isNaN(cdt.getTime())) {
+                            createdWhen = cdt.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',timeZone:'America/Sao_Paulo'});
+                        }
+                    } catch(e) {}
+                }
+                var parts = [];
+                if (u.created_by) parts.push('por ' + u.created_by);
+                if (createdWhen) parts.push('em ' + createdWhen);
+                if (parts.length) createdInfo = '<div style="color:#666;font-size:10px;margin-top:2px;">Adicionado ' + parts.join(' ') + '</div>';
+            }
+            var emailCell = '<div style="font-weight:500;">'+u.email+'</div>' + createdInfo;
             var passDisplay = u.password === '********' ? '********' : (u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password);
             var actions = '';
             var menuId = 'menu-' + u.email.replace(/[^a-zA-Z0-9]/g,'_');
@@ -273,7 +291,7 @@ async function loadUsers() {
                     + '<button class="action-item danger" onclick="deleteUser(\''+u.email+'\');closeAllMenus()">Excluir usuario</button>'
                     + '</div></div>';
             }
-            return '<tr><td>'+u.email+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td>'+lastLogin+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td style="text-align:right;">'+actions+'</td></tr>';
+            return '<tr><td>'+emailCell+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td>'+lastLogin+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td style="text-align:right;">'+actions+'</td></tr>';
         }).join('');
     } catch(e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6" style="color:#f44336;">Erro</td></tr>'; }
 }
