@@ -2224,6 +2224,7 @@ def api_list_users():
             continue
         result.append({
             "email": email,
+            "name": u.get("name", ""),
             "role": u.get("role", "viewer"),
             "must_reset": u.get("must_reset", False),
             "last_login": u.get("last_login", ""),
@@ -2250,6 +2251,7 @@ def api_create_user():
     if email in users:
         return jsonify({"ok": False, "error": "Usuario ja existe"}), 400
     users[email] = {
+        "name": data.get("name", "").strip(),
         "password": password,
         "role": role,
         "must_reset": True,
@@ -2287,6 +2289,8 @@ def api_update_user():
         users[email]["password"] = data["new_password"]
     elif data.get("role"):
         users[email]["role"] = data["role"]
+    elif "name" in data:
+        users[email]["name"] = data.get("name", "").strip()
     _save_users(users)
     return jsonify({"ok": True})
 

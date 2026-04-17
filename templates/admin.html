@@ -85,7 +85,7 @@
     <div class="card">
         <h2>Usuarios</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">Gerencie quem pode acessar o dashboard. Novos usuarios precisam redefinir a senha no primeiro acesso.</p>
-        <input type="text" id="userSearch" placeholder="Buscar por email ou quem adicionou..." style="margin-bottom:8px;" oninput="renderUsers()">
+        <input type="text" id="userSearch" placeholder="Buscar por nome ou email..." style="margin-bottom:8px;" oninput="renderUsers()">
         <table>
             <thead><tr><th>Email</th><th>Perfil</th><th>Status</th><th>Ultimo acesso</th><th>Senha</th><th>Acoes</th></tr></thead>
             <tbody id="usersBody"><tr><td colspan="6" style="color:#666;text-align:center;">Carregando...</td></tr></tbody>
@@ -102,9 +102,15 @@
         <h3 style="color:#fff;font-size:14px;margin-top:24px;margin-bottom:8px;">Criar Novo Usuario</h3>
         <div class="row">
             <div>
+                <label>Nome</label>
+                <input type="text" id="newUserName" placeholder="Nome completo">
+            </div>
+            <div>
                 <label>Email</label>
                 <input type="email" id="newUserEmail" placeholder="email@exemplo.com">
             </div>
+        </div>
+        <div class="row" style="margin-top:8px;">
             <div>
                 <label>Senha Temporaria</label>
                 <input type="text" id="newUserPass" placeholder="Senha inicial">
@@ -256,7 +262,7 @@ function renderUsers() {
     var filtered = _allUsers;
     if (q) {
         filtered = _allUsers.filter(function(u){
-            var hay = (u.email || '') + ' ' + (u.created_by || '');
+            var hay = (u.name || '') + ' ' + (u.email || '');
             return hay.toLowerCase().indexOf(q) !== -1;
         });
     }
@@ -321,7 +327,8 @@ function renderUserRow(u) {
         if (createdWhen) parts.push('em ' + createdWhen);
         if (parts.length) createdInfo = '<div style="color:#666;font-size:10px;margin-top:2px;">Adicionado ' + parts.join(' ') + '</div>';
     }
-    var emailCell = '<div style="font-weight:500;">'+u.email+'</div>' + createdInfo;
+    var nameLine = u.name ? '<div style="font-weight:600;color:#fff;">'+u.name+'</div><div style="color:#aaa;font-size:12px;">'+u.email+'</div>' : '<div style="font-weight:500;">'+u.email+'</div>';
+    var emailCell = nameLine + createdInfo;
     var passDisplay = u.password === '********' ? '********' : (u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password);
     var actions = '';
     var menuId = 'menu-' + u.email.replace(/[^a-zA-Z0-9]/g,'_');
@@ -341,6 +348,7 @@ function renderUserRow(u) {
         actions = '<div class="action-wrap">'
             + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
             + '<div class="action-menu" id="'+menuId+'">'
+            + '<button class="action-item" onclick="editName(\''+u.email+'\');closeAllMenus()">Editar nome</button>'
             + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
             + '<button class="action-item" onclick="changeRole(\''+u.email+'\',\''+swapRole+'\');closeAllMenus()">'+swapLabel+'</button>'
             + '<button class="action-item" onclick="forceReset(\''+u.email+'\');closeAllMenus()">Forcar reset de senha</button>'
@@ -352,6 +360,7 @@ function renderUserRow(u) {
 }
 
 async function createUser() {
+    var name = document.getElementById('newUserName').value.trim();
     var email = document.getElementById('newUserEmail').value.trim();
     var pass = document.getElementById('newUserPass').value.trim();
     var role = document.getElementById('newUserRole').value;
@@ -360,12 +369,26 @@ async function createUser() {
     try {
         var r = await fetch('/api/admin/users/create', {
             method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({email: email, password: pass, role: role})
+            body: JSON.stringify({name: name, email: email, password: pass, role: role})
         });
         var d = await r.json();
-        if (d.ok) { show('userOk', 'Usuario criado! Ele devera redefinir a senha no primeiro acesso.'); document.getElementById('newUserEmail').value=''; document.getElementById('newUserPass').value=''; loadUsers(); }
+        if (d.ok) {
+            show('userOk', 'Usuario criado! Ele devera redefinir a senha no primeiro acesso.');
+            document.getElementById('newUserName').value='';
+            document.getElementById('newUserEmail').value='';
+            document.getElementById('newUserPass').value='';
+            loadUsers();
+        }
         else { show('userErr', d.error); }
     } catch(e) { show('userErr', e.message); }
+}
+
+async function editName(email) {
+    var current = (_allUsers.find(function(u){return u.email===email;}) || {}).name || '';
+    var newName = prompt('Nome para ' + email + ':', current);
+    if (newName === null) return;
+    await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,name:newName.trim()})});
+    loadUsers();
 }
 
 async function deleteUser(email) {
