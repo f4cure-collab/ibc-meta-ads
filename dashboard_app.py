@@ -10,7 +10,7 @@ import math
 import time
 import functools
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
@@ -173,7 +173,8 @@ def login_page():
                     persisted = json.load(f)
             if username not in persisted:
                 persisted[username] = {}
-            persisted[username]["last_login"] = datetime.now().isoformat(timespec="seconds")
+            # Timezone explicito (UTC) para o frontend conseguir converter corretamente
+            persisted[username]["last_login"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
             _save_users(persisted)
         except Exception as e:
             print(f"[AUTH] Erro ao registrar last_login: {e}")
@@ -2155,7 +2156,8 @@ def api_update_history():
         last_applied = None
         fetch_head = os.path.join(cwd, ".git", "FETCH_HEAD")
         if os.path.exists(fetch_head):
-            last_applied = datetime.fromtimestamp(os.path.getmtime(fetch_head)).isoformat(timespec="seconds")
+            # Timezone explicito (UTC) para conversao correta no frontend
+            last_applied = datetime.fromtimestamp(os.path.getmtime(fetch_head), tz=timezone.utc).isoformat(timespec="seconds")
 
         return jsonify({"ok": True, "commits": commits, "last_applied": last_applied})
     except Exception as e:
