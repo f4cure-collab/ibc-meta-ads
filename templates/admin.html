@@ -29,9 +29,16 @@
         .expiry-ok{background:#1a3a1a;border:1px solid #2a5a2a;color:#4caf50}
         .expiry-warn{background:#3a3a1a;border:1px solid #5a5a2a;color:#ff9800}
         .expiry-danger{background:#3a1a1a;border:1px solid #5a2a2a;color:#f44336}
-        table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+        table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px;table-layout:fixed}
         th{text-align:left;padding:8px;color:#4f8cff;border-bottom:1px solid #2a2a4a;font-size:11px;text-transform:uppercase}
-        td{padding:8px;border-bottom:1px solid #1a1a3e}
+        td{padding:8px;border-bottom:1px solid #1a1a3e;vertical-align:top;word-break:break-word;overflow-wrap:break-word}
+        /* Larguras fixas das colunas de usuarios pra layout nao mudar entre paginas */
+        #usersBody tr td:nth-child(1), table th:nth-child(1){width:32%}
+        #usersBody tr td:nth-child(2), table th:nth-child(2){width:14%}
+        #usersBody tr td:nth-child(3), table th:nth-child(3){width:18%}
+        #usersBody tr td:nth-child(4), table th:nth-child(4){width:14%}
+        #usersBody tr td:nth-child(5), table th:nth-child(5){width:12%}
+        #usersBody tr td:nth-child(6), table th:nth-child(6){width:10%}
         .role-admin{color:#4f8cff;font-weight:600}
         .role-viewer{color:#888}
         .badge-reset{background:#3a2a1a;color:#ff9800;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
