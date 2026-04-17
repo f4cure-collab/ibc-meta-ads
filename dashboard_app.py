@@ -202,7 +202,7 @@ def _enforce_range_for_role(date_from, date_to):
     if diff_days > 60:
         return jsonify({
             "ok": False,
-            "error": "Periodo maximo para o perfil Visualizador Plus e 60 dias.",
+            "error": "Periodo maximo para o perfil Analisador e 60 dias.",
             "role_limited": True,
         }), 403
     return None
