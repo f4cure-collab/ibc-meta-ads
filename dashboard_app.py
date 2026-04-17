@@ -629,13 +629,29 @@ def _camp_status_filter(camp_status="active"):
     return '["ACTIVE"]'
 
 
+try:
+    from zoneinfo import ZoneInfo
+    _BR_TZ = ZoneInfo("America/Sao_Paulo")
+except Exception:
+    _BR_TZ = timezone(timedelta(hours=-3))  # fallback sem tzdata
+
+
+def _now_br():
+    """Datetime corrente no fuso de Sao Paulo.
+    Independe do fuso do servidor (producao pode estar em US/UTC).
+    Essencial pra que "ontem" e o range default batam com o que o
+    usuario brasileiro ve — e pra evitar inconsistencia entre caches
+    populados em momentos com "data" diferente no servidor."""
+    return datetime.now(_BR_TZ)
+
+
 def _yesterday():
-    """Retorna data de ontem — nunca usar dados do dia atual (incompletos)."""
-    return (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    """Retorna data de ontem no fuso BR — nunca usar dados do dia atual (incompletos)."""
+    return (_now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 def _default_date_from():
-    return (datetime.now() - timedelta(days=31)).strftime("%Y-%m-%d")
+    return (_now_br() - timedelta(days=31)).strftime("%Y-%m-%d")
 
 
 # Fields padrão para chamadas de /insights — inclui inline_link_clicks e cpc
@@ -1773,7 +1789,7 @@ def api_all_creatives():
                     d_from = datetime.strptime(date_from, "%Y-%m-%d")
                     d_to = datetime.strptime(date_to, "%Y-%m-%d")
                     diff = (d_to - d_from).days + 1
-                    yesterday = (datetime.now() - timedelta(days=1)).date()
+                    yesterday = (_now_br() - timedelta(days=1)).date()
                     if d_to.date() != yesterday:
                         return False
                     return diff in (1, 7, 14, 30)
@@ -2725,10 +2741,11 @@ def _scheduled_refresh():
     """
     from datetime import datetime, timedelta
 
-    dt_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    now_br = _now_br()
+    dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
     # Ranges pre-carregados: (dias, label). 30d e o range principal usado no /criativos
     preload_ranges = [1, 7, 14, 30, 60]
-    ranges = [(d, (datetime.now() - timedelta(days=d)).strftime("%Y-%m-%d")) for d in preload_ranges]
+    ranges = [(d, (now_br - timedelta(days=d)).strftime("%Y-%m-%d")) for d in preload_ranges]
 
     print(f"[SCHEDULER] Iniciando atualizacao automatica — ranges: {preload_ranges} dias, ate {dt_to}")
     clear_expired()
@@ -2773,7 +2790,7 @@ def _scheduled_refresh():
         # ── ETAPA 3 (3:00): Criativos de cada campanha (apenas 30d — aba campanha individual) ──
         try:
             print("[SCHEDULER] Etapa 3/5: Carregando criativos por campanha (range 30d)...")
-            dt_from_30 = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+            dt_from_30 = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
             sales_camps = []
             try:
                 data = meta_get(f"{ACCOUNT_ID}/campaigns", {
