@@ -1746,11 +1746,27 @@ def api_all_creatives():
                 return jsonify(cached)
 
         if is_viewer:
-            return jsonify({
-                "ok": False,
-                "error": "Periodo nao disponivel para o perfil Visualizador. Escolha 1d, 7d, 14d ou 30d.",
-                "viewer_cache_only": True,
-            }), 403
+            # Viewer pode acionar a API apenas para os ranges pre-aprovados (1/7/14/30d
+            # terminando em ontem). Primeira chamada popula o cache, demais vem do cache.
+            def _is_approved_viewer_range():
+                try:
+                    d_from = datetime.strptime(date_from, "%Y-%m-%d")
+                    d_to = datetime.strptime(date_to, "%Y-%m-%d")
+                    diff = (d_to - d_from).days + 1
+                    yesterday = (datetime.now() - timedelta(days=1)).date()
+                    if d_to.date() != yesterday:
+                        return False
+                    return diff in (1, 7, 14, 30)
+                except Exception:
+                    return False
+
+            if not _is_approved_viewer_range():
+                return jsonify({
+                    "ok": False,
+                    "error": "Periodo nao disponivel para o perfil Visualizador. Escolha 1d, 7d, 14d ou 30d.",
+                    "viewer_cache_only": True,
+                }), 403
+            # Range permitido: segue adiante (chama API e cacheia)
 
         campaigns = meta_get_all_pages(
             f"{ACCOUNT_ID}/campaigns",
