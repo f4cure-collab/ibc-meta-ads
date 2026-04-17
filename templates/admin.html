@@ -377,15 +377,20 @@ function renderUserRow(u) {
     }
     var nameLine = u.name ? '<div style="font-weight:600;color:#fff;">'+u.name+'</div><div style="color:#aaa;font-size:12px;">'+u.email+'</div>' : '<div style="font-weight:500;">'+u.email+'</div>';
     var emailCell = nameLine + createdInfo;
-    var passDisplay = u.password === '********' ? '********' : (u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password);
+    // Senha sempre oculta na tabela — super admin consegue ver via menu de acoes
+    var passDisplay = '********';
     var actions = '';
     var menuId = 'menu-' + u.email.replace(/[^a-zA-Z0-9]/g,'_');
+    // "Ver senha" so para super admin (backend so manda password real pra ele)
+    var viewPassItem = _isSuper ? '<button class="action-item" onclick="viewPassword(\''+u.email+'\');closeAllMenus()">Ver senha</button>' : '';
+
     if (u.role === 'super_admin') {
         if (_isSuper) {
             actions = '<div class="action-wrap">'
                 + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
                 + '<div class="action-menu" id="'+menuId+'">'
                 + '<button class="action-item" onclick="openEditModal(\''+u.email+'\');closeAllMenus()">Alterar dados</button>'
+                + viewPassItem
                 + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
                 + '</div></div>';
         } else {
@@ -398,6 +403,7 @@ function renderUserRow(u) {
             + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
             + '<div class="action-menu" id="'+menuId+'">'
             + '<button class="action-item" onclick="openEditModal(\''+u.email+'\');closeAllMenus()">Alterar dados</button>'
+            + viewPassItem
             + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
             + '<button class="action-item" onclick="changeRole(\''+u.email+'\',\''+swapRole+'\');closeAllMenus()">'+swapLabel+'</button>'
             + '<button class="action-item" onclick="forceReset(\''+u.email+'\');closeAllMenus()">Forcar reset de senha</button>'
@@ -497,6 +503,17 @@ async function changePass(email) {
     if (!newPass) return;
     await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,new_password:newPass})});
     loadUsers();
+}
+
+function viewPassword(email) {
+    var user = _allUsers.find(function(u){return u.email===email;}) || {};
+    var pass = user.password;
+    if (!pass || pass === '********') {
+        alert('Senha nao disponivel.');
+        return;
+    }
+    // prompt permite selecionar/copiar o texto facilmente
+    prompt('Senha de ' + (user.name || email) + ' (Ctrl+C para copiar):', pass);
 }
 
 async function changeRole(email, newRole) {
