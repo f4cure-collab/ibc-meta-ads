@@ -340,7 +340,12 @@ function renderUserRow(u) {
             } catch(e) {}
         }
         var parts = [];
-        if (u.created_by) parts.push('por ' + u.created_by);
+        if (u.created_by) {
+            // Mostra o nome de quem adicionou quando disponivel; se nao, mostra o email
+            var creator = _allUsers.find(function(x){return x.email === u.created_by;});
+            var creatorLabel = (creator && creator.name) ? creator.name : u.created_by;
+            parts.push('por ' + creatorLabel);
+        }
         if (createdWhen) parts.push('em ' + createdWhen);
         if (parts.length) createdInfo = '<div style="color:#666;font-size:10px;margin-top:2px;">Adicionado ' + parts.join(' ') + '</div>';
     }
@@ -354,6 +359,7 @@ function renderUserRow(u) {
             actions = '<div class="action-wrap">'
                 + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
                 + '<div class="action-menu" id="'+menuId+'">'
+                + '<button class="action-item" onclick="openEditModal(\''+u.email+'\');closeAllMenus()">Alterar dados</button>'
                 + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
                 + '</div></div>';
         } else {
@@ -404,7 +410,18 @@ function openEditModal(email) {
     var user = _allUsers.find(function(u){return u.email===email;}) || {};
     document.getElementById('editUserOriginalEmail').value = email;
     document.getElementById('editUserName').value = user.name || '';
-    document.getElementById('editUserEmail').value = user.email || '';
+    var emailInput = document.getElementById('editUserEmail');
+    emailInput.value = user.email || '';
+    // Email do super admin nao pode ser alterado — desabilita o campo
+    if (user.role === 'super_admin') {
+        emailInput.disabled = true;
+        emailInput.title = 'O email do admin principal nao pode ser alterado';
+        emailInput.style.opacity = '0.5';
+    } else {
+        emailInput.disabled = false;
+        emailInput.title = '';
+        emailInput.style.opacity = '1';
+    }
     document.getElementById('editUserErr').style.display = 'none';
     document.getElementById('editUserModal').style.display = 'flex';
 }
