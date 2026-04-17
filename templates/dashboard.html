@@ -3004,7 +3004,17 @@ async function openCompareModal(){
         const compareMetricSel=new Set(['spend']);
         const allDates=new Set();
         const adMaps=adsData.map(ad=>{
-            const m={};(ad.daily||[]).forEach(d=>{allDates.add(d.date);m[d.date]=d;});
+            // indexa gasto diario da campanha para calcular participacao por dia
+            const campMap={};
+            (ad.campaign_daily||[]).forEach(c=>{campMap[c.date]=c;});
+            const m={};
+            (ad.daily||[]).forEach(d=>{
+                // anexa o gasto da campanha naquele dia para o calculo de share
+                const cd=campMap[d.date];
+                d.campaign_spend=cd?(cd.spend||0):0;
+                allDates.add(d.date);
+                m[d.date]=d;
+            });
             return m;
         });
         const cmpLabels=Array.from(allDates).sort();
@@ -3017,7 +3027,8 @@ async function openCompareModal(){
             cpa:{title:'CPA',color:'#ffc857',fmt:fmtM,axis:'unit_cost',calc:d=>d.cpa||0},
             cpm:{title:'CPM',color:'#bc8cff',fmt:fmtM,axis:'unit_cost',calc:d=>{const i=d.impressions||0;return i>0?(d.spend/i)*1000:0;}},
             ctr:{title:'CTR',color:'#79c0ff',fmt:fmtP,axis:'pct',calc:d=>{const i=d.impressions||0;return i>0?(d.clicks/i)*100:0;}},
-            share_total:{title:'Participação',color:'#d2a8ff',fmt:v=>v.toFixed(1)+'%',axis:'pct',calc:d=>d.share_total||0},
+            // Participacao = gasto do criativo / gasto da campanha naquele dia (%)
+            share_total:{title:'Participação',color:'#d2a8ff',fmt:v=>v.toFixed(1)+'%',axis:'pct',calc:d=>{const s=d.spend||0,cs=d.campaign_spend||0;return cs>0?(s/cs)*100:0;}},
             reach:{title:'Alcance',color:'#a5d6ff',fmt:fmt,axis:'big',calc:d=>d.reach||0},
             frequency:{title:'Frequência',color:'#f778ba',fmt:v=>v.toFixed(2)+'x',axis:'ratio',calc:d=>d.frequency||0},
         };
