@@ -1748,7 +1748,7 @@ def api_all_creatives():
         if is_viewer:
             return jsonify({
                 "ok": False,
-                "error": "Periodo nao disponivel para o perfil Visualizador. Escolha 7d, 14d ou 30d.",
+                "error": "Periodo nao disponivel para o perfil Visualizador. Escolha 1d, 7d, 14d ou 30d.",
                 "viewer_cache_only": True,
             }), 403
 
@@ -2691,7 +2691,7 @@ def _scheduled_refresh():
 
     dt_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     # Ranges pre-carregados: (dias, label). 30d e o range principal usado no /criativos
-    preload_ranges = [7, 14, 30, 60]
+    preload_ranges = [1, 7, 14, 30, 60]
     ranges = [(d, (datetime.now() - timedelta(days=d)).strftime("%Y-%m-%d")) for d in preload_ranges]
 
     print(f"[SCHEDULER] Iniciando atualizacao automatica — ranges: {preload_ranges} dias, ate {dt_to}")

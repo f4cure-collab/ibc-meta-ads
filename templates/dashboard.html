@@ -770,7 +770,7 @@
         <div class="filters">
             <div class="fg"><label data-tip="Per&iacute;odo de an&aacute;lise dos criativos">Per&iacute;odo</label>
                 <div class="preset-btns pbc">
-                    {% if role != 'viewer' %}<button class="pbtn" data-days="1" data-tip="Apenas ontem">1d</button>{% endif %}
+                    <button class="pbtn" data-days="1" data-tip="Apenas ontem">1d</button>
                     <button class="pbtn" data-days="7" data-tip="&Uacute;ltimos 7 dias">7d</button>
                     <button class="pbtn" data-days="14" data-tip="&Uacute;ltimos 14 dias">14d</button>
                     <button class="pbtn active" data-days="30" data-tip="&Uacute;ltimos 30 dias">30d</button>
@@ -2834,7 +2834,7 @@ $('#btn-cr-load').addEventListener('click',function(){
         // Considera cacheado se o periodo bate com um dos presets E termina em ontem
         var today=new Date(); today.setDate(today.getDate()-1);
         var endsYesterday=(d2.getFullYear()===today.getFullYear()&&d2.getMonth()===today.getMonth()&&d2.getDate()===today.getDate());
-        if(endsYesterday && (diffDays===7||diffDays===14||diffDays===30||diffDays===60)) cached=true;
+        if(endsYesterday && (diffDays===1||diffDays===7||diffDays===14||diffDays===30||diffDays===60)) cached=true;
     }
     if(!cached && !confirmApiCall('Carregar criativos faz muitas chamadas a API da Meta (uma por campanha de vendas).\n\nIsso consome uma parte significativa do limite diario.\n\nDeseja continuar?')) return;
     loadCr();
