@@ -767,15 +767,20 @@
         <div class="filters">
             <div class="fg"><label data-tip="Per&iacute;odo de an&aacute;lise dos criativos">Per&iacute;odo</label>
                 <div class="preset-btns pbc">
-                    <button class="pbtn" data-days="1" data-tip="Apenas ontem">1d</button>
+                    {% if role != 'viewer' %}<button class="pbtn" data-days="1" data-tip="Apenas ontem">1d</button>{% endif %}
                     <button class="pbtn" data-days="7" data-tip="&Uacute;ltimos 7 dias">7d</button>
                     <button class="pbtn" data-days="14" data-tip="&Uacute;ltimos 14 dias">14d</button>
                     <button class="pbtn active" data-days="30" data-tip="&Uacute;ltimos 30 dias">30d</button>
-                    <button class="pbtn" data-days="60" data-tip="&Uacute;ltimos 60 dias">60d</button>
+                    {% if role != 'viewer' %}<button class="pbtn" data-days="60" data-tip="&Uacute;ltimos 60 dias">60d</button>{% endif %}
                 </div>
             </div>
+            {% if role != 'viewer' %}
             <div class="fg"><label data-tip="Data inicial (m&iacute;n: janeiro 2026)">De</label><input type="date" class="fi" id="cr-df" min="2026-01-01" data-tip="Data inicial"></div>
             <div class="fg"><label data-tip="Data final">At&eacute;</label><input type="date" class="fi" id="cr-dt" data-tip="Data final do per&iacute;odo"></div>
+            {% else %}
+            <input type="hidden" id="cr-df">
+            <input type="hidden" id="cr-dt">
+            {% endif %}
             <button class="btn-p" id="btn-cr-load" data-tip="Buscar criativos da Meta API">Carregar Criativos</button>
             <button class="fp-toggle" id="btn-toggle-filters" data-tip="Mostrar/ocultar painel de filtros">&#9776; Filtros <span class="badge-num" id="active-filters-count" style="display:none">0</span></button>
             <div style="flex:1"></div>

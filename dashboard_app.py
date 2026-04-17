@@ -1636,11 +1636,22 @@ def api_all_creatives():
         camp_status = request.args.get("camp_status", "active")
         force = request.args.get("force", "false") == "true"
 
+        # Viewer: so pode usar dados ja em cache (evita acionar chamadas pesadas a API).
+        # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
+        is_viewer = session.get("role") == "viewer"
+
         cache_key = f"all_creatives_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
                 return jsonify(cached)
+
+        if is_viewer:
+            return jsonify({
+                "ok": False,
+                "error": "Periodo nao disponivel para o perfil Visualizador. Escolha 7d, 14d ou 30d.",
+                "viewer_cache_only": True,
+            }), 403
 
         campaigns = meta_get_all_pages(
             f"{ACCOUNT_ID}/campaigns",
