@@ -184,6 +184,26 @@ def not_viewer_required(f):
     return decorated
 
 
+def _cache_ttl_for_range(date_from, date_to):
+    """Define TTL do cache baseado no tamanho do range.
+    Dados recentes (1-7 dias) mudam mais: a Meta atualiza atribuicoes
+    retroativamente ate ~48h. Cache mais curto pra essas faixas evita
+    inconsistencia entre "1d" e o ultimo ponto do grafico "30d"."""
+    try:
+        d_from = datetime.strptime(date_from, "%Y-%m-%d")
+        d_to = datetime.strptime(date_to, "%Y-%m-%d")
+        diff = (d_to - d_from).days + 1
+    except Exception:
+        return 20
+    if diff <= 1:
+        return 1    # 1d: 1h (dados ainda consolidando)
+    if diff <= 7:
+        return 6    # 7d: 6h
+    if diff <= 14:
+        return 12   # 14d: 12h
+    return 20       # 30d+: 20h
+
+
 def _enforce_range_for_role(date_from, date_to):
     """Bloqueia ranges pesados para perfis restritos.
     - viewer: delegado a logica especifica de cache em /all-creatives
@@ -799,7 +819,7 @@ def api_campaigns():
             })
 
         response = {"ok": True, "data": result, "summary": summary, "events": events_summary}
-        set_cached(cache_key, response, ttl_hours=24)
+        set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
         return jsonify(response)
 
     except Exception as e:
@@ -942,7 +962,7 @@ def api_campaigns_multi_insights():
             print(f"[WARN] reach/frequency agregados falhou: {e}")
 
         response = {"ok": True, "campaigns": result, "aggregated": agg_totals}
-        set_cached(cache_key, response, ttl_hours=24)
+        set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
         return jsonify(response)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1528,7 +1548,7 @@ def api_daily_summary():
             print(f"[WARN] Falha ao buscar reach/frequency agregados: {e}")
 
         response = {"ok": True, "data": daily, "aggregated": agg_totals}
-        set_cached(cache_key, response, ttl_hours=24)
+        set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
         return jsonify(response)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1633,7 +1653,7 @@ def api_cumulative_reach():
                 pass
 
         response = {"ok": True, "data": points}
-        set_cached(cache_key, response, ttl_hours=24)
+        set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
         return jsonify(response)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1719,7 +1739,7 @@ def api_ad_insights(ad_id):
             "totals": totals,
             "campaign_daily": campaign_daily,
         }
-        set_cached(cache_key, response, ttl_hours=24)
+        set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
         return jsonify(response)
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -1781,7 +1801,7 @@ def api_all_creatives():
         result = _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings)
         response = {"ok": True, "data": result, "warnings": warnings}
         if not warnings:
-            set_cached(cache_key, response, ttl_hours=24)
+            set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
         return jsonify(response)
 
     except Exception as e:
@@ -2155,7 +2175,7 @@ def api_breakdowns():
             "weekday": weekday_result,
             "campaign_id": campaign_id or "all",
         }
-        set_cached(cache_key, response, ttl_hours=24)
+        set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
         return jsonify(response)
 
     except Exception as e:
