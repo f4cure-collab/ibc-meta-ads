@@ -2262,6 +2262,37 @@ def api_create_user():
     return jsonify({"ok": True})
 
 
+@app.route("/api/admin/users/backfill-creators", methods=["POST"])
+def api_backfill_creators():
+    """Preenche created_by/created_at para usuarios antigos que ainda nao tem
+    esses campos. Usa o super admin logado como criador e o horario atual."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+
+    # Le o arquivo direto (nao pelo _load_users, pra nao contaminar com o super admin injetado)
+    if not os.path.exists(USERS_FILE):
+        return jsonify({"ok": True, "updated": 0})
+
+    with open(USERS_FILE, "r") as f:
+        users = json.load(f)
+
+    requester = session.get("username")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    updated = 0
+    for email, u in users.items():
+        if not u.get("created_by"):
+            u["created_by"] = requester
+            updated += 1
+        if not u.get("created_at"):
+            u["created_at"] = now
+
+    if updated:
+        with open(USERS_FILE, "w") as f:
+            json.dump(users, f, indent=2)
+
+    return jsonify({"ok": True, "updated": updated, "creator": requester})
+
+
 @app.route("/api/admin/users/update", methods=["POST"])
 def api_update_user():
     if not session.get("logged_in") or not _is_admin(session.get("username")):

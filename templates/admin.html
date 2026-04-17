@@ -98,6 +98,12 @@
                 <button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="changePage(1)">Proxima &rarr;</button>
             </div>
         </div>
+        <div id="backfillBox" style="display:none;margin-top:12px;padding:10px 12px;background:rgba(88,166,255,0.08);border:1px solid rgba(88,166,255,0.2);border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span style="color:#ccc;font-size:12px;">Ha usuarios sem registro de criacao. Voce pode preencher retroativamente com seu proprio usuario e a data de agora.</span>
+                <button class="btn btn-sm" style="background:#4f8cff;color:#fff;" onclick="backfillCreators()">Preencher dados antigos</button>
+            </div>
+        </div>
 
         <h3 style="color:#fff;font-size:14px;margin-top:24px;margin-bottom:8px;">Criar Novo Usuario</h3>
         <div class="row">
@@ -307,6 +313,26 @@ function renderUsers() {
     } else {
         pager.style.display = 'none';
     }
+
+    // Box de backfill: aparece so para super admin e se houver usuarios sem created_by
+    var backfillBox = document.getElementById('backfillBox');
+    if (backfillBox) {
+        var needsBackfill = _isSuper && _allUsers.some(function(u){
+            return u.role !== 'super_admin' && !u.created_by;
+        });
+        backfillBox.style.display = needsBackfill ? 'block' : 'none';
+    }
+}
+
+async function backfillCreators() {
+    if (!confirm('Preencher "Adicionado por" nos usuarios antigos com seu usuario e a data de agora?')) return;
+    try {
+        var r = await fetch('/api/admin/users/backfill-creators', {method:'POST'});
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || 'falhou')); return; }
+        alert(d.updated + ' usuario(s) atualizado(s).');
+        loadUsers();
+    } catch(e) { alert('Erro: ' + e.message); }
 }
 
 function changePage(delta) {
