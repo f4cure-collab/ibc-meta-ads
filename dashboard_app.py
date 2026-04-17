@@ -225,6 +225,7 @@ def login_page():
         session["logged_in"] = True
         session["username"] = username
         session["role"] = user.get("role", "viewer")
+        session["real_role"] = user.get("role", "viewer")  # imutavel durante preview
         session["must_reset"] = user.get("must_reset", False)
         session["session_id"] = str(uuid.uuid4())
         # Registra evento de login no log de atividade
@@ -274,10 +275,15 @@ def index():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    real_role = session.get("real_role") or session.get("role", "viewer")
+    current_role = session.get("role", real_role)
+    preview_mode = current_role != real_role
     return render_template(
         "dashboard.html",
         username=session.get("username"),
-        role=session.get("role", "viewer"),
+        role=current_role,
+        real_role=real_role,
+        preview_mode=preview_mode,
     )
 
 
@@ -2280,7 +2286,10 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "ibcadmin2026!")
 def admin_page():
     if not session.get("logged_in"):
         return redirect(url_for("login_page"))
-    # Viewer e viewer2 nao acessam o painel admin: manda de volta pro dashboard
+    # Super admin real sempre entra (mesmo em preview com role viewer/viewer2 ativa)
+    if _is_super_admin(session.get("username")):
+        return render_template("admin.html")
+    # Demais perfis: viewer/viewer2 bloqueado, admin passa
     if session.get("role") in ("viewer", "viewer2"):
         return redirect(url_for("dashboard"))
     return render_template("admin.html")
@@ -2477,6 +2486,37 @@ def api_user_log(email):
     # Limita a 30 sessoes mais recentes
     sessions = sessions[:30]
     return jsonify({"ok": True, "sessions": sessions})
+
+
+@app.route("/api/admin/preview-as", methods=["POST"])
+def api_preview_as():
+    """Super admin simula visao de outro perfil. Nao muda permissoes reais
+    (o email continua f4cure@... e ele pode sair quando quiser). Somente
+    a UI/endpoints de dashboard passam a enxergar o role escolhido."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    data = request.get_json() or {}
+    target = (data.get("role") or "").strip()
+    if target not in ("viewer", "viewer2", "admin", "super_admin"):
+        return jsonify({"ok": False, "error": "Perfil invalido"}), 400
+    # Garante que temos real_role salvo (fluxo antigo pode nao ter setado)
+    if not session.get("real_role"):
+        session["real_role"] = "super_admin"
+    session["role"] = target
+    return jsonify({"ok": True, "role": target})
+
+
+@app.route("/api/admin/preview-exit", methods=["POST"])
+def api_preview_exit():
+    """Volta a usar o role real do usuario."""
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "error": "Nao autorizado"}), 401
+    real = session.get("real_role")
+    if not real:
+        real = "super_admin" if _is_super_admin(session.get("username")) else "viewer"
+        session["real_role"] = real
+    session["role"] = real
+    return jsonify({"ok": True, "role": real})
 
 
 @app.route("/api/admin/users/backfill-creators", methods=["POST"])

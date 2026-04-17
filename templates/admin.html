@@ -79,6 +79,17 @@
         </div>
     </div>
 
+    <!-- Visualizar como (só super admin) -->
+    <div class="card" id="previewCard" style="display:none;">
+        <h2>Visualizar como</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:12px;">Simule a experiencia do dashboard em outro perfil. Voce continua logado como super admin — basta clicar em "Sair da visualizacao" no topo do dashboard para voltar.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="previewAs('viewer')">Visualizador</button>
+            <button class="btn btn-primary" onclick="previewAs('viewer2')">Analisador</button>
+            <button class="btn btn-primary" onclick="previewAs('admin')">Admin</button>
+        </div>
+    </div>
+
     <!-- Atualizar Token (só super admin) -->
     <div class="card" id="tokenCard" style="display:none;">
         <h2>Atualizar Token da Meta API</h2>
@@ -298,6 +309,8 @@ async function loadUsers() {
         // Mostrar cards só para super admin
         document.getElementById('tokenCard').style.display = _isSuper ? 'block' : 'none';
         document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
+        var pc = document.getElementById('previewCard');
+        if (pc) pc.style.display = _isSuper ? 'block' : 'none';
         if (_isSuper) checkUpdate();
 
         renderUsers();
@@ -357,6 +370,20 @@ function renderUsers() {
         });
         backfillBox.style.display = needsBackfill ? 'block' : 'none';
     }
+}
+
+async function previewAs(role) {
+    var labels = { viewer: 'Visualizador', viewer2: 'Analisador', admin: 'Admin' };
+    if (!confirm('Abrir o dashboard visualizando como ' + (labels[role] || role) + '?')) return;
+    try {
+        var r = await fetch('/api/admin/preview-as', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({role: role})
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + d.error); return; }
+        window.location.href = '/dashboard';
+    } catch(e) { alert('Erro: ' + e.message); }
 }
 
 async function backfillCreators() {
