@@ -160,6 +160,23 @@
     </div>
 </div>
 
+<!-- Modal Editar Dados do Usuario -->
+<div id="editUserModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#1a1a3e;border:1px solid #2a2a4a;border-radius:12px;padding:24px;width:100%;max-width:420px;">
+        <h2 style="color:#fff;font-size:16px;margin-bottom:16px;">Alterar Dados do Usuario</h2>
+        <input type="hidden" id="editUserOriginalEmail">
+        <label>Nome</label>
+        <input type="text" id="editUserName" placeholder="Nome completo">
+        <label style="margin-top:12px;">Email</label>
+        <input type="email" id="editUserEmail" placeholder="email@exemplo.com">
+        <div class="alert alert-error" id="editUserErr" style="margin-top:12px;"></div>
+        <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end;">
+            <button class="btn" style="background:#2a2a4a;color:#ccc;" onclick="closeEditModal()">Cancelar</button>
+            <button class="btn btn-primary" onclick="saveUserEdit()">Salvar</button>
+        </div>
+    </div>
+</div>
+
 <script>
 // ── Load config + token expiry ──
 async function loadAll() {
@@ -348,7 +365,7 @@ function renderUserRow(u) {
         actions = '<div class="action-wrap">'
             + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
             + '<div class="action-menu" id="'+menuId+'">'
-            + '<button class="action-item" onclick="editName(\''+u.email+'\');closeAllMenus()">Editar nome</button>'
+            + '<button class="action-item" onclick="openEditModal(\''+u.email+'\');closeAllMenus()">Alterar dados</button>'
             + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
             + '<button class="action-item" onclick="changeRole(\''+u.email+'\',\''+swapRole+'\');closeAllMenus()">'+swapLabel+'</button>'
             + '<button class="action-item" onclick="forceReset(\''+u.email+'\');closeAllMenus()">Forcar reset de senha</button>'
@@ -383,12 +400,47 @@ async function createUser() {
     } catch(e) { show('userErr', e.message); }
 }
 
-async function editName(email) {
-    var current = (_allUsers.find(function(u){return u.email===email;}) || {}).name || '';
-    var newName = prompt('Nome para ' + email + ':', current);
-    if (newName === null) return;
-    await fetch('/api/admin/users/update', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,name:newName.trim()})});
-    loadUsers();
+function openEditModal(email) {
+    var user = _allUsers.find(function(u){return u.email===email;}) || {};
+    document.getElementById('editUserOriginalEmail').value = email;
+    document.getElementById('editUserName').value = user.name || '';
+    document.getElementById('editUserEmail').value = user.email || '';
+    document.getElementById('editUserErr').style.display = 'none';
+    document.getElementById('editUserModal').style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('editUserModal').style.display = 'none';
+}
+
+async function saveUserEdit() {
+    var originalEmail = document.getElementById('editUserOriginalEmail').value;
+    var name = document.getElementById('editUserName').value.trim();
+    var newEmail = document.getElementById('editUserEmail').value.trim().toLowerCase();
+    var errBox = document.getElementById('editUserErr');
+    errBox.style.display = 'none';
+    if (!newEmail) {
+        errBox.textContent = 'Email e obrigatorio.';
+        errBox.style.display = 'block';
+        return;
+    }
+    try {
+        var r = await fetch('/api/admin/users/update', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({email: originalEmail, action: 'edit', name: name, new_email: newEmail})
+        });
+        var d = await r.json();
+        if (!d.ok) {
+            errBox.textContent = d.error || 'Erro ao salvar';
+            errBox.style.display = 'block';
+            return;
+        }
+        closeEditModal();
+        loadUsers();
+    } catch(e) {
+        errBox.textContent = e.message || 'Erro de conexao';
+        errBox.style.display = 'block';
+    }
 }
 
 async function deleteUser(email) {

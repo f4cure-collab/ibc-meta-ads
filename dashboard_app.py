@@ -2289,6 +2289,18 @@ def api_update_user():
         users[email]["password"] = data["new_password"]
     elif data.get("role"):
         users[email]["role"] = data["role"]
+    elif data.get("action") == "edit":
+        # Edicao de dados: nome e/ou email. Se email mudou, renomeia a chave.
+        new_name = data.get("name", None)
+        new_email = (data.get("new_email") or "").strip().lower()
+        if new_name is not None:
+            users[email]["name"] = new_name.strip()
+        if new_email and new_email != email:
+            if new_email in users:
+                return jsonify({"ok": False, "error": "Ja existe um usuario com esse email"}), 400
+            if email == SUPER_ADMIN_EMAIL:
+                return jsonify({"ok": False, "error": "Nao e possivel alterar o email do admin principal"}), 400
+            users[new_email] = users.pop(email)
     elif "name" in data:
         users[email]["name"] = data.get("name", "").strip()
     _save_users(users)
