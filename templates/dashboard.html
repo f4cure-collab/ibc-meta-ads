@@ -2823,7 +2823,20 @@ $('#v-cards').addEventListener('click',()=>{$('#v-cards').classList.add('active'
 $('#v-table').addEventListener('click',()=>{$('#v-table').classList.add('active');$('#v-cards').classList.remove('active');$('#cr-cards-wrap').style.display='none';$('#cr-tbl-wrap').style.display='';});
 
 $('#btn-cr-load').addEventListener('click',function(){
-    if(!confirmApiCall('Carregar criativos faz muitas chamadas a API da Meta (uma por campanha de vendas).\n\nIsso consome uma parte significativa do limite diario.\n\nDeseja continuar?')) return;
+    // Ranges pre-cacheados pelo scheduler (7/14/30/60d) respondem instantaneamente
+    // e nao consomem API — dispara direto. Qualquer outro range exige confirmacao.
+    var df=$('#cr-df').value,dt=$('#cr-dt').value;
+    var cached=false;
+    if(df && dt){
+        var p1=df.split('-').map(Number), p2=dt.split('-').map(Number);
+        var d1=new Date(p1[0],p1[1]-1,p1[2]), d2=new Date(p2[0],p2[1]-1,p2[2]);
+        var diffDays=Math.round((d2-d1)/86400000)+1;
+        // Considera cacheado se o periodo bate com um dos presets E termina em ontem
+        var today=new Date(); today.setDate(today.getDate()-1);
+        var endsYesterday=(d2.getFullYear()===today.getFullYear()&&d2.getMonth()===today.getMonth()&&d2.getDate()===today.getDate());
+        if(endsYesterday && (diffDays===7||diffDays===14||diffDays===30||diffDays===60)) cached=true;
+    }
+    if(!cached && !confirmApiCall('Carregar criativos faz muitas chamadas a API da Meta (uma por campanha de vendas).\n\nIsso consome uma parte significativa do limite diario.\n\nDeseja continuar?')) return;
     loadCr();
 });
 $('#cr-search').addEventListener('input',renderCr);
