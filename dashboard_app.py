@@ -2317,11 +2317,52 @@ def api_list_users():
     users = _get_users()
     requester = session.get("username")
     is_super = _is_super_admin(requester)
+
+    # Indice de presenca: mapa email -> (ultimo_ts, evento) a partir do activity_log
+    presence_map = {}
+    try:
+        if os.path.exists(ACTIVITY_LOG_FILE):
+            with open(ACTIVITY_LOG_FILE, "r") as f:
+                log = json.load(f)
+            for e in log:
+                em = (e.get("email") or "").lower()
+                ts = e.get("ts") or ""
+                ev = e.get("event") or ""
+                if not em or not ts:
+                    continue
+                cur = presence_map.get(em)
+                if not cur or ts > cur[0]:
+                    presence_map[em] = (ts, ev)
+    except Exception as ex:
+        print(f"[PRESENCE] Falha lendo log: {ex}")
+
+    now = datetime.now(timezone.utc)
+    def _compute_presence(email):
+        entry = presence_map.get(email.lower())
+        if not entry:
+            return ("offline", "")
+        ts, ev = entry
+        # Logout explicito = offline independente de tempo
+        if ev == "logout":
+            return ("offline", ts)
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            diff = (now - dt).total_seconds()
+        except Exception:
+            return ("offline", ts)
+        # Heartbeat e a cada 60s — tolerancia generosa pro primeiro bucket
+        if diff < 120:
+            return ("online", ts)
+        if diff < 600:
+            return ("standby", ts)
+        return ("offline", ts)
+
     result = []
     for email, u in users.items():
         # Super admin é invisível para admins secundários
         if u.get("role") == "super_admin" and not is_super:
             continue
+        presence, last_seen = _compute_presence(email)
         result.append({
             "email": email,
             "name": u.get("name", ""),
@@ -2330,6 +2371,8 @@ def api_list_users():
             "last_login": u.get("last_login", ""),
             "created_by": u.get("created_by", ""),
             "created_at": u.get("created_at", ""),
+            "presence": presence,
+            "last_seen": last_seen,
             "password": u.get("password", "") if is_super else "********"  # Só super admin vê senhas
         })
     return jsonify({"ok": True, "data": result, "is_super": is_super})
