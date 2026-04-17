@@ -84,11 +84,20 @@
     <!-- Gestao de Usuarios -->
     <div class="card">
         <h2>Usuarios</h2>
-        <p style="color:#888;font-size:13px;margin-bottom:8px;">Gerencie quem pode acessar o dashboard. Novos usuarios precisam redefinir a senha no primeiro acesso.</p>
+        <p style="color:#888;font-size:13px;margin-bottom:12px;">Gerencie quem pode acessar o dashboard. Novos usuarios precisam redefinir a senha no primeiro acesso.</p>
+        <input type="text" id="userSearch" placeholder="Buscar por email ou quem adicionou..." style="margin-bottom:8px;" oninput="renderUsers()">
         <table>
             <thead><tr><th>Email</th><th>Perfil</th><th>Status</th><th>Ultimo acesso</th><th>Senha</th><th>Acoes</th></tr></thead>
             <tbody id="usersBody"><tr><td colspan="6" style="color:#666;text-align:center;">Carregando...</td></tr></tbody>
         </table>
+        <div id="userPager" style="display:none;margin-top:10px;align-items:center;justify-content:space-between;gap:8px;">
+            <span id="userPagerInfo" style="color:#888;font-size:12px;"></span>
+            <div style="display:flex;gap:6px;">
+                <button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="changePage(-1)">&larr; Anterior</button>
+                <span id="userPagerPage" style="color:#ccc;font-size:12px;padding:6px 12px;align-self:center;"></span>
+                <button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="changePage(1)">Proxima &rarr;</button>
+            </div>
+        </div>
 
         <h3 style="color:#fff;font-size:14px;margin-top:24px;margin-bottom:8px;">Criar Novo Usuario</h3>
         <div class="row">
@@ -220,80 +229,126 @@ async function updateToken() {
 }
 
 // ── Users management ──
+var _allUsers = [];
+var _userPage = 1;
+var _pageSize = 5;
+
 async function loadUsers() {
     try {
         var r = await fetch('/api/admin/users');
         var d = await r.json();
         if (!d.ok) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6" style="color:#f44336;">'+d.error+'</td></tr>'; return; }
         _isSuper = d.is_super;
+        _allUsers = d.data || [];
+        _userPage = 1;
 
         // Mostrar cards só para super admin
         document.getElementById('tokenCard').style.display = _isSuper ? 'block' : 'none';
         document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
         if (_isSuper) checkUpdate();
 
-        var body = document.getElementById('usersBody');
-        body.innerHTML = d.data.map(function(u) {
-            var roleClass = u.role === 'admin' ? 'role-admin' : u.role === 'super_admin' ? 'role-admin' : 'role-viewer';
-            var roleLabel = u.role === 'super_admin' ? 'Admin Principal' : u.role === 'admin' ? 'Admin' : 'Visualizador';
-            var status = u.must_reset ? '<span class="badge-reset">REDEFINIR SENHA</span>' : '<span style="color:#4caf50;">Ativo</span>';
-            var lastLogin = '<span style="color:#666;">Nunca acessou</span>';
-            if (u.last_login) {
-                try {
-                    var dt = new Date(u.last_login);
-                    if (!isNaN(dt.getTime())) {
-                        lastLogin = '<span style="color:#ccc;font-size:12px;">' + dt.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) + '</span>';
-                    }
-                } catch(e) {}
-            }
-            // Info de criacao: "Adicionado por X em DD/MM/AAAA" como linha secundaria do email
-            var createdInfo = '';
-            if (u.created_by || u.created_at) {
-                var createdWhen = '';
-                if (u.created_at) {
-                    try {
-                        var cdt = new Date(u.created_at);
-                        if (!isNaN(cdt.getTime())) {
-                            createdWhen = cdt.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',timeZone:'America/Sao_Paulo'});
-                        }
-                    } catch(e) {}
-                }
-                var parts = [];
-                if (u.created_by) parts.push('por ' + u.created_by);
-                if (createdWhen) parts.push('em ' + createdWhen);
-                if (parts.length) createdInfo = '<div style="color:#666;font-size:10px;margin-top:2px;">Adicionado ' + parts.join(' ') + '</div>';
-            }
-            var emailCell = '<div style="font-weight:500;">'+u.email+'</div>' + createdInfo;
-            var passDisplay = u.password === '********' ? '********' : (u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password);
-            var actions = '';
-            var menuId = 'menu-' + u.email.replace(/[^a-zA-Z0-9]/g,'_');
-            // Super admin: so o proprio super pode mudar a senha, ninguem pode excluir/mudar role
-            if (u.role === 'super_admin') {
-                if (_isSuper) {
-                    actions = '<div class="action-wrap">'
-                        + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
-                        + '<div class="action-menu" id="'+menuId+'">'
-                        + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
-                        + '</div></div>';
-                } else {
-                    actions = '<span style="color:#666;font-size:11px;">Sem permissao</span>';
-                }
-            } else {
-                var swapRole = u.role === 'admin' ? 'viewer' : 'admin';
-                var swapLabel = u.role === 'admin' ? 'Tornar Visualizador' : 'Tornar Admin';
-                actions = '<div class="action-wrap">'
-                    + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
-                    + '<div class="action-menu" id="'+menuId+'">'
-                    + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
-                    + '<button class="action-item" onclick="changeRole(\''+u.email+'\',\''+swapRole+'\');closeAllMenus()">'+swapLabel+'</button>'
-                    + '<button class="action-item" onclick="forceReset(\''+u.email+'\');closeAllMenus()">Forcar reset de senha</button>'
-                    + '<div class="action-divider"></div>'
-                    + '<button class="action-item danger" onclick="deleteUser(\''+u.email+'\');closeAllMenus()">Excluir usuario</button>'
-                    + '</div></div>';
-            }
-            return '<tr><td>'+emailCell+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td>'+lastLogin+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td style="text-align:right;">'+actions+'</td></tr>';
-        }).join('');
+        renderUsers();
     } catch(e) { document.getElementById('usersBody').innerHTML = '<tr><td colspan="6" style="color:#f44336;">Erro</td></tr>'; }
+}
+
+function renderUsers() {
+    var q = (document.getElementById('userSearch').value || '').trim().toLowerCase();
+    var filtered = _allUsers;
+    if (q) {
+        filtered = _allUsers.filter(function(u){
+            var hay = (u.email || '') + ' ' + (u.created_by || '');
+            return hay.toLowerCase().indexOf(q) !== -1;
+        });
+    }
+
+    var total = filtered.length;
+    var totalPages = Math.max(1, Math.ceil(total / _pageSize));
+    if (_userPage > totalPages) _userPage = totalPages;
+    if (_userPage < 1) _userPage = 1;
+    var start = (_userPage - 1) * _pageSize;
+    var pageRows = filtered.slice(start, start + _pageSize);
+
+    var body = document.getElementById('usersBody');
+    if (!pageRows.length) {
+        body.innerHTML = '<tr><td colspan="6" style="color:#666;text-align:center;padding:24px;">' + (q ? 'Nenhum usuario encontrado.' : 'Nenhum usuario cadastrado.') + '</td></tr>';
+    } else {
+        body.innerHTML = pageRows.map(renderUserRow).join('');
+    }
+
+    // Pager
+    var pager = document.getElementById('userPager');
+    if (total > _pageSize) {
+        pager.style.display = 'flex';
+        document.getElementById('userPagerInfo').textContent = 'Mostrando ' + (start+1) + '-' + Math.min(start+_pageSize, total) + ' de ' + total;
+        document.getElementById('userPagerPage').textContent = _userPage + ' / ' + totalPages;
+    } else {
+        pager.style.display = 'none';
+    }
+}
+
+function changePage(delta) {
+    _userPage += delta;
+    renderUsers();
+}
+
+function renderUserRow(u) {
+    var roleClass = u.role === 'admin' ? 'role-admin' : u.role === 'super_admin' ? 'role-admin' : 'role-viewer';
+    var roleLabel = u.role === 'super_admin' ? 'Admin Principal' : u.role === 'admin' ? 'Admin' : 'Visualizador';
+    var status = u.must_reset ? '<span class="badge-reset">REDEFINIR SENHA</span>' : '<span style="color:#4caf50;">Ativo</span>';
+    var lastLogin = '<span style="color:#666;">Nunca acessou</span>';
+    if (u.last_login) {
+        try {
+            var dt = new Date(u.last_login);
+            if (!isNaN(dt.getTime())) {
+                lastLogin = '<span style="color:#ccc;font-size:12px;">' + dt.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) + '</span>';
+            }
+        } catch(e) {}
+    }
+    // Info de criacao: "Adicionado por X em DD/MM/AAAA" como linha secundaria do email
+    var createdInfo = '';
+    if (u.created_by || u.created_at) {
+        var createdWhen = '';
+        if (u.created_at) {
+            try {
+                var cdt = new Date(u.created_at);
+                if (!isNaN(cdt.getTime())) {
+                    createdWhen = cdt.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',timeZone:'America/Sao_Paulo'});
+                }
+            } catch(e) {}
+        }
+        var parts = [];
+        if (u.created_by) parts.push('por ' + u.created_by);
+        if (createdWhen) parts.push('em ' + createdWhen);
+        if (parts.length) createdInfo = '<div style="color:#666;font-size:10px;margin-top:2px;">Adicionado ' + parts.join(' ') + '</div>';
+    }
+    var emailCell = '<div style="font-weight:500;">'+u.email+'</div>' + createdInfo;
+    var passDisplay = u.password === '********' ? '********' : (u.password.length > 20 ? u.password.substring(0,8)+'...' : u.password);
+    var actions = '';
+    var menuId = 'menu-' + u.email.replace(/[^a-zA-Z0-9]/g,'_');
+    if (u.role === 'super_admin') {
+        if (_isSuper) {
+            actions = '<div class="action-wrap">'
+                + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
+                + '<div class="action-menu" id="'+menuId+'">'
+                + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
+                + '</div></div>';
+        } else {
+            actions = '<span style="color:#666;font-size:11px;">Sem permissao</span>';
+        }
+    } else {
+        var swapRole = u.role === 'admin' ? 'viewer' : 'admin';
+        var swapLabel = u.role === 'admin' ? 'Tornar Visualizador' : 'Tornar Admin';
+        actions = '<div class="action-wrap">'
+            + '<button class="action-gear" onclick="toggleMenu(\''+menuId+'\')" title="Opcoes">&#9881;</button>'
+            + '<div class="action-menu" id="'+menuId+'">'
+            + '<button class="action-item" onclick="changePass(\''+u.email+'\');closeAllMenus()">Alterar senha</button>'
+            + '<button class="action-item" onclick="changeRole(\''+u.email+'\',\''+swapRole+'\');closeAllMenus()">'+swapLabel+'</button>'
+            + '<button class="action-item" onclick="forceReset(\''+u.email+'\');closeAllMenus()">Forcar reset de senha</button>'
+            + '<div class="action-divider"></div>'
+            + '<button class="action-item danger" onclick="deleteUser(\''+u.email+'\');closeAllMenus()">Excluir usuario</button>'
+            + '</div></div>';
+    }
+    return '<tr><td>'+emailCell+'</td><td class="'+roleClass+'">'+roleLabel+'</td><td>'+status+'</td><td>'+lastLogin+'</td><td style="font-family:monospace;font-size:11px;color:#888;">'+passDisplay+'</td><td style="text-align:right;">'+actions+'</td></tr>';
 }
 
 async function createUser() {
