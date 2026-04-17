@@ -2688,63 +2688,63 @@ function cardH(c){
             </div>
         </div>
         <div class="cr-mainmetrics">
-            <div class="cr-mm" data-tip="Valor total investido neste criativo no per&iacute;odo">
+            <div class="cr-mm" data-tip="Gasto: valor total investido neste criativo durante o per&iacute;odo selecionado.">
                 <div class="lbl">Gasto</div>
                 <div class="val">${fmtM(c.spend)}</div>
             </div>
-            <div class="cr-mm" data-tip="${roasTip(c.roas)}. N&iacute;veis: &gt;=2 excelente, &gt;=1 bom, &gt;=0.9 equil&iacute;brio, &gt;=0.7 abaixo, &lt;0.7 cr&iacute;tico">
+            <div class="cr-mm" data-tip="ROAS (Return on Ad Spend): quanto o criativo retornou em receita para cada R$ 1 investido. Ex: ROAS 2,00 = cada R$ 1 gasto virou R$ 2 de receita.">
                 <div class="lbl">ROAS</div>
                 <div class="val" style="color:${rc}">${fmtR(c.roas)}</div>
             </div>
-            <div class="cr-mm" data-tip="Score composto: volume x ROAS x gasto x tend&ecirc;ncia">
+            <div class="cr-mm" data-tip="Score: nota geral calculada a partir de compras, ROAS, gasto e tend&ecirc;ncia. Serve pra comparar criativos rapidamente — quanto maior, melhor.">
                 <div class="lbl">Score</div>
                 <div class="val">${fmt(c.score)}</div>
             </div>
         </div>
         <div class="cr-stats-grid">
-            <div class="cr-st" data-tip="N&uacute;mero total de compras atribu&iacute;das">
+            <div class="cr-st" data-tip="Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.">
                 <div class="lbl">Compras</div>
                 <div class="val">${fmt(c.purchases)}</div>
             </div>
-            <div class="cr-st" data-tip="Custo por aquisi&ccedil;&atilde;o: gasto / compras">
+            <div class="cr-st" data-tip="CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — calculado como gasto dividido pelo n&uacute;mero de compras.">
                 <div class="lbl">CPA</div>
                 <div class="val">${fmtM(c.cpa)}</div>
             </div>
-            <div class="cr-st" data-tip="Taxa de cliques: cliques / impress&otilde;es">
+            <div class="cr-st" data-tip="CTR (Click Through Rate): percentual de pessoas que viram o an&uacute;ncio e clicaram. Mede o quanto a arte/copy atrai cliques.">
                 <div class="lbl">CTR</div>
                 <div class="val">${fmtP(c.ctr)}</div>
             </div>
-            <div class="cr-st" data-tip="Receita total das compras atribu&iacute;das">
+            <div class="cr-st" data-tip="Receita: valor total em reais gerado pelas compras atribu&iacute;das a este criativo.">
                 <div class="lbl">Receita</div>
                 <div class="val">${fmtM(c.revenue)}</div>
             </div>
-            <div class="cr-st" data-tip="Custo por mil impress&otilde;es">
+            <div class="cr-st" data-tip="CPM (Custo por Mil impress&otilde;es): quanto custa em m&eacute;dia cada 1.000 exibi&ccedil;&otilde;es do criativo. Indica o custo de entrega do an&uacute;ncio.">
                 <div class="lbl">CPM</div>
                 <div class="val">${fmtM(c.cpm)}</div>
             </div>
-            <div class="cr-st" data-tip="Velocidade: varia&ccedil;&atilde;o de participa&ccedil;&atilde;o no gasto (3d vs m&eacute;dia)">
+            <div class="cr-st" data-tip="Velocidade: quanto a participa&ccedil;&atilde;o deste criativo no gasto da campanha mudou nos &uacute;ltimos 3 dias em rela&ccedil;&atilde;o &agrave; m&eacute;dia do per&iacute;odo. Positivo = escalando; negativo = perdendo espa&ccedil;o.">
                 <div class="lbl">Veloc.</div>
                 <div class="val">${velH(c.velocity,c.velocity_note)}</div>
             </div>
         </div>
         <div class="cr-periods">
-            <div class="cr-period-block" data-tip="M&eacute;tricas dos &uacute;ltimos 7 dias completos (sem incluir o dia atual)">
+            <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 7 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">7 Dias</div>
-                <div class="pblock-row" data-tip="Total investido nos &uacute;ltimos 7 dias"><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_7d)}</span></div>
-                <div class="pblock-row" data-tip="Compras atribu&iacute;das nos &uacute;ltimos 7 dias"><span class="pl">Comp.</span><span class="pr">${c.purchases_7d||0}</span></div>
-                <div class="pblock-row" data-tip="${roasTip(c.roas_7d)}"><span class="pl">ROAS</span><span class="pr" style="color:${r7c}">${fmtR(c.roas_7d)}</span></div>
-                ${(()=>{const sh=shareCompare(c.share_7d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o no gasto da campanha nos &uacute;ltimos 7 dias: ${c.share_7d||0}%. ${sh.tip}. (Atual ${c.share_7d||0}% vs M&eacute;dia ${c.share_total||0}%)"><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_7d||0}%</span></div>`;})()}
+                <div class="pblock-row" data-tip="Gasto: valor investido neste criativo nos &uacute;ltimos 7 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_7d)}</span></div>
+                <div class="pblock-row" data-tip="Compras: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 7 dias."><span class="pl">Comp.</span><span class="pr">${c.purchases_7d||0}</span></div>
+                <div class="pblock-row" data-tip="ROAS nos &uacute;ltimos 7 dias: receita gerada para cada R$ 1 investido nesse per&iacute;odo."><span class="pl">ROAS</span><span class="pr" style="color:${r7c}">${fmtR(c.roas_7d)}</span></div>
+                ${(()=>{const sh=shareCompare(c.share_7d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha que foi destinado a este criativo nos &uacute;ltimos 7 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_7d||0}%</span></div>`;})()}
             </div>
-            <div class="cr-period-block" data-tip="M&eacute;tricas dos &uacute;ltimos 3 dias completos (sem incluir o dia atual)">
+            <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 3 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">3 Dias</div>
-                <div class="pblock-row" data-tip="Total investido nos &uacute;ltimos 3 dias"><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_3d)}</span></div>
-                <div class="pblock-row" data-tip="Compras atribu&iacute;das nos &uacute;ltimos 3 dias"><span class="pl">Comp.</span><span class="pr">${c.purchases_3d||0}</span></div>
-                <div class="pblock-row" data-tip="${roasTip(c.roas_3d)}"><span class="pl">ROAS</span><span class="pr" style="color:${r3c}">${fmtR(c.roas_3d)}</span></div>
-                ${(()=>{const sh=shareCompare(c.share_3d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o no gasto da campanha nos &uacute;ltimos 3 dias: ${c.share_3d||0}%. ${sh.tip}. (Atual ${c.share_3d||0}% vs M&eacute;dia ${c.share_total||0}%)"><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_3d||0}%</span></div>`;})()}
+                <div class="pblock-row" data-tip="Gasto: valor investido neste criativo nos &uacute;ltimos 3 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_3d)}</span></div>
+                <div class="pblock-row" data-tip="Compras: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 3 dias."><span class="pl">Comp.</span><span class="pr">${c.purchases_3d||0}</span></div>
+                <div class="pblock-row" data-tip="ROAS nos &uacute;ltimos 3 dias: receita gerada para cada R$ 1 investido nesse per&iacute;odo."><span class="pl">ROAS</span><span class="pr" style="color:${r3c}">${fmtR(c.roas_3d)}</span></div>
+                ${(()=>{const sh=shareCompare(c.share_3d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha que foi destinado a este criativo nos &uacute;ltimos 3 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_3d||0}%</span></div>`;})()}
             </div>
         </div>
         <div class="cr-footer">
-            <span class="fitem" data-tip="Participa&ccedil;&atilde;o m&eacute;dia deste criativo no gasto total da campanha durante todo o per&iacute;odo selecionado. Esta &eacute; a refer&ecirc;ncia (m&eacute;dia) usada para colorir as participa&ccedil;&otilde;es de 3d e 7d.">&#128202; Part. m&eacute;dia: <strong style="color:var(--t1)">${c.share_total||0}%</strong></span>
+            <span class="fitem" data-tip="Participa&ccedil;&atilde;o m&eacute;dia: percentual do total investido na campanha que foi destinado a este criativo ao longo de todo o per&iacute;odo selecionado.">&#128202; Part. m&eacute;dia: <strong style="color:var(--t1)">${c.share_total||0}%</strong></span>
             <span class="fdivider"></span>
             <span class="fitem" data-tip="Dias desde a cria&ccedil;&atilde;o do an&uacute;ncio na Meta">${c.days_active!=null?'&#128197; '+c.days_active+'d ativo':''}</span>
         </div>
@@ -2780,30 +2780,30 @@ function renderTbl(data){
             ${c.thumbnail_url?`<img class="cr-tbl-thumb" src="${c.thumbnail_url}" loading="lazy" onerror="this.outerHTML='<div class=\\'cr-tbl-thumb-ph\\'>&#128247;</div>'">`:'<div class="cr-tbl-thumb-ph">&#128247;</div>'}
             <span class="cn" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" data-tip="${c.ad_name}">${c.ad_name}</span>
         </div></td>
-        <td class="tr" data-tip="Dias desde a cria&ccedil;&atilde;o do an&uacute;ncio">${c.days_active!=null?c.days_active+'d':'--'}</td>
-        <td data-tip="Velocidade de escala: varia&ccedil;&atilde;o de participa&ccedil;&atilde;o no gasto da campanha (3d vs m&eacute;dia)">${velH(c.velocity,c.velocity_note)}</td>
-        <td class="tr" data-tip="Participa&ccedil;&atilde;o m&eacute;dia deste criativo no gasto total da campanha">${c.share_total||0}%</td>
-        <td class="tr" data-tip="Participa&ccedil;&atilde;o nos &uacute;ltimos 3 dias: ${c.share_3d||0}%. ${sh3.tip}. (vs m&eacute;dia ${c.share_total||0}%)" style="color:${sh3.color};font-weight:600">${sh3.arrow} ${c.share_3d||0}%</td>
+        <td class="tr" data-tip="Idade: n&uacute;mero de dias desde que o an&uacute;ncio foi criado na Meta.">${c.days_active!=null?c.days_active+'d':'--'}</td>
+        <td data-tip="Velocidade: quanto a participa&ccedil;&atilde;o deste criativo no gasto da campanha mudou nos &uacute;ltimos 3 dias em rela&ccedil;&atilde;o &agrave; m&eacute;dia do per&iacute;odo. Positivo = escalando; negativo = perdendo espa&ccedil;o.">${velH(c.velocity,c.velocity_note)}</td>
+        <td class="tr" data-tip="Participa&ccedil;&atilde;o m&eacute;dia: percentual do total investido na campanha que foi destinado a este criativo durante todo o per&iacute;odo.">${c.share_total||0}%</td>
+        <td class="tr" data-tip="Participa&ccedil;&atilde;o nos &uacute;ltimos 3 dias: percentual do gasto da campanha destinado a este criativo nesse per&iacute;odo." style="color:${sh3.color};font-weight:600">${sh3.arrow} ${c.share_3d||0}%</td>
         <td style="padding:4px 4px" data-tip="Desempenho: ${c.confidence==='alto'?'&Oacute;timo — top 1 participa&ccedil;&atilde;o total (se ainda top 1 em 7d) OU top 3 participa&ccedil;&atilde;o 7d + ROAS &gt;= 90% da campanha':c.confidence==='medio'?'Bom — ROAS &gt;= 70% da campanha + 3+ compras':c.confidence==='tendencia'?'Tend&ecirc;ncia — tem compras mas n&atilde;o atinge &Oacute;timo ou Bom':c.confidence==='declinando'?'Declinando — perdendo participa&ccedil;&atilde;o (velocity &lt; -30%) ap&oacute;s 7+ dias':c.confidence==='ruim'?'Ruim — sem compras ap&oacute;s 7+ dias ou ROAS &lt; 50% da campanha com R$200+ gasto':'Baixo — sem compras e menos de 7 dias'}">${confStatus(c)}</td>
         <td style="padding:4px 4px" data-tip="Confian&ccedil;a: ${c.data_confidence==='alta'?'Alta — 14+ dias OU R$2.000+ investido':c.data_confidence==='media'?'M&eacute;dia — 7+ dias OU R$500+ investido':'Baixa — menos de 7 dias E menos de R$500'}">${confBadge(c.data_confidence)}</td>
-        <td class="tr" data-tip="Total investido neste criativo no per&iacute;odo selecionado">${fmtM(c.spend)}</td>
-        <td class="tr" data-tip="Total de compras atribu&iacute;das no per&iacute;odo" style="font-weight:600">${fmt(c.purchases)}</td>
-        <td class="tr" style="color:${rc};font-weight:700" data-tip="${roasTip(c.roas)}">${fmtR(c.roas)}</td>
+        <td class="tr" data-tip="Gasto: valor total investido neste criativo durante o per&iacute;odo selecionado.">${fmtM(c.spend)}</td>
+        <td class="tr" data-tip="Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta." style="font-weight:600">${fmt(c.purchases)}</td>
+        <td class="tr" style="color:${rc};font-weight:700" data-tip="ROAS (Return on Ad Spend): quanto o criativo retornou em receita para cada R$ 1 investido.">${fmtR(c.roas)}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--t3)" data-tip="Campanha de origem: ${c.campaign_name||'--'}">${c.campaign_name||''}</td>
-        <td class="tr" data-tip="Gasto nos &uacute;ltimos 7 dias">${fmtM(c.spend_7d)}</td>
-        <td class="tr" data-tip="Compras nos &uacute;ltimos 7 dias">${fmt(c.purchases_7d)}</td>
-        <td class="tr" style="color:${r7c};font-weight:600" data-tip="${roasTip(c.roas_7d)} (&uacute;ltimos 7 dias)">${fmtR(c.roas_7d)}</td>
-        <td class="tr" data-tip="Gasto nos &uacute;ltimos 3 dias">${fmtM(c.spend_3d)}</td>
-        <td class="tr" data-tip="Compras nos &uacute;ltimos 3 dias">${fmt(c.purchases_3d)}</td>
-        <td class="tr" style="color:${r3c};font-weight:600" data-tip="${roasTip(c.roas_3d)} (&uacute;ltimos 3 dias)">${fmtR(c.roas_3d)}</td>
-        <td data-tip="Tend&ecirc;ncia do criativo baseada na velocidade de escala">${c.trend?trendH(c.trend):'--'}</td>
-        <td class="tr" style="font-weight:600" data-tip="Score composto: combina volume de compras, ROAS, gasto e tend&ecirc;ncia">${fmt(c.score)}</td>
-        <td class="tr" data-tip="Custo por aquisi&ccedil;&atilde;o (gasto / compras)">${fmtM(c.cpa)}</td>
-        <td class="tr" data-tip="Taxa de cliques (cliques / impress&otilde;es)">${fmtP(c.ctr)}</td>
-        <td class="tr" data-tip="Custo por mil impress&otilde;es">${fmtM(c.cpm)}</td>
-        <td class="tr" data-tip="Receita total das compras atribu&iacute;das">${fmtM(c.revenue)}</td>
-        <td class="tr" data-tip="Total de impress&otilde;es (exibi&ccedil;&otilde;es do an&uacute;ncio)">${fmt(c.impressions)}</td>
-        <td class="tr" data-tip="Participa&ccedil;&atilde;o nos &uacute;ltimos 7 dias: ${c.share_7d||0}%. ${sh7.tip}. (vs m&eacute;dia ${c.share_total||0}%)" style="color:${sh7.color};font-weight:600">${sh7.arrow} ${c.share_7d||0}%</td>
+        <td class="tr" data-tip="Gasto 7d: valor investido neste criativo nos &uacute;ltimos 7 dias.">${fmtM(c.spend_7d)}</td>
+        <td class="tr" data-tip="Compras 7d: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 7 dias.">${fmt(c.purchases_7d)}</td>
+        <td class="tr" style="color:${r7c};font-weight:600" data-tip="ROAS 7d: receita gerada para cada R$ 1 investido neste criativo nos &uacute;ltimos 7 dias.">${fmtR(c.roas_7d)}</td>
+        <td class="tr" data-tip="Gasto 3d: valor investido neste criativo nos &uacute;ltimos 3 dias.">${fmtM(c.spend_3d)}</td>
+        <td class="tr" data-tip="Compras 3d: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 3 dias.">${fmt(c.purchases_3d)}</td>
+        <td class="tr" style="color:${r3c};font-weight:600" data-tip="ROAS 3d: receita gerada para cada R$ 1 investido neste criativo nos &uacute;ltimos 3 dias.">${fmtR(c.roas_3d)}</td>
+        <td data-tip="Tend&ecirc;ncia: dire&ccedil;&atilde;o recente do criativo com base na velocidade de escala (escalando, est&aacute;vel ou caindo).">${c.trend?trendH(c.trend):'--'}</td>
+        <td class="tr" style="font-weight:600" data-tip="Score: nota geral calculada a partir de compras, ROAS, gasto e tend&ecirc;ncia. Serve pra comparar criativos rapidamente — quanto maior, melhor.">${fmt(c.score)}</td>
+        <td class="tr" data-tip="CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — gasto dividido pelo n&uacute;mero de compras.">${fmtM(c.cpa)}</td>
+        <td class="tr" data-tip="CTR (Click Through Rate): percentual de pessoas que viram o an&uacute;ncio e clicaram. Mede a atratividade do criativo.">${fmtP(c.ctr)}</td>
+        <td class="tr" data-tip="CPM (Custo por Mil impress&otilde;es): quanto custa em m&eacute;dia cada 1.000 exibi&ccedil;&otilde;es do criativo.">${fmtM(c.cpm)}</td>
+        <td class="tr" data-tip="Receita: valor total em reais gerado pelas compras atribu&iacute;das a este criativo.">${fmtM(c.revenue)}</td>
+        <td class="tr" data-tip="Impress&otilde;es: n&uacute;mero total de vezes que o an&uacute;ncio foi exibido para os usu&aacute;rios.">${fmt(c.impressions)}</td>
+        <td class="tr" data-tip="Participa&ccedil;&atilde;o nos &uacute;ltimos 7 dias: percentual do gasto da campanha destinado a este criativo nesse per&iacute;odo." style="color:${sh7.color};font-weight:600">${sh7.arrow} ${c.share_7d||0}%</td>
     </tr>`;
     }).join('');
     // Click handlers para a tabela
