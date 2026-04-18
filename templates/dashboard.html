@@ -1383,10 +1383,15 @@ function renderCampTbl(data){
         const allSelected=ev.camps.every(c=>selectedCampIds.has(c.id));
         const multi=ev.camps.length>1;
 
+        // Tooltip do evento: mostra lista de campanhas agrupadas para permitir diagnostico
+        const evTip = (ev.camps.length > 1)
+            ? ev.name + ' — agrupa ' + ev.camps.length + ' campanha(s):\n' + ev.camps.map(c=>'• '+c.name+' ('+fmtM(c.spend)+')').join('\n') + '\n\nClique para expandir.'
+            : ev.name + ' — 1 campanha: ' + ev.camps[0].name;
+
         // Header do evento — todas as m&eacute;tricas alinhadas com o header da tabela
         html+=`<tr class="event-header" data-event="${eid}" data-multi="${multi}" style="cursor:pointer;background:linear-gradient(90deg,rgba(88,166,255,.06),transparent);border-left:3px solid ${allSelected?'var(--accent)':'var(--brd)'}">
             <td><span class="row-dot" style="${allSelected?'background:var(--accent);border-color:var(--accent);box-shadow:0 0 12px rgba(88,166,255,.5)':''}"></span></td>
-            <td class="cn" style="font-weight:700;color:var(--t1);font-size:13px" data-tip="${ev.name}${multi?' — clique para expandir campanhas':''}">
+            <td class="cn" style="font-weight:700;color:var(--t1);font-size:13px" data-tip="${evTip.replace(/"/g,'&quot;')}">
                 ${multi?'<span class="arrow" style="display:inline-block;transition:transform .2s;font-size:10px;margin-right:6px;color:var(--t3)">&#9654;</span>':''}${ev.name}${multi?' <span style="color:var(--t3);font-weight:400;font-size:11px">('+ev.camps.length+')</span>':''}
             </td>
             <td><span class="sb s-${ev.camps.some(c=>c.status==='ACTIVE')?'ACTIVE':'PAUSED'}">${ev.camps.some(c=>c.status==='ACTIVE')?'Ativa':'Pausada'}</span></td>
