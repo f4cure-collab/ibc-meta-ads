@@ -30,6 +30,7 @@ CITY_MAP = {
     "JUIZ_DE_FORA": "Juiz de Fora",
     "SAOLUIS": "São Luís",
     "SAO_LUIS": "São Luís",
+    "SP": "São Paulo",
     "SAOPAULO": "São Paulo",
     "SAO_PAULO": "São Paulo",
     "UBERLANDIA": "Uberlândia",
@@ -61,6 +62,7 @@ CITY_KEY_NORMALIZE = {
     "JOAO_PESSOA": "JOAOPESSOA",
     "JUIZ_DE_FORA": "JUIZDEFORA",
     "SAO_LUIS": "SAOLUIS",
+    "SP": "SAOPAULO",
     "SAO_PAULO": "SAOPAULO",
     "FLORIANOPOLIS": "FLORIPA",
     "GOIANIA": "GYN",
@@ -117,16 +119,30 @@ def _parse_campaign_name(name):
     if not event_type:
         return None
 
-    # Detectar cidade: procurar a maior match no nome
+    # Detectar cidade: match exato por token (evita falsos positivos como
+    # "SP" dentro de "SPK"). Se nao achar por token, cai num fallback de
+    # substring pra cobrir chaves longas que podem estar sem separadores.
+    tokens = set(name_upper.replace("-", "_").split("_"))
     best_city = None
     best_key = None
     for key, full in CITY_MAP.items():
         if key == "RMKT":
             continue
-        if key in name_upper:
+        if key in tokens:
             if best_key is None or len(key) > len(best_key):
                 best_key = key
                 best_city = full
+    # Fallback: chaves longas grudadas no nome (ex: "SPKFLORIPAV1")
+    if not best_city:
+        for key, full in CITY_MAP.items():
+            if key == "RMKT" or len(key) <= 3:
+                # chaves curtas (SP, RJ, BH, POA, BSB, GYN, SJC, SJRP, FOZ)
+                # nao participam do fallback pra nao colidir com SPK, AIE etc
+                continue
+            if key in name_upper:
+                if best_key is None or len(key) > len(best_key):
+                    best_key = key
+                    best_city = full
 
     if not best_city:
         return None
