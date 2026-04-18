@@ -2850,37 +2850,44 @@ def _scheduled_refresh():
 
 
 def _refresh_recent_loop():
-    """Thread separada que revalida o cache de 1d e 7d a cada 2h durante o dia todo.
-    A Meta continua consolidando "ontem" nas primeiras horas do dia seguinte, entao
-    uma unica execucao as 2h nao basta — o valor fica congelado em um snapshot parcial."""
+    """Thread separada que revalida o cache dos ranges recentes ao longo do dia.
+    A Meta continua consolidando "ontem" nas primeiras horas do dia seguinte,
+    e uma unica execucao as 2h AM nao basta — o valor fica congelado em um
+    snapshot parcial. Essa thread roda imediatamente no boot e depois a cada 2h.
+    Cobre 1d, 7d, 14d e 30d (ranges que os usuarios mais consultam)."""
     now_br = _now_br
-    # Aguarda 20min apos o boot pra nao concorrer com o scheduler principal
-    time.sleep(1200)
+    # Primeira execucao acontece 10s apos boot — nao espera 20min para popular o cache
+    time.sleep(10)
     while True:
         try:
             refresh_scheduler_lock("refresh_recent")
             dt_to = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
+            print(f"[REFRESH] Iniciando refresh de cache recente — ate {dt_to}")
             with app.test_client() as client:
                 with client.session_transaction() as sess:
                     sess["logged_in"] = True
                     sess["username"] = SUPER_ADMIN_EMAIL
                     sess["role"] = "super_admin"
-                for days in (1, 7):
+                for days in (1, 7, 14, 30):
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     try:
                         client.get(f"/api/dashboard/campaigns?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
-                        time.sleep(5)
+                        time.sleep(3)
                         client.get(f"/api/dashboard/daily-summary?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
-                        time.sleep(5)
+                        time.sleep(3)
                         client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
-                        time.sleep(10)
+                        time.sleep(5)
+                        refresh_scheduler_lock("refresh_recent")  # heartbeat durante o ciclo
                     except Exception as e:
                         print(f"[REFRESH] Erro {days}d: {e}")
-            print(f"[REFRESH] Cache de 1d/7d atualizado em {datetime.now().strftime('%H:%M')}")
+            print(f"[REFRESH] Cache recente atualizado em {datetime.now().strftime('%H:%M')}")
         except Exception as e:
             print(f"[REFRESH] Erro no loop: {e}")
-        # Proxima execucao em 2h
-        time.sleep(7200)
+        # Proxima execucao em 2h, com heartbeat a cada 5min para manter o lock
+        for _ in range(24):  # 24 blocos de 5min = 2h
+            time.sleep(300)
+            try: refresh_scheduler_lock("refresh_recent")
+            except Exception: pass
 
 
 # ── Bootstrap dos schedulers (roda tanto em `python` quanto em `gunicorn`) ───

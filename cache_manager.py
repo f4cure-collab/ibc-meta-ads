@@ -37,7 +37,7 @@ def _get_db():
     return conn
 
 
-def try_acquire_scheduler_lock(name, max_age_hours=6):
+def try_acquire_scheduler_lock(name, max_age_hours=0.25):
     """Tenta obter lock exclusivo para rodar scheduler em apenas um worker.
     Em gunicorn multi-worker, N processos tentam iniciar o scheduler simultaneamente;
     o lock garante que so um rode de fato. Se o lock anterior e mais velho que
