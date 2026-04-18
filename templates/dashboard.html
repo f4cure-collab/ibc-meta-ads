@@ -612,6 +612,7 @@
             <div class="fg"><label data-tip="Data inicial (m&iacute;n: janeiro 2026)">De</label><input type="date" class="fi" id="date-from" min="2026-01-01" data-tip="Data inicial"></div>
             <div class="fg"><label data-tip="Data final (m&aacute;ximo: ontem)">At&eacute;</label><input type="date" class="fi" id="date-to" data-tip="Data final"></div>
             <button class="btn-p" id="btn-load" data-tip="Recarregar dados com o per&iacute;odo selecionado">Carregar</button>
+            {% if role in ('admin', 'super_admin') %}<button id="btn-refresh" style="background:transparent;border:1px solid var(--brd);color:var(--t2);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px" data-tip="Forcar atualizacao direto da Meta API, ignorando cache (pode demorar mais)">&#x21bb;</button>{% endif %}
             <div style="flex:1"></div>
         </div>
         <div class="scards" id="camp-summary-cards">
@@ -785,6 +786,7 @@
             <input type="hidden" id="cr-dt">
             {% endif %}
             <button class="btn-p" id="btn-cr-load" data-tip="Buscar criativos da Meta API">Carregar Criativos</button>
+            {% if role in ('admin', 'super_admin') %}<button id="btn-cr-refresh" style="background:transparent;border:1px solid var(--brd);color:var(--t2);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px" data-tip="Forcar atualizacao direto da Meta API, ignorando cache (pode demorar mais)">&#x21bb;</button>{% endif %}
             <button class="fp-toggle" id="btn-toggle-filters" data-tip="Mostrar/ocultar painel de filtros">&#9776; Filtros <span class="badge-num" id="active-filters-count" style="display:none">0</span></button>
             <div style="flex:1"></div>
             <input type="text" class="fi search" id="cr-search" placeholder="Buscar criativo..." data-tip="Filtrar por nome do an&uacute;ncio ou campanha">
@@ -1019,6 +1021,7 @@
             </div>
             <div style="flex:1"></div>
             <button class="btn-s" id="btn-proj-reload" data-tip="Recalcular proje&ccedil;&atilde;o">&#8635; Recalcular</button>
+            {% if role in ('admin', 'super_admin') %}<button id="btn-proj-refresh" style="background:transparent;border:1px solid var(--brd);color:var(--t2);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:14px;margin-left:8px" data-tip="Forcar atualizacao dos dados da Meta API, ignorando cache">&#x21bb;</button>{% endif %}
         </div>
 
         <!-- Filtro de campanhas para projetar -->
@@ -1276,16 +1279,17 @@ function showCampLoading(show,text,sub){
     if(sub)$('#camp-loading-sub').textContent=sub;
 }
 
-async function loadCamp(){
+async function loadCamp(force){
     const df=$('#date-from').value,dt=$('#date-to').value,btn=$('#btn-load');
     if(df<'2026-01-01'){$('#date-from').value='2026-01-01';}
     const cs=campStatusFilter;
-    btn.disabled=true;btn.textContent='Carregando...';
-    showCampLoading(true,'Carregando dados...','Buscando campanhas da Meta API');
+    btn.disabled=true;btn.textContent=force?'Atualizando...':'Carregando...';
+    showCampLoading(true,force?'Atualizando dados...':'Carregando dados...','Buscando campanhas da Meta API');
+    const fq=force?'&force=true':'';
 
     try{
         showCampLoading(true,'Buscando campanhas...','Etapa 1/3 — Dados das campanhas');
-        const r=await api(`/api/dashboard/campaigns?date_from=${df}&date_to=${dt}&camp_status=${cs}`);
+        const r=await api(`/api/dashboard/campaigns?date_from=${df}&date_to=${dt}&camp_status=${cs}${fq}`);
         campData=r.data||[];campEvents=r.events||[];const s=r.summary||{};
         $('#s-spend').textContent=fmtM(s.total_spend);$('#s-revenue').textContent=fmtM(s.total_revenue);
         $('#s-roas').textContent=fmtR(s.avg_roas);$('#s-roas').style.color=roasC(s.avg_roas);$('#s-roas').setAttribute('data-tip',roasTip(s.avg_roas));
@@ -1298,7 +1302,7 @@ async function loadCamp(){
         renderCampTbl(campData);renderCampCharts(campData);
 
         showCampLoading(true,'Carregando gráficos...','Etapa 2/3 — Dados diários e frequência');
-        await loadCampDailySummary();
+        await loadCampDailySummary(force);
         _updateCampCardSelection();
         renderCampMetricChart();
 
@@ -1786,12 +1790,13 @@ function buildFunnelHTML(t){
 // ── Detail panel: agregado de TODAS campanhas ou das selecionadas ──
 let multiCampData=null; // {campaigns:[{id,name,daily:[]}]}
 
-async function loadMultiInsights(){
+async function loadMultiInsights(force){
     const gen=_detailGeneration;
     const df=$('#date-from').value,dt=$('#date-to').value,cs=campStatusFilter;
     const ids=selectedCampIds.size>0?Array.from(selectedCampIds).join(','):'all';
+    const fq=force?'&force=true':'';
     try{
-        const r=await api(`/api/dashboard/campaigns/multi-insights?ids=${ids}&date_from=${df}&date_to=${dt}&camp_status=${cs}`);
+        const r=await api(`/api/dashboard/campaigns/multi-insights?ids=${ids}&date_from=${df}&date_to=${dt}&camp_status=${cs}${fq}`);
         if(gen!==_detailGeneration)return;
         multiCampData=r;
         if(r.aggregated){
@@ -2240,6 +2245,13 @@ $('#btn-load').addEventListener('click',function(){
     }
     loadCamp();
 });
+var _btnRefresh=$('#btn-refresh');
+if(_btnRefresh){
+    _btnRefresh.addEventListener('click',function(){
+        if(!confirm('Forcar atualizacao direto da Meta API?\n\nIsso ignora o cache e pode demorar mais. Use so quando os dados parecem desatualizados.')) return;
+        loadCamp(true);
+    });
+}
 
 // ── Daily Summary (gr&aacute;fico de m&eacute;trica selecionada nos cards da aba campanhas) ──
 let campDailyData=[];
@@ -2261,10 +2273,11 @@ const CAMP_METRICS={
 
 let campSelectedMetrics=new Set(['spend']);
 let campAggregated={reach:0,frequency:0};
-async function loadCampDailySummary(){
+async function loadCampDailySummary(force){
     const df=$('#date-from').value,dt=$('#date-to').value,cs=campStatusFilter;
+    const fq=force?'&force=true':'';
     try{
-        const r=await api(`/api/dashboard/daily-summary?date_from=${df}&date_to=${dt}&camp_status=${cs}`);
+        const r=await api(`/api/dashboard/daily-summary?date_from=${df}&date_to=${dt}&camp_status=${cs}${fq}`);
         campDailyData=r.data||[];
         campAggregated=r.aggregated||{reach:0,frequency:0};
     }catch(e){console.warn('daily-summary erro:',e.message);campDailyData=[];campAggregated={reach:0,frequency:0};}
@@ -2381,14 +2394,15 @@ $('#btn-cmv-clear').addEventListener('click',()=>{
 });
 
 // ══════════ CREATIVES ══════════
-async function loadCr(){
+async function loadCr(force){
     const df=$('#cr-df').value,dt=$('#cr-dt').value,btn=$('#btn-cr-load');
-    btn.disabled=true;btn.textContent='Carregando...';
+    btn.disabled=true;btn.textContent=force?'Atualizando...':'Carregando...';
     $('#cr-cards-wrap').innerHTML='';$('#cr-tbody').innerHTML='';$('#cr-loading').style.display='flex';$('#cr-empty').style.display='none';
+    const fq=force?'&force=true':'';
     // Limpar banner anterior
     const oldBanner=$('#cr-warnings');if(oldBanner)oldBanner.remove();
     try{
-        const r=await api(`/api/dashboard/all-creatives?date_from=${df}&date_to=${dt}&camp_status=${campStatusFilter}`);
+        const r=await api(`/api/dashboard/all-creatives?date_from=${df}&date_to=${dt}&camp_status=${campStatusFilter}${fq}`);
         crData=r.data||[];activeChips.clear();
         buildStableCampaignOrder();
         buildChips();renderCr();
@@ -2839,6 +2853,13 @@ $('#btn-cr-load').addEventListener('click',function(){
     if(!cached && !confirmApiCall('Carregar criativos faz muitas chamadas a API da Meta (uma por campanha de vendas).\n\nIsso consome uma parte significativa do limite diario.\n\nDeseja continuar?')) return;
     loadCr();
 });
+var _btnCrRefresh=$('#btn-cr-refresh');
+if(_btnCrRefresh){
+    _btnCrRefresh.addEventListener('click',function(){
+        if(!confirm('Forcar atualizacao direto da Meta API?\n\nIsso ignora o cache e pode demorar bastante (uma chamada por campanha).\nUse so quando os dados parecem desatualizados.')) return;
+        loadCr(true);
+    });
+}
 $('#cr-search').addEventListener('input',renderCr);
 $('#cr-sort').addEventListener('change',()=>{
     crTblSortKey=null;crTblSortDir='desc'; // resetar sort da coluna ao usar dropdown
@@ -3797,6 +3818,19 @@ $$('.tab-btn').forEach(b=>{
         });
     }
 });
+
+// Botao de refresh na aba Projecao: forca atualizacao das campanhas (fonte dos dados da projecao)
+var _btnProjRefresh=$('#btn-proj-refresh');
+if(_btnProjRefresh){
+    _btnProjRefresh.addEventListener('click',async function(){
+        if(!confirm('Forcar atualizacao direto da Meta API?\n\nIsso ignora o cache e recarrega os dados de Campanhas que alimentam a projecao.')) return;
+        await loadCamp(true);
+        if(typeof loadMultiInsights==='function'){
+            try{ selectedCampIds.clear(); await loadMultiInsights(true); buildProjCampChips(); }catch(e){}
+        }
+        renderProjection();
+    });
+}
 
 // Auto-load
 loadCamp();
