@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
-from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired
+from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock
 from event_grouper import group_campaigns_by_event
 
 # Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
@@ -188,7 +188,8 @@ def _cache_ttl_for_range(date_from, date_to):
     """Define TTL do cache baseado no tamanho do range.
     Dados recentes (1-7 dias) mudam mais: a Meta atualiza atribuicoes
     retroativamente ate ~48h. Cache mais curto pra essas faixas evita
-    inconsistencia entre "1d" e o ultimo ponto do grafico "30d"."""
+    inconsistencia entre "1d" e o ultimo ponto do grafico "30d".
+    Retorna TTL em horas (pode ser fracionado)."""
     try:
         d_from = datetime.strptime(date_from, "%Y-%m-%d")
         d_to = datetime.strptime(date_to, "%Y-%m-%d")
@@ -196,11 +197,11 @@ def _cache_ttl_for_range(date_from, date_to):
     except Exception:
         return 20
     if diff <= 1:
-        return 1    # 1d: 1h (dados ainda consolidando)
+        return 0.5  # 1d: 30min (a Meta ainda consolida "ontem" durante boa parte do dia seguinte)
     if diff <= 7:
-        return 6    # 7d: 6h
+        return 3    # 7d: 3h
     if diff <= 14:
-        return 12   # 14d: 12h
+        return 8    # 14d: 8h
     return 20       # 30d+: 20h
 
 
@@ -2741,6 +2742,7 @@ def _scheduled_refresh():
     """
     from datetime import datetime, timedelta
 
+    refresh_scheduler_lock("daily_scheduler")
     now_br = _now_br()
     dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
     # Ranges pre-carregados: (dias, label). 30d e o range principal usado no /criativos
@@ -2847,6 +2849,56 @@ def _scheduled_refresh():
     print(f"[SCHEDULER] Atualizacao completa! Tudo cacheado ate {datetime.now().strftime('%H:%M')}")
 
 
+def _refresh_recent_loop():
+    """Thread separada que revalida o cache de 1d e 7d a cada 2h durante o dia todo.
+    A Meta continua consolidando "ontem" nas primeiras horas do dia seguinte, entao
+    uma unica execucao as 2h nao basta — o valor fica congelado em um snapshot parcial."""
+    now_br = _now_br
+    # Aguarda 20min apos o boot pra nao concorrer com o scheduler principal
+    time.sleep(1200)
+    while True:
+        try:
+            refresh_scheduler_lock("refresh_recent")
+            dt_to = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
+            with app.test_client() as client:
+                with client.session_transaction() as sess:
+                    sess["logged_in"] = True
+                    sess["username"] = SUPER_ADMIN_EMAIL
+                    sess["role"] = "super_admin"
+                for days in (1, 7):
+                    dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
+                    try:
+                        client.get(f"/api/dashboard/campaigns?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
+                        time.sleep(5)
+                        client.get(f"/api/dashboard/daily-summary?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
+                        time.sleep(5)
+                        client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
+                        time.sleep(10)
+                    except Exception as e:
+                        print(f"[REFRESH] Erro {days}d: {e}")
+            print(f"[REFRESH] Cache de 1d/7d atualizado em {datetime.now().strftime('%H:%M')}")
+        except Exception as e:
+            print(f"[REFRESH] Erro no loop: {e}")
+        # Proxima execucao em 2h
+        time.sleep(7200)
+
+
+# ── Bootstrap dos schedulers (roda tanto em `python` quanto em `gunicorn`) ───
+# Em producao o gunicorn importa o modulo e nao executa o bloco __main__.
+# O lock em SQLite garante que so um worker de fato rode o scheduler.
+if try_acquire_scheduler_lock("daily_scheduler"):
+    start_scheduler(_scheduled_refresh)
+    print("[BOOT] Scheduler diario (2:00) iniciado neste worker")
+else:
+    print("[BOOT] Outro worker ja esta rodando o scheduler diario")
+
+if try_acquire_scheduler_lock("refresh_recent"):
+    threading.Thread(target=_refresh_recent_loop, daemon=True).start()
+    print("[BOOT] Loop de refresh recente (1d/7d a cada 2h) iniciado neste worker")
+else:
+    print("[BOOT] Outro worker ja esta rodando o loop de refresh recente")
+
+
 # ── Run ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -2855,10 +2907,8 @@ if __name__ == "__main__":
     print(f"  Login: {SUPER_ADMIN_EMAIL}")
     print("=" * 60)
 
-    # Iniciar scheduler para atualização automática às 2h
-    start_scheduler(_scheduled_refresh)
-    print("  Scheduler ativo: atualizacao automatica as 2:00")
-    print("  Cache TTL: 20 horas")
+    # Schedulers ja foram iniciados no import do modulo (ver bloco bootstrap acima)
+    print("  Schedulers em background (ver logs [BOOT])")
     print("=" * 60)
 
     app.run(host="0.0.0.0", port=5001, debug=True)

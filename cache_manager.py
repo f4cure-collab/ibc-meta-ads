@@ -26,8 +26,62 @@ def _get_db():
             expires_at TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS scheduler_lock (
+            name TEXT PRIMARY KEY,
+            pid INTEGER,
+            acquired_at TEXT
+        )
+    """)
     conn.commit()
     return conn
+
+
+def try_acquire_scheduler_lock(name, max_age_hours=6):
+    """Tenta obter lock exclusivo para rodar scheduler em apenas um worker.
+    Em gunicorn multi-worker, N processos tentam iniciar o scheduler simultaneamente;
+    o lock garante que so um rode de fato. Se o lock anterior e mais velho que
+    max_age_hours, assume-se que o worker morreu e toma o lock."""
+    import os
+    try:
+        conn = _get_db()
+        row = conn.execute("SELECT pid, acquired_at FROM scheduler_lock WHERE name=?", (name,)).fetchone()
+        now = datetime.now()
+        if row:
+            try:
+                prev = datetime.fromisoformat(row[1])
+                age_h = (now - prev).total_seconds() / 3600
+                if age_h < max_age_hours:
+                    conn.close()
+                    return False
+            except Exception:
+                pass
+        conn.execute(
+            "INSERT OR REPLACE INTO scheduler_lock (name, pid, acquired_at) VALUES (?, ?, ?)",
+            (name, os.getpid(), now.isoformat())
+        )
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[LOCK] Erro: {e}")
+        return False
+
+
+def refresh_scheduler_lock(name):
+    """Heartbeat do lock — chamado periodicamente pelo worker que detem o lock
+    pra manter o timestamp atualizado e evitar que outro worker tome."""
+    import os
+    try:
+        conn = _get_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO scheduler_lock (name, pid, acquired_at) VALUES (?, ?, ?)",
+            (name, os.getpid(), datetime.now().isoformat())
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[LOCK] Erro refresh: {e}")
 
 
 def get_cached(cache_key):
