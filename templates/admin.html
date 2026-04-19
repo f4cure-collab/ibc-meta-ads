@@ -59,6 +59,20 @@
         .action-item.danger{color:#f88}
         .action-item.danger:hover{background:#3a1a1a;color:#f44336}
         .action-divider{height:1px;background:#2a2a4a;margin:4px 0}
+
+        /* Submenu de navegacao */
+        .adm-nav{display:flex;gap:4px;margin:16px 0 24px;border-bottom:1px solid #2a2a4a;overflow-x:auto;padding-bottom:0}
+        .adm-nav-btn{background:none;border:none;color:#888;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:color .15s,border-color .15s}
+        .adm-nav-btn:hover{color:#ccc}
+        .adm-nav-btn.active{color:#4f8cff;border-bottom-color:#4f8cff}
+        .adm-nav-btn[data-super-only]{display:none}
+        body.is-super .adm-nav-btn[data-super-only]{display:block}
+        /* Esconde cards que nao pertencem a secao ativa */
+        body[data-adm-active="overview"] [data-adm-section]:not([data-adm-section="overview"]){display:none !important}
+        body[data-adm-active="users"]    [data-adm-section]:not([data-adm-section="users"])   {display:none !important}
+        body[data-adm-active="system"]   [data-adm-section]:not([data-adm-section="system"])  {display:none !important}
+        body[data-adm-active="campaigns"] [data-adm-section]:not([data-adm-section="campaigns"]){display:none !important}
+        body[data-adm-active="help"]     [data-adm-section]:not([data-adm-section="help"])    {display:none !important}
     </style>
 </head>
 <body>
@@ -66,11 +80,20 @@
     <a href="/dashboard" class="btn-back">&larr; Voltar ao Dashboard</a>
     <h1 style="margin-top:20px;">Painel de Administracao</h1>
 
-    <!-- Token Expiry -->
+    <!-- Token Expiry (sempre visivel) -->
     <div id="tokenExpiry" class="token-expiry" style="display:none;"></div>
 
+    <!-- Submenu de navegacao -->
+    <div class="adm-nav">
+        <button class="adm-nav-btn active" data-adm-tab="overview">Visao Geral</button>
+        <button class="adm-nav-btn" data-adm-tab="users">Usuarios</button>
+        <button class="adm-nav-btn" data-adm-tab="system" data-super-only>Sistema</button>
+        <button class="adm-nav-btn" data-adm-tab="campaigns" data-super-only>Campanhas</button>
+        <button class="adm-nav-btn" data-adm-tab="help">Ajuda</button>
+    </div>
+
     <!-- Status -->
-    <div class="card">
+    <div class="card" data-adm-section="overview">
         <h2>Status</h2>
         <div id="statusInfo">Verificando...</div>
         <div style="margin-top:12px;">
@@ -80,7 +103,7 @@
     </div>
 
     <!-- Visualizar como (só super admin) -->
-    <div class="card" id="previewCard" style="display:none;">
+    <div class="card" id="previewCard" data-adm-section="overview" style="display:none;">
         <h2>Visualizar como</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">Simule a experiencia do dashboard em outro perfil. Voce continua logado como super admin — basta clicar em "Sair da visualizacao" no topo do dashboard para voltar.</p>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -91,7 +114,7 @@
     </div>
 
     <!-- Atualizar Token (só super admin) -->
-    <div class="card" id="tokenCard" style="display:none;">
+    <div class="card" id="tokenCard" data-adm-section="system" style="display:none;">
         <h2>Atualizar Token da Meta API</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">O token expira a cada 60 dias. Gere um novo no Graph API Explorer e cole aqui.</p>
         <label>Senha Admin</label>
@@ -104,7 +127,7 @@
     </div>
 
     <!-- Gestao de Usuarios -->
-    <div class="card">
+    <div class="card" data-adm-section="users">
         <h2>Usuarios</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">Gerencie quem pode acessar o dashboard. Novos usuarios precisam redefinir a senha no primeiro acesso.</p>
         <input type="text" id="userSearch" placeholder="Buscar por nome ou email..." style="margin-bottom:8px;" oninput="renderUsers()">
@@ -158,7 +181,7 @@
     </div>
 
     <!-- Atualizacao do Sistema -->
-    <div class="card" id="updateCard" style="display:none;">
+    <div class="card" id="updateCard" data-adm-section="system" style="display:none;">
         <h2>Atualizacao do Sistema</h2>
         <div id="updateStatus" style="padding:12px;border-radius:8px;margin-bottom:12px;"></div>
         <button class="btn btn-primary" id="btnCheckUpdate" onclick="checkUpdate()">Verificar Atualizacoes</button>
@@ -177,7 +200,7 @@
     </div>
 
     <!-- Contas de Anuncio (multi-account) -->
-    <div class="card" id="adAccountsCard" style="display:none;">
+    <div class="card" id="adAccountsCard" data-adm-section="campaigns" style="display:none;">
         <h2>Contas de Anuncio</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">
             Todas as contas sincronizadas sao consultadas pelo dashboard nos tipos de campanha mapeados.
@@ -206,7 +229,7 @@
     </div>
 
     <!-- Campanhas nao identificadas -->
-    <div class="card" id="unidentifiedCard" style="display:none;">
+    <div class="card" id="unidentifiedCard" data-adm-section="campaigns" style="display:none;">
         <h2>Campanhas Nao Identificadas</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">
             Campanhas que foram classificadas como Meteorico ou Comercial mas nao tiveram
@@ -220,7 +243,7 @@
     </div>
 
     <!-- Diagnostico Meteoricos (temporario) -->
-    <div class="card" id="meteoricosCard" style="display:none;">
+    <div class="card" id="meteoricosCard" data-adm-section="campaigns" style="display:none;">
         <h2>Diagnostico Meteoricos (preview)</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">
             Lista campanhas com prefixo METEORICO_ e mostra objective + action_types disponiveis nos ultimos 30 dias.
@@ -231,7 +254,7 @@
     </div>
 
     <!-- Instrucoes -->
-    <div class="card">
+    <div class="card" data-adm-section="help">
         <h2>Como gerar novo token</h2>
         <p style="color:#888;font-size:13px;">
             1. Acesse developers.facebook.com/tools/explorer<br>
@@ -359,6 +382,18 @@ async function loadUsers() {
         _isSuper = d.is_super;
         _allUsers = d.data || [];
         _userPage = 1;
+        document.body.classList.toggle('is-super', !!_isSuper);
+        // Se nao-super esta em aba restrita, volta para Visao Geral
+        if (!_isSuper) {
+            var tab = document.body.getAttribute('data-adm-active');
+            if (tab === 'system' || tab === 'campaigns') {
+                document.body.setAttribute('data-adm-active', 'overview');
+                document.querySelectorAll('.adm-nav-btn').forEach(function(b){
+                    b.classList.toggle('active', b.getAttribute('data-adm-tab') === 'overview');
+                });
+                localStorage.setItem('admActiveTab', 'overview');
+            }
+        }
 
         // Mostrar cards só para super admin
         document.getElementById('tokenCard').style.display = _isSuper ? 'block' : 'none';
@@ -1076,6 +1111,24 @@ async function loadMeteoricosPreview() {
 // ── Helpers ──
 function show(id, msg) { var el=document.getElementById(id); el.textContent=msg; el.style.display='block'; }
 function hide(id) { document.getElementById(id).style.display='none'; }
+
+// ── Submenu de navegacao do admin ──
+(function() {
+    var saved = localStorage.getItem('admActiveTab') || 'overview';
+    function setActive(tab) {
+        document.body.setAttribute('data-adm-active', tab);
+        document.querySelectorAll('.adm-nav-btn').forEach(function(b){
+            b.classList.toggle('active', b.getAttribute('data-adm-tab') === tab);
+        });
+        localStorage.setItem('admActiveTab', tab);
+    }
+    setActive(saved);
+    document.querySelectorAll('.adm-nav-btn').forEach(function(b){
+        b.addEventListener('click', function(){
+            setActive(b.getAttribute('data-adm-tab'));
+        });
+    });
+})();
 
 loadAll();
 </script>
