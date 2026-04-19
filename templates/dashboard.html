@@ -550,13 +550,20 @@
         ::-webkit-scrollbar-corner{background:var(--bg0)}
         ::selection{background:rgba(88,166,255,.3);color:#fff}
 
-        /* Tipo meteoricos: oculta metricas que nao se aplicam a captacao de leads */
-        body.type-meteoricos .m-roas,
-        body.type-meteoricos .m-revenue,
+        /* Tipo meteoricos: oculta metricas que nao se aplicam a captacao de leads
+           (sem receita, sem ROAS, sem checkout — funil termina no lead/cadastro) */
         body.type-meteoricos [data-metric="roas"],
-        body.type-meteoricos [data-metric="revenue"] {
+        body.type-meteoricos [data-metric="revenue"],
+        body.type-meteoricos [data-metric="rate_lpv_ic"],
+        body.type-meteoricos [data-metric="rate_ic_purchase"],
+        body.type-meteoricos .hide-meteoricos,
+        body.type-meteoricos #rank-roas-title,
+        body.type-meteoricos .ccard-rank:has(#rank-roas-title) {
             display: none !important;
         }
+        /* Mostra somente para meteoricos (CPL ranking substitui ROAS) */
+        .show-meteoricos { display: none; }
+        body.type-meteoricos .show-meteoricos { display: block !important; }
     </style>
 </head>
 <body>
@@ -641,8 +648,8 @@
             <div class="scard clickable" data-metric="spend" data-tip="Clique para gr&aacute;fico de gasto di&aacute;rio"><div class="sl">Gasto</div><div class="sv" id="s-spend">--</div></div>
             <div class="scard clickable" data-metric="revenue" data-tip="Clique para gr&aacute;fico de receita di&aacute;ria"><div class="sl">Receita</div><div class="sv" id="s-revenue">--</div></div>
             <div class="scard clickable" data-metric="roas" data-tip="Clique para evolu&ccedil;&atilde;o do ROAS"><div class="sl">ROAS</div><div class="sv" id="s-roas">--</div></div>
-            <div class="scard clickable" data-metric="purchases" data-tip="Clique para compras por dia"><div class="sl">Compras</div><div class="sv" id="s-purchases">--</div></div>
-            <div class="scard clickable" data-metric="cpa" data-tip="Clique para evolu&ccedil;&atilde;o do CPA"><div class="sl">CPA</div><div class="sv" id="s-cpa">--</div></div>
+            <div class="scard clickable" data-metric="purchases" data-tip="Clique para ver por dia"><div class="sl" data-label-vendas="Compras" data-label-meteoricos="Leads">Compras</div><div class="sv" id="s-purchases">--</div></div>
+            <div class="scard clickable" data-metric="cpa" data-tip="Clique para ver por dia"><div class="sl" data-label-vendas="CPA" data-label-meteoricos="CPL">CPA</div><div class="sv" id="s-cpa">--</div></div>
             <!-- Funil — volumes -->
             <div class="scard clickable" data-metric="impressions" data-tip="Clique para impress&otilde;es por dia"><div class="sl">Impress&otilde;es</div><div class="sv" id="s-impressions">--</div></div>
             <div class="scard clickable" data-metric="clicks" data-tip="Clique para cliques por dia"><div class="sl">Cliques</div><div class="sv" id="s-clicks">--</div></div>
@@ -664,9 +671,10 @@
             <div class="metric-viewer-canvas-wrap"><canvas id="cmv-canvas"></canvas></div>
         </div>
         <div class="cgrid rankings-grid">
-            <div class="ccard ccard-rank"><h3 id="rank-roas-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (melhor &harr; pior)">&#127942; ROAS por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-roas"></canvas></div></div>
+            <div class="ccard ccard-rank hide-meteoricos"><h3 id="rank-roas-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (melhor &harr; pior)">&#127942; ROAS por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-roas"></canvas></div></div>
+            <div class="ccard ccard-rank show-meteoricos"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><canvas id="ch-cpl"></canvas></div></div>
             <div class="ccard ccard-rank"><h3 id="rank-spend-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128176; Gasto/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-spend"></canvas></div></div>
-            <div class="ccard ccard-rank"><h3 id="rank-sales-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128722; Vendas/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-sales-day"></canvas></div></div>
+            <div class="ccard ccard-rank"><h3 id="rank-sales-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)"><span class="rank-sales-icon">&#128722;</span> <span class="rank-sales-label">Vendas</span>/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-sales-day"></canvas></div></div>
         </div>
         <div class="tbl-wrap">
             <div class="tbl-head">
@@ -1118,6 +1126,47 @@ function applyCampTypeClass() {
     document.body.classList.add('type-' + CURRENT_CAMP_TYPE);
     var lbl = document.getElementById('campTypeLabel');
     if (lbl) lbl.textContent = isMeteoricos() ? 'Meteoricos' : 'Vendas';
+    adaptStaticLabelsToType();
+}
+
+// Percorre o DOM e adapta labels estaticos conforme o tipo selecionado.
+// Elementos marcam opcoes via data-label-vendas / data-label-meteoricos.
+// Tambem reescreve textos em tabelas/filtros que contem "Compras"/"CPA".
+function adaptStaticLabelsToType() {
+    var suffix = isMeteoricos() ? 'meteoricos' : 'vendas';
+    // 1. Elementos com data-label-*  — substitui diretamente
+    document.querySelectorAll('[data-label-vendas][data-label-meteoricos]').forEach(function(el){
+        var t = el.getAttribute('data-label-' + suffix);
+        if (t != null) el.textContent = t;
+    });
+    if (!isMeteoricos()) return;
+    // 2. Reescrita em bloco para meteoricos: so faz uma vez (marca via dataset)
+    // Labels/headers nas colunas "Compras" e "CPA"
+    document.querySelectorAll('th[data-key="purchases"], th[data-sort="cpa"]').forEach(function(th){
+        if (th.dataset.adapted) return;
+        if (th.getAttribute('data-key') === 'purchases') th.textContent = 'Leads';
+        else th.textContent = 'CPL';
+        th.dataset.adapted = '1';
+    });
+    // Options nos filtros/ordenacoes
+    document.querySelectorAll('option[value="purchases"]').forEach(function(o){
+        if (o.textContent.indexOf('Compras') >= 0) o.textContent = o.textContent.replace('Compras', 'Leads');
+    });
+    document.querySelectorAll('option[value="cpa_asc"]').forEach(function(o){
+        if (o.textContent.indexOf('CPA') >= 0) o.textContent = o.textContent.replace('CPA', 'CPL');
+    });
+    // Labels soltos ("Compras"/"CPA") em spans/labels
+    document.querySelectorAll('label, .lbl, .pl, span').forEach(function(el){
+        if (el.children.length) return;  // so elementos folha
+        var t = el.textContent;
+        if (!t) return;
+        if (t === 'Compras' || t === 'Comp.') el.textContent = t.replace('Compras','Leads').replace('Comp.','Leads');
+        else if (t === 'CPA') el.textContent = 'CPL';
+        else if (t.indexOf('CPA m') === 0) el.textContent = t.replace('CPA', 'CPL');
+    });
+    // Label dinamico do ranking "Vendas/Dia por Evento"
+    document.querySelectorAll('.rank-sales-label').forEach(function(el){ el.textContent = 'Leads'; });
+    document.querySelectorAll('.rank-sales-icon').forEach(function(el){ el.innerHTML = '&#9733;'; });
 }
 
 // Monkey-patch fetch: anexa camp_type automaticamente em todas as chamadas /api/dashboard/*
@@ -1687,13 +1736,30 @@ function _renderRankings(evData){
         }).join('')+'</div>';
     }
 
-    const rd=rankSortState.roas?1:-1;
-    const byRoas=evData.filter(c=>(c.roas||0)>0||(c.spend||0)>0).sort((a,b)=>rd*((b.roas||0)-(a.roas||0)));
-    const maxRoas=byRoas.reduce((m,c)=>Math.max(m,c.roas||0),0);
-    const rt=$('#rank-roas-title');if(rt)rt.innerHTML=`&#127942; ROAS por Evento ${rankSortState.roas?'&#9660;':'&#9650;'}`;
-    renderList('ch-roas',byRoas,maxRoas,c=>c.roas||0,
-        (c,v)=>`<span style="color:${roasC(v)}">${fmtR(v)}</span>`,
-        (c,v)=>`${c.name}: ROAS ${v.toFixed(2)}x (${c._count} campanhas)`,c=>roasGrad(c.roas||0));
+    const cplGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
+
+    if (isMeteoricos()) {
+        // CPL ranking (menor = melhor). Substitui ROAS.
+        // Sort default: ASC (menor primeiro). rankSortState.roas reutilizado.
+        const cd=rankSortState.roas?-1:1;
+        const byCpl=evData
+            .map(c=>{const conv=c.purchases||0;const cpl=conv>0?(c.spend||0)/conv:Infinity;return{...c,cpl:cpl};})
+            .filter(c=>isFinite(c.cpl)&&c.cpl>0)
+            .sort((a,b)=>cd*(a.cpl-b.cpl));
+        const maxCpl=byCpl.reduce((m,c)=>Math.max(m,c.cpl||0),0);
+        const ct=$('#rank-cpl-title');if(ct)ct.innerHTML=`&#128200; CPL por Evento ${rankSortState.roas?'&#9660;':'&#9650;'}`;
+        renderList('ch-cpl',byCpl,maxCpl,c=>c.cpl||0,
+            (c,v)=>fmtM(v),
+            (c,v)=>`${c.name}: CPL ${fmtM(v)} (${c.purchases||0} leads, ${c._count} campanhas)`,cplGrad);
+    } else {
+        const rd=rankSortState.roas?1:-1;
+        const byRoas=evData.filter(c=>(c.roas||0)>0||(c.spend||0)>0).sort((a,b)=>rd*((b.roas||0)-(a.roas||0)));
+        const maxRoas=byRoas.reduce((m,c)=>Math.max(m,c.roas||0),0);
+        const rt=$('#rank-roas-title');if(rt)rt.innerHTML=`&#127942; ROAS por Evento ${rankSortState.roas?'&#9660;':'&#9650;'}`;
+        renderList('ch-roas',byRoas,maxRoas,c=>c.roas||0,
+            (c,v)=>`<span style="color:${roasC(v)}">${fmtR(v)}</span>`,
+            (c,v)=>`${c.name}: ROAS ${v.toFixed(2)}x (${c._count} campanhas)`,c=>roasGrad(c.roas||0));
+    }
 
     const sd2=rankSortState.spend?1:-1;
     const bySpendDay=evData.map(c=>{const d=Math.max(1,c.active_days||c.period_days||1);return{...c,spendPerDay:(c.spend||0)/d,_days:d};}).sort((a,b)=>sd2*(b.spendPerDay-a.spendPerDay));
@@ -1706,17 +1772,22 @@ function _renderRankings(evData){
     const sd3=rankSortState.sales?1:-1;
     const bySalesDay=evData.map(c=>{const d=Math.max(1,c.active_days||c.period_days||1);return{...c,salesPerDay:(c.purchases||0)/d,_days:d};}).sort((a,b)=>sd3*(b.salesPerDay-a.salesPerDay));
     const maxSD=bySalesDay.reduce((m,c)=>Math.max(m,c.salesPerDay||0),0);
-    const slt=$('#rank-sales-title');if(slt)slt.innerHTML=`&#128722; Vendas/Dia por Evento ${rankSortState.sales?'&#9660;':'&#9650;'}`;
+    const slt=$('#rank-sales-title');
+    if(slt){
+        const conv = isMeteoricos() ? 'Leads' : 'Vendas';
+        const icon = isMeteoricos() ? '&#9733;' : '&#128722;';
+        slt.innerHTML=`${icon} <span class="rank-sales-label">${conv}</span>/Dia por Evento ${rankSortState.sales?'&#9660;':'&#9650;'}`;
+    }
     renderList('ch-sales-day',bySalesDay,maxSD,c=>c.salesPerDay||0,
         (c,v)=>v.toFixed(2)+'/dia',
-        (c,v)=>`${c.name}: ${v.toFixed(2)} vendas/dia (${c.purchases||0} compras, ${c._count} campanhas)`,salesGrad);
+        (c,v)=>{const lbl=isMeteoricos()?'leads':'vendas';return`${c.name}: ${v.toFixed(2)} ${lbl}/dia (${c.purchases||0} ${lbl}, ${c._count} campanhas)`;},salesGrad);
 }
 
 // Click nos t&iacute;tulos dos rankings para inverter ordem
 document.addEventListener('click',e=>{
-    const t=e.target.closest('#rank-roas-title,#rank-spend-title,#rank-sales-title');
+    const t=e.target.closest('#rank-roas-title,#rank-cpl-title,#rank-spend-title,#rank-sales-title');
     if(!t||!window._rankEvData)return;
-    if(t.id==='rank-roas-title')rankSortState.roas=!rankSortState.roas;
+    if(t.id==='rank-roas-title'||t.id==='rank-cpl-title')rankSortState.roas=!rankSortState.roas;
     else if(t.id==='rank-spend-title')rankSortState.spend=!rankSortState.spend;
     else if(t.id==='rank-sales-title')rankSortState.sales=!rankSortState.sales;
     _renderRankings(window._rankEvData);
@@ -1731,29 +1802,49 @@ function buildFunnelHTML(t){
     const ic=t.initiate_checkout||0;
     const purch=t.purchases||0;
 
+    const meteoricos = isMeteoricos();
+    // Funil de Meteoricos (captacao de lead): Impressoes -> Cliques -> LPV -> Cadastro (lead)
+    // Funil de Vendas: Impressoes -> Cliques -> LPV -> Checkout -> Compra
+    let steps, conversions, totalRate;
     const r1=impr>0?(clicks/impr*100):0;
     const r2=clicks>0?(lpv/clicks*100):0;
-    const r3=lpv>0?(ic/lpv*100):0;
-    const r4=ic>0?(purch/ic*100):0;
-    const totalRate=clicks>0?(purch/clicks*100):0;
 
-    // Cada step tem: dark (borda escura), mid (cor principal), light (highlight central)
-    const steps=[
-        {label:'Impress&otilde;es',value:impr,icon:'&#128065;',dark:'#0a2d6b',mid:'#1f6feb',light:'#6eb8ff',tip:'Total de vezes que o an&uacute;ncio foi exibido'},
-        {label:'Cliques no Link',value:clicks,icon:'&#128279;',dark:'#0d4a6b',mid:'#2891d4',light:'#7dd3fc',tip:'Cliques no link de destino'},
-        {label:'LPV (Visualiza&ccedil;&otilde;es da P&aacute;gina)',value:lpv,icon:'&#128194;',dark:'#0e5a4a',mid:'#16a377',light:'#7ee6c5',tip:'P&aacute;gina de destino carregada'},
-        {label:'Checkouts Iniciados',value:ic,icon:'&#128722;',dark:'#115b2e',mid:'#2ea043',light:'#86efac',tip:'Iniciaram o checkout (preencheram pagamento)'},
-        {label:'Compras',value:purch,icon:'&#127942;',dark:'#0f4a24',mid:'#238636',light:'#4ade80',tip:'Compras finalizadas com sucesso'},
-    ];
-    const conversions=[
-        {pct:r1,label:'CTR (impr &rarr; cliques)'},
-        {pct:r2,label:'cliques &rarr; LPV'},
-        {pct:r3,label:'LPV &rarr; checkout'},
-        {pct:r4,label:'checkout &rarr; compra'},
-    ];
+    if (meteoricos) {
+        const rL=lpv>0?(purch/lpv*100):0;  // LPV -> Lead
+        totalRate=clicks>0?(purch/clicks*100):0;
+        steps=[
+            {label:'Impress&otilde;es',value:impr,icon:'&#128065;',dark:'#0a2d6b',mid:'#1f6feb',light:'#6eb8ff',tip:'Total de vezes que o an&uacute;ncio foi exibido'},
+            {label:'Cliques no Link',value:clicks,icon:'&#128279;',dark:'#0d4a6b',mid:'#2891d4',light:'#7dd3fc',tip:'Cliques no link de destino'},
+            {label:'LPV (Visualiza&ccedil;&otilde;es da P&aacute;gina)',value:lpv,icon:'&#128194;',dark:'#0e5a4a',mid:'#16a377',light:'#7ee6c5',tip:'P&aacute;gina de destino carregada'},
+            {label:'Leads (Cadastros)',value:purch,icon:'&#9733;',dark:'#5a3a0e',mid:'#d48f1a',light:'#fcd34d',tip:'Cadastros registrados no formul&aacute;rio'},
+        ];
+        conversions=[
+            {pct:r1,label:'CTR (impr &rarr; cliques)'},
+            {pct:r2,label:'cliques &rarr; LPV'},
+            {pct:rL,label:'LPV &rarr; Lead'},
+        ];
+    } else {
+        const r3=lpv>0?(ic/lpv*100):0;
+        const r4=ic>0?(purch/ic*100):0;
+        totalRate=clicks>0?(purch/clicks*100):0;
+        steps=[
+            {label:'Impress&otilde;es',value:impr,icon:'&#128065;',dark:'#0a2d6b',mid:'#1f6feb',light:'#6eb8ff',tip:'Total de vezes que o an&uacute;ncio foi exibido'},
+            {label:'Cliques no Link',value:clicks,icon:'&#128279;',dark:'#0d4a6b',mid:'#2891d4',light:'#7dd3fc',tip:'Cliques no link de destino'},
+            {label:'LPV (Visualiza&ccedil;&otilde;es da P&aacute;gina)',value:lpv,icon:'&#128194;',dark:'#0e5a4a',mid:'#16a377',light:'#7ee6c5',tip:'P&aacute;gina de destino carregada'},
+            {label:'Checkouts Iniciados',value:ic,icon:'&#128722;',dark:'#115b2e',mid:'#2ea043',light:'#86efac',tip:'Iniciaram o checkout (preencheram pagamento)'},
+            {label:'Compras',value:purch,icon:'&#127942;',dark:'#0f4a24',mid:'#238636',light:'#4ade80',tip:'Compras finalizadas com sucesso'},
+        ];
+        conversions=[
+            {pct:r1,label:'CTR (impr &rarr; cliques)'},
+            {pct:r2,label:'cliques &rarr; LPV'},
+            {pct:r3,label:'LPV &rarr; checkout'},
+            {pct:r4,label:'checkout &rarr; compra'},
+        ];
+    }
 
-    // Larguras (raio) das fatias — do topo (largo) ao fundo (estreito)
-    const radii=[420,360,290,220,150,90];
+    // Larguras (raio) das fatias — do topo (largo) ao fundo (estreito).
+    // Numero de valores = steps.length + 1 (fence-post)
+    const radii = meteoricos ? [420,340,250,170,100] : [420,360,290,220,150,90];
     const stepHeight=110;
     const connectorHeight=42;
     const ellipseRy=14; // altura do "achatamento" das elipses (efeito 3D)
@@ -1974,8 +2065,8 @@ const DETAIL_METRICS={
     spend:{label:'Gasto Total',color:'#ff6b6b',fmt:fmtM,calc:d=>d.spend||0,axis:'money'},
     revenue:{label:'Receita Total',color:'#3fdf85',fmt:fmtM,calc:d=>d.revenue||0,axis:'money'},
     roas:{label:'ROAS',color:'#58a6ff',fmt:fmtR,calc:d=>d.roas||0,axis:'ratio'},
-    purchases:{label:'Compras',color:'#56d4dd',fmt:fmt,calc:d=>d.purchases||0,axis:'count'},
-    cpa:{label:'CPA',color:'#ffc857',fmt:fmtM,calc:d=>d.cpa||0,axis:'unit_cost'},
+    purchases:{label:isMeteoricos()?'Leads':'Compras',color:'#56d4dd',fmt:fmt,calc:d=>d.purchases||0,axis:'count'},
+    cpa:{label:isMeteoricos()?'CPL':'CPA',color:'#ffc857',fmt:fmtM,calc:d=>d.cpa||0,axis:'unit_cost'},
     cpm:{label:'CPM',color:'#bc8cff',fmt:fmtM,calc:d=>{const i=d.impressions||0;return i>0?(d.spend/i)*1000:0;},axis:'unit_cost'},
     // Funil — volumes (ordem do funil)
     impressions:{label:'Impressões',color:'#1f6feb',fmt:fmt,calc:d=>d.impressions||0,axis:'big'},
@@ -2343,10 +2434,10 @@ const CAMP_METRICS={
     spend:{label:'Gasto',color:'#f85149',fmt:fmtM,key:'spend',axis:'money'},
     revenue:{label:'Receita',color:'#3fb950',fmt:fmtM,key:'revenue',axis:'money'},
     roas:{label:'ROAS',color:'#58a6ff',fmt:fmtR,key:'roas',axis:'ratio'},
-    cpa:{label:'CPA',color:'#d29922',fmt:fmtM,key:'cpa',axis:'unit_cost'},
+    cpa:{label:isMeteoricos()?'CPL':'CPA',color:'#d29922',fmt:fmtM,key:'cpa',axis:'unit_cost'},
     cpm:{label:'CPM',color:'#bc8cff',fmt:fmtM,key:'cpm',axis:'unit_cost'},
     ctr:{label:'CTR',color:'#79c0ff',fmt:fmtP,key:'ctr',axis:'pct'},
-    purchases:{label:'Compras',color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
+    purchases:{label:isMeteoricos()?'Leads':'Compras',color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
     impressions:{label:'Impress\u00f5es',color:'#1f6feb',fmt:fmt,key:'impressions',axis:'big'},
     clicks:{label:'Cliques',color:'#a5d6ff',fmt:fmt,key:'clicks',axis:'count'},
     rate_click_lpv:{label:'Click\u2192LPV',color:'#56d4dd',fmt:fmtP,key:'rate_click_lpv',axis:'pct'},
