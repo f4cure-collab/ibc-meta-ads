@@ -106,18 +106,43 @@ def _get_accounts_for_type(camp_type):
     return seen
 
 
+# Cache em memoria da lista de campanhas por conta. TTL curto (5min) evita
+# que 3 endpoints chamados em sequencia (/campaigns, /daily-summary,
+# /multi-insights) refacam a mesma busca de metadados na Meta. Dados de
+# status/budget mudam lentamente, entao 5min eh seguro.
+_campaigns_memcache = {}  # {(acc_id, effective_status, fields): (ts, [rows])}
+_campaigns_memcache_lock = threading.Lock()
+_CAMPAIGNS_MEMCACHE_TTL = 300  # 5 minutos
+
+
+def _fetch_account_campaigns(acc_id, fields, effective_status):
+    """Busca lista de campanhas de uma conta com cache em memoria de 5min.
+    Dedupe chamadas de /campaigns quando varios endpoints precisam da mesma lista."""
+    key = (acc_id, effective_status, fields)
+    now = time.time()
+    with _campaigns_memcache_lock:
+        entry = _campaigns_memcache.get(key)
+        if entry and (now - entry[0]) < _CAMPAIGNS_MEMCACHE_TTL:
+            return [dict(r) for r in entry[1]]
+    rows = meta_get_all_pages(
+        f"{acc_id}/campaigns",
+        {"fields": fields, "effective_status": effective_status}
+    )
+    for r in rows:
+        r["_account_id"] = acc_id
+    with _campaigns_memcache_lock:
+        _campaigns_memcache[key] = (now, rows)
+    return [dict(r) for r in rows]
+
+
 def _fetch_type_campaigns(camp_type, fields, effective_status):
     """Busca campanhas de TODAS as contas configuradas para o camp_type,
-    aplica o filtro por tipo, e retorna a lista com _account_id tagueado."""
+    aplica o filtro por tipo, e retorna a lista com _account_id tagueado.
+    Usa _fetch_account_campaigns com cache em memoria (5min) pra dedupe."""
     all_camps = []
     for acc in _get_accounts_for_type(camp_type):
         try:
-            rows = meta_get_all_pages(
-                f"{acc}/campaigns",
-                {"fields": fields, "effective_status": effective_status}
-            )
-            for c in rows:
-                c["_account_id"] = acc
+            rows = _fetch_account_campaigns(acc, fields, effective_status)
             all_camps.extend(rows)
         except Exception as e:
             print(f"[MULTI-ACCT] Falha campanhas {acc}: {e}")

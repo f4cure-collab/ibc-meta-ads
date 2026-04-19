@@ -74,7 +74,11 @@
             display:flex;align-items:center;justify-content:space-between;
             position:sticky;top:0;z-index:100;
             box-shadow:0 1px 0 rgba(88,166,255,.08),0 8px 24px rgba(0,0,0,.3);
+            transition:top .15s;
         }
+        /* Quando o aviso de rate limit esta visivel, empurra o header pra baixo
+           pra nao cobrir o menu de navegacao / link de admin */
+        body.has-rate-overlay .header{top:42px}
         .header::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--brd-glow),transparent)}
         .header-left{display:flex;align-items:center;gap:14px}
         .header h1{
@@ -601,9 +605,11 @@
         <a href="/logout" class="btn-logout" data-tip="Sair do dashboard">Sair</a>
     </div>
 
-    <!-- Rate limit overlay -->
-    <div id="rateOverlay" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:rgba(255,150,0,0.95);color:#000;padding:10px 20px;text-align:center;font-size:14px;font-weight:600;">
+    <!-- Rate limit overlay: quando visivel, empurra o header pra baixo
+         via classe body.has-rate-overlay (definida no CSS) -->
+    <div id="rateOverlay" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:rgba(255,150,0,0.95);color:#000;padding:10px 40px 10px 20px;text-align:center;font-size:14px;font-weight:600;">
         <span id="rateOverlayText">Desacelerando chamadas para proteger o limite da API Meta...</span>
+        <button onclick="document.getElementById('rateOverlay').style.display='none';document.body.classList.remove('has-rate-overlay');" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#000;font-size:18px;cursor:pointer;padding:4px 10px;line-height:1;" title="Ocultar aviso">&times;</button>
     </div>
 </div>
 <div class="main">
@@ -4489,6 +4495,7 @@ function updateRateBadge() {
             badge.style.border = '1px solid rgba(255,107,107,0.4)';
             overlay.style.display = 'block';
             overlay.style.background = 'rgba(255,80,80,0.95)';
+            document.body.classList.add('has-rate-overlay');
             document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% (' + worst + ') — Sistema pausado para proteger sua conta. Aguarde...';
         } else if (pct > 50) {
             badge.style.background = 'rgba(255,200,87,0.2)';
@@ -4496,12 +4503,14 @@ function updateRateBadge() {
             badge.style.border = '1px solid rgba(255,200,87,0.4)';
             overlay.style.display = 'block';
             overlay.style.background = 'rgba(255,150,0,0.95)';
+            document.body.classList.add('has-rate-overlay');
             document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% (' + worst + ') — Desacelerando chamadas.';
         } else {
             badge.style.background = 'rgba(63,223,133,0.15)';
             badge.style.color = '#3fdf85';
             badge.style.border = '1px solid rgba(63,223,133,0.3)';
             overlay.style.display = 'none';
+            document.body.classList.remove('has-rate-overlay');
         }
     }).catch(function(){});
 }
