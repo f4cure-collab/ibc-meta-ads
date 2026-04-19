@@ -2207,16 +2207,18 @@ def api_check_update():
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     try:
         import subprocess
-        result = subprocess.run(["git", "fetch", "origin", "master"], capture_output=True, text=True, timeout=30,
-                                cwd=os.path.dirname(__file__))
-        local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
-                               cwd=os.path.dirname(__file__)).stdout.strip()
-        remote = subprocess.run(["git", "rev-parse", "origin/master"], capture_output=True, text=True,
-                                cwd=os.path.dirname(__file__)).stdout.strip()
-        has_update = local != remote
+        cwd = os.path.dirname(__file__)
+        fetch = subprocess.run(["git", "fetch", "origin", "master"], capture_output=True, text=True, timeout=30, cwd=cwd)
+        fetch_ok = fetch.returncode == 0
+        fetch_err = (fetch.stderr or fetch.stdout or "").strip() if not fetch_ok else ""
+        local = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=cwd).stdout.strip()
+        remote = subprocess.run(["git", "rev-parse", "origin/master"], capture_output=True, text=True, cwd=cwd).stdout.strip()
+        has_update = bool(local and remote and local != remote)
         return jsonify({
             "ok": True,
             "has_update": has_update,
+            "fetch_ok": fetch_ok,
+            "fetch_err": fetch_err,
             "local": local[:7] if local else "?",
             "remote": remote[:7] if remote else "?",
         })

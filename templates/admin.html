@@ -761,7 +761,10 @@ async function checkUpdate() {
         var r = await fetch('/api/admin/check-update');
         var d = await r.json();
         if (!d.ok) { document.getElementById('updateStatus').innerHTML = '<span style="color:#f44336;">Erro: '+d.error+'</span>'; return; }
-        if (d.has_update) {
+        if (!d.fetch_ok && d.fetch_err) {
+            document.getElementById('updateStatus').innerHTML = '<span style="color:#f44336;">&#9888; Falha ao contatar GitHub: '+d.fetch_err+'</span><br><span style="color:#888;font-size:11px;">Versao local: '+d.local+'</span>';
+            document.getElementById('btnApplyUpdate').style.display = 'none';
+        } else if (d.has_update) {
             document.getElementById('updateStatus').innerHTML = '<span style="color:#ff9800;font-weight:600;">&#9888; Atualizacao disponivel!</span><br><span style="color:#888;font-size:12px;">Local: '+d.local+' → Remoto: '+d.remote+'</span>';
             document.getElementById('btnApplyUpdate').style.display = 'inline-block';
         } else {
