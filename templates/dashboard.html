@@ -681,7 +681,7 @@
         </div>
         <div class="tbl-wrap">
             <div class="tbl-head">
-                <h3 data-tip="Lista de campanhas ativas com objetivo de vendas. Clique em uma linha para selecionar.">Campanhas de Vendas</h3>
+                <h3 data-tip="Lista de campanhas ativas. Clique em uma linha para selecionar."><span class="tbl-camps-label">Campanhas de Vendas</span></h3>
                 <div style="display:flex;align-items:center;gap:14px">
                     <input type="text" class="fi search" id="search-camp" placeholder="Buscar evento, campanha ou sigla..." data-tip="Filtra por nome do evento, campanha ou abrevia&ccedil;&atilde;o (ex: DSP, BH, SPK)" style="width:260px;font-size:12px;padding:6px 12px 6px 34px">
                     <span class="cnt" id="camp-cnt"></span>
@@ -694,8 +694,8 @@
                     <th data-key="name" data-tip="Nome da campanha no Meta Ads. Clique na linha para selecionar/deselecionar">Campanha</th>
                     <th data-key="status">Status</th>
                     <th data-key="spend" class="tr" data-tip="Total investido no per&iacute;odo">Gasto</th>
-                    <th data-key="revenue" class="tr" data-tip="Valor total das compras atribu&iacute;das">Receita</th>
-                    <th data-key="roas" class="tr" data-tip="Return on Ad Spend (receita/gasto)">ROAS</th>
+                    <th data-key="revenue" data-metric="revenue" class="tr" data-tip="Valor total das compras atribu&iacute;das">Receita</th>
+                    <th data-key="roas" data-metric="roas" class="tr" data-tip="Return on Ad Spend (receita/gasto)">ROAS</th>
                     <th data-key="purchases" class="tr" data-tip="N&uacute;mero de compras">Compras</th>
                     <th data-key="cpa" class="tr" data-tip="Custo por aquisi&ccedil;&atilde;o (gasto/compras)">CPA</th>
                     <th data-key="ctr" class="tr" data-tip="Taxa de cliques (cliques/impress&otilde;es %)">CTR</th>
@@ -1142,6 +1142,10 @@ function adaptStaticLabelsToType() {
         var t = el.getAttribute('data-label-' + suffix);
         if (t != null) el.textContent = t;
     });
+    // Titulo da tabela de campanhas
+    document.querySelectorAll('.tbl-camps-label').forEach(function(el){
+        el.textContent = isMeteoricos() ? 'Campanhas de Meteoricos' : 'Campanhas de Vendas';
+    });
     if (!isMeteoricos()) return;
     // 2. Reescrita em bloco para meteoricos: so faz uma vez (marca via dataset)
     // Labels/headers nas colunas "Compras" e "CPA"
@@ -1526,8 +1530,8 @@ function renderCampTbl(data){
             </td>
             <td><span class="sb s-${ev.camps.some(c=>c.status==='ACTIVE')?'ACTIVE':'PAUSED'}">${ev.camps.some(c=>c.status==='ACTIVE')?'Ativa':'Pausada'}</span></td>
             <td class="tr" style="font-weight:700">${fmtM(evSpend)}</td>
-            <td class="tr" style="font-weight:700">${fmtM(evRev)}</td>
-            <td class="tr" style="font-weight:700;color:${roasC(evRoas)}">${fmtR(evRoas)}</td>
+            <td class="tr" data-metric="revenue" style="font-weight:700">${fmtM(evRev)}</td>
+            <td class="tr" data-metric="roas" style="font-weight:700;color:${roasC(evRoas)}">${fmtR(evRoas)}</td>
             <td class="tr" style="font-weight:700">${fmt(evPurch)}</td>
             <td class="tr" style="font-weight:700">${fmtM(evCpa)}</td>
             <td class="tr">${fmtP(evCtr)}</td>
@@ -1545,8 +1549,8 @@ function renderCampTbl(data){
                     <td class="cn" style="padding-left:36px;font-size:12px;color:var(--t2)" data-tip="${c.name}">${c.name}</td>
                     <td><span class="sb s-${c.status}">${c.status==='ACTIVE'?'Ativa':'Pausada'}</span></td>
                     <td class="tr">${fmtM(c.spend)}</td>
-                    <td class="tr">${fmtM(c.revenue)}</td>
-                    <td class="tr" style="color:${roasC(c.roas)};font-weight:600">${fmtR(c.roas)}</td>
+                    <td class="tr" data-metric="revenue">${fmtM(c.revenue)}</td>
+                    <td class="tr" data-metric="roas" style="color:${roasC(c.roas)};font-weight:600">${fmtR(c.roas)}</td>
                     <td class="tr">${fmt(c.purchases)}</td>
                     <td class="tr">${fmtM(c.cpa)}</td>
                     <td class="tr">${fmtP(c.ctr)}</td>
@@ -1559,6 +1563,9 @@ function renderCampTbl(data){
     });
 
     tb.innerHTML=html;
+
+    // Re-aplica labels adaptativos (headers Compras->Leads, CPA->CPL)
+    if (typeof adaptStaticLabelsToType === 'function') adaptStaticLabelsToType();
 
     // Click em campanha individual (s&oacute; dentro de multi-evento expandido)
     tb.querySelectorAll('tr.selectable').forEach(tr=>{
@@ -1742,8 +1749,9 @@ function _renderRankings(evData){
     const cplGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
 
     if (isMeteoricos()) {
-        // CPL ranking (menor = melhor). Substitui ROAS para meteoricos.
-        const cpla=!rankSortState.roas;
+        // CPL ranking (menor = melhor). Default ASC: menor CPL primeiro.
+        // rankSortState.roas=true (default) -> ASC; false -> DESC (inverte ao clicar).
+        const cpla=rankSortState.roas;
         const cd=cpla?1:-1;
         const byCpl=evData
             .map(c=>{
@@ -1758,8 +1766,6 @@ function _renderRankings(evData){
             });
         const maxCpl=byCpl.reduce((m,c)=>Math.max(m,c.cpl||0),0);
         const ct=$('#rank-cpl-title');if(ct)ct.innerHTML=`&#128200; CPL por Evento ${cpla?'&#9650;':'&#9660;'}`;
-        console.log('[CPL] evData items:', evData.length, 'byCpl items:', byCpl.length, 'first:', byCpl[0]);
-        // Renderiza direto (nao via renderList) para evitar edge cases com o elemento
         const el=document.getElementById('ch-cpl');
         if (el && byCpl.length) {
             el.innerHTML='<div class="rank-list">'+byCpl.map((c,i)=>{
