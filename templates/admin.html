@@ -242,17 +242,6 @@
         <div id="unidentifiedContent"></div>
     </div>
 
-    <!-- Diagnostico Meteoricos (temporario) -->
-    <div class="card" id="meteoricosCard" data-adm-section="campaigns" style="display:none;">
-        <h2>Diagnostico Meteoricos (preview)</h2>
-        <p style="color:#888;font-size:13px;margin-bottom:12px;">
-            Lista campanhas com prefixo METEORICO_ e mostra objective + action_types disponiveis nos ultimos 30 dias.
-            Use este preview para entender a estrutura antes de implementar o dashboard completo de meteoricos.
-        </p>
-        <button class="btn btn-primary" onclick="loadMeteoricosPreview()">Carregar Preview</button>
-        <div id="meteoricosContent" style="margin-top:16px;"></div>
-    </div>
-
     <!-- Instrucoes -->
     <div class="card" data-adm-section="help">
         <h2>Como gerar novo token</h2>
@@ -398,8 +387,6 @@ async function loadUsers() {
         // Mostrar cards só para super admin
         document.getElementById('tokenCard').style.display = _isSuper ? 'block' : 'none';
         document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
-        var mc = document.getElementById('meteoricosCard');
-        if (mc) mc.style.display = _isSuper ? 'block' : 'none';
         var uc = document.getElementById('unidentifiedCard');
         if (uc) uc.style.display = _isSuper ? 'block' : 'none';
         var ac = document.getElementById('adAccountsCard');
@@ -1033,79 +1020,6 @@ async function loadUnidentified(campType) {
     } catch(e) {
         box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + e.message + '</div>';
     }
-}
-
-// ── Meteoricos preview (diagnostico temporario) ──
-async function loadMeteoricosPreview() {
-    var box = document.getElementById('meteoricosContent');
-    box.innerHTML = '<div style="color:#888;padding:16px;">Carregando campanhas METEORICO_ e insights de 30d... (pode demorar 10-20s)</div>';
-    try {
-        var r = await fetch('/api/admin/meteoricos-preview');
-        var d = await r.json();
-        if (!d.ok) { box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: '+d.error+'</div>'; return; }
-        if (!d.total) {
-            var other = (d.sample_other_campaigns || []).map(function(n){return '<div style="color:#666;font-size:11px;">'+n+'</div>';}).join('');
-            box.innerHTML = '<div style="color:#ff9800;padding:12px;">Nenhuma campanha com prefixo METEORICO_ encontrada.</div>'
-                + '<div style="margin-top:8px;font-size:11px;color:#888;">Amostra de outras campanhas para referencia:</div>' + other;
-            return;
-        }
-
-        var html = '<div style="color:#4caf50;font-weight:600;margin-bottom:6px;">'+d.total+' campanhas METEORICO_ encontradas</div>'
-            + '<div style="color:#888;font-size:12px;margin-bottom:12px;">Periodo analisado: '+d.period+'</div>';
-
-        // Objectives
-        html += '<div style="background:#0f0f23;padding:10px;border-radius:6px;margin-bottom:12px;">';
-        html += '<strong style="color:#4f8cff;font-size:12px;">OBJECTIVES (campo usado no filtro):</strong><br>';
-        Object.keys(d.objectives_count || {}).forEach(function(obj) {
-            html += '<span style="display:inline-block;margin-top:6px;padding:4px 10px;background:#1a1a3e;border-radius:4px;margin-right:6px;font-family:monospace;font-size:12px;color:#4caf50;">'+obj+' ('+d.objectives_count[obj]+')</span>';
-        });
-        html += '</div>';
-
-        // Action types
-        if (d.action_types_seen && d.action_types_seen.length) {
-            html += '<div style="background:#0f0f23;padding:10px;border-radius:6px;margin-bottom:12px;">';
-            html += '<strong style="color:#4f8cff;font-size:12px;">ACTION_TYPES ranking (qual usar para contar leads?):</strong>';
-            html += '<table style="width:100%;font-size:11px;margin-top:8px;"><thead><tr>'
-                + '<th style="text-align:left;color:#888;padding:4px;">action_type</th>'
-                + '<th style="text-align:right;color:#888;padding:4px;">total_value (30d)</th>'
-                + '<th style="text-align:right;color:#888;padding:4px;">campanhas com valor</th>'
-                + '</tr></thead><tbody>';
-            d.action_types_seen.forEach(function(a) {
-                var highlight = (a.action_type.toLowerCase().indexOf('lead') >= 0 || a.action_type.toLowerCase().indexOf('subscribe') >= 0) ? 'color:#4caf50;font-weight:600;' : 'color:#ccc;';
-                html += '<tr><td style="padding:4px;font-family:monospace;'+highlight+'">'+a.action_type+'</td>'
-                    + '<td style="padding:4px;text-align:right;color:#fff;">'+(a.total_value||0).toLocaleString('pt-BR')+'</td>'
-                    + '<td style="padding:4px;text-align:right;color:#aaa;">'+a.count_campaigns+'</td></tr>';
-            });
-            html += '</tbody></table></div>';
-        }
-
-        // Campanhas
-        html += '<div style="background:#0f0f23;padding:10px;border-radius:6px;">';
-        html += '<strong style="color:#4f8cff;font-size:12px;">CAMPANHAS (ordenadas por gasto 30d):</strong>';
-        html += '<table style="width:100%;font-size:11px;margin-top:8px;"><thead><tr>'
-            + '<th style="text-align:left;color:#888;padding:4px;">Nome</th>'
-            + '<th style="text-align:left;color:#888;padding:4px;">Status</th>'
-            + '<th style="text-align:left;color:#888;padding:4px;">Objective</th>'
-            + '<th style="text-align:right;color:#888;padding:4px;">Gasto 30d</th>'
-            + '<th style="text-align:right;color:#888;padding:4px;">Impr. 30d</th>'
-            + '<th style="text-align:right;color:#888;padding:4px;">Clicks 30d</th>'
-            + '<th style="text-align:left;color:#888;padding:4px;">Lead candidates</th>'
-            + '</tr></thead><tbody>';
-        d.campaigns.forEach(function(c) {
-            var leads = Object.keys(c.lead_candidates || {}).map(function(k){ return k+'='+c.lead_candidates[k]; }).join(', ') || '—';
-            html += '<tr>'
-                + '<td style="padding:4px;color:#ccc;">'+c.name+'</td>'
-                + '<td style="padding:4px;color:'+(c.status==='ACTIVE'?'#4caf50':'#888')+';">'+c.status+'</td>'
-                + '<td style="padding:4px;font-family:monospace;color:#4caf50;font-size:10px;">'+c.objective+'</td>'
-                + '<td style="padding:4px;text-align:right;color:#fff;">R$ '+(c.spend_30d||0).toFixed(2)+'</td>'
-                + '<td style="padding:4px;text-align:right;color:#aaa;">'+(c.impressions_30d||0).toLocaleString('pt-BR')+'</td>'
-                + '<td style="padding:4px;text-align:right;color:#aaa;">'+(c.clicks_30d||0).toLocaleString('pt-BR')+'</td>'
-                + '<td style="padding:4px;color:#4caf50;font-size:10px;font-family:monospace;">'+leads+'</td>'
-                + '</tr>';
-        });
-        html += '</tbody></table></div>';
-        box.innerHTML = html;
-    } catch(e) { box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: '+e.message+'</div>'; }
 }
 
 // ── Helpers ──

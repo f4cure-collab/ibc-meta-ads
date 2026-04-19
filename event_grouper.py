@@ -17,6 +17,7 @@ CITY_MAP = {
     "RJ": "Rio de Janeiro",
     "POA": "Porto Alegre",
     "BSB": "Brasília",
+    "BRASILIA": "Brasília",
     "GYN": "Goiânia",
     "GOIANIA": "Goiânia",
     "FLORIPA": "Florianópolis",
@@ -37,6 +38,7 @@ CITY_MAP = {
     "LONDRINA": "Londrina",
     "CAMPINAS": "Campinas",
     "CURITIBA": "Curitiba",
+    "CWB": "Curitiba",
     "RECIFE": "Recife",
     "SANTOS": "Santos",
     "SALVADOR": "Salvador",
@@ -97,6 +99,14 @@ CITY_KEY_NORMALIZE = {
     "FLORIANOPOLIS": "FLORIPA",
     "GOIANIA": "GYN",
     "SAOJOSEDOSCAMPOS": "SJC",
+    "BRASILIA": "BSB",
+    "CWB": "CURITIBA",
+    "CAMPO_GRANDE": "CAMPOGRANDE",
+    "PORTO_VELHO": "PORTOVELHO",
+    "RIO_BRANCO": "RIOBRANCO",
+    "BOA_VISTA": "BOAVISTA",
+    "RIBEIRAO_PRETO": "RIBEIRAOPRETO",
+    "RIBEIRAO": "RIBEIRAOPRETO",
 }
 
 
@@ -118,20 +128,26 @@ def _parse_campaign_name(name):
     # Meteoricos: qualquer campanha com token METEORICO e agrupada por CIDADE apenas.
     # Ignora DSP/SPK/AIE no nome (todo meteorico e um so tipo de evento).
     if "METEORICO" in tokens_split or "METEORICOS" in tokens_split:
+        # name_norm tem '-' e '.' trocados por '_' pra match de chaves compostas
+        # tipo 'JOAO_PESSOA' funcionar quando o nome tiver 'JOAO-PESSOA'
+        name_norm = name_upper.replace("-", "_").replace(".", "_")
         best_city = None
         best_key = None
         for key, full in CITY_MAP.items():
             if key == "RMKT":
                 continue
-            if key in tokens_split:
+            # Match por token exato OU como substring no nome normalizado
+            # (substring cobre chaves com "_" como JOAO_PESSOA)
+            if key in tokens_split or ("_" in key and key in name_norm):
                 if best_key is None or len(key) > len(best_key):
                     best_key = key
                     best_city = full
         if not best_city:
+            # Fallback: chaves grandes (>=4) grudadas no nome
             for key, full in CITY_MAP.items():
                 if key == "RMKT" or len(key) <= 3:
                     continue
-                if key in name_upper:
+                if key in name_norm:
                     if best_key is None or len(key) > len(best_key):
                         best_key = key
                         best_city = full
@@ -139,7 +155,6 @@ def _parse_campaign_name(name):
             best_key = CITY_KEY_NORMALIZE.get(best_key, best_key)
             best_city = CITY_MAP.get(best_key, best_city)
             return ("METEORICO", best_key, best_city)
-        # METEORICO sem cidade reconhecida -> nao identificada (cai em Outros)
         return None
 
     # Detectar RMKT
