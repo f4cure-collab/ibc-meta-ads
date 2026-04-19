@@ -197,7 +197,7 @@ def _cache_ttl_for_range(date_from, date_to):
     except Exception:
         return 20
     if diff <= 1:
-        return 0.5  # 1d: 30min (a Meta ainda consolida "ontem" durante boa parte do dia seguinte)
+        return 0.6  # 1d: 36min — ciclo de refresh e 30min, margem de 6min evita gap
     if diff <= 7:
         return 3    # 7d: 3h
     if diff <= 14:
@@ -2875,24 +2875,30 @@ def _scheduled_refresh():
 
 def _refresh_recent_loop():
     """Thread separada que revalida o cache dos ranges recentes ao longo do dia.
-    A Meta continua consolidando "ontem" nas primeiras horas do dia seguinte,
-    e uma unica execucao as 2h AM nao basta — o valor fica congelado em um
-    snapshot parcial. Essa thread roda imediatamente no boot e depois a cada 2h.
-    Cobre 1d, 7d, 14d e 30d (ranges que os usuarios mais consultam)."""
+
+    Ciclo de 30min para garantir que 1d (TTL=36min) nunca expire entre refreshes.
+    Ranges maiores (7d/14d/30d) so sao refreshados a cada 4 ciclos (~2h) pois
+    seus TTLs sao maiores (3h/8h/20h).
+
+    Historico do problema: TTL 1d=30min com ciclo 2h deixava o cache vazio por
+    ~1h30 entre refreshes — usuario abria de manha e dados nao estavam cacheados."""
     now_br = _now_br
-    # Primeira execucao acontece 10s apos boot — nao espera 20min para popular o cache
+    # Primeira execucao 10s apos boot para popular o cache imediatamente
     time.sleep(10)
+    iteration = 0
     while True:
         try:
             refresh_scheduler_lock("refresh_recent")
             dt_to = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
-            print(f"[REFRESH] Iniciando refresh de cache recente — ate {dt_to}")
+            # 1d em todo ciclo; 7d/14d/30d a cada 4 ciclos (~2h)
+            days_to_refresh = [1] if iteration % 4 != 0 else [1, 7, 14, 30]
+            print(f"[REFRESH] Ciclo {iteration}: ranges {days_to_refresh}d — {datetime.now().strftime('%H:%M')}")
             with app.test_client() as client:
                 with client.session_transaction() as sess:
                     sess["logged_in"] = True
                     sess["username"] = SUPER_ADMIN_EMAIL
                     sess["role"] = "super_admin"
-                for days in (1, 7, 14, 30):
+                for days in days_to_refresh:
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     try:
                         client.get(f"/api/dashboard/campaigns?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
@@ -2901,14 +2907,15 @@ def _refresh_recent_loop():
                         time.sleep(3)
                         client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
                         time.sleep(5)
-                        refresh_scheduler_lock("refresh_recent")  # heartbeat durante o ciclo
+                        refresh_scheduler_lock("refresh_recent")
                     except Exception as e:
                         print(f"[REFRESH] Erro {days}d: {e}")
-            print(f"[REFRESH] Cache recente atualizado em {datetime.now().strftime('%H:%M')}")
+            print(f"[REFRESH] Cache atualizado em {datetime.now().strftime('%H:%M')}")
         except Exception as e:
             print(f"[REFRESH] Erro no loop: {e}")
-        # Proxima execucao em 2h, com heartbeat a cada 5min para manter o lock
-        for _ in range(24):  # 24 blocos de 5min = 2h
+        iteration += 1
+        # Aguarda 30min, com heartbeat a cada 5min para manter o lock
+        for _ in range(6):  # 6 * 5min = 30min
             time.sleep(300)
             try: refresh_scheduler_lock("refresh_recent")
             except Exception: pass
