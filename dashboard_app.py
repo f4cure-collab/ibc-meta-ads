@@ -526,9 +526,27 @@ def dashboard():
 # ── Meta API helpers ───────────────────────────────────────────────────
 
 # ── Rate Limit Protection ──────────────────────────────────────────────
-_rate_usage = {"call_count": 0, "total_cputime": 0, "total_time": 0, "last_check": 0}
-_MIN_DELAY = 1  # Minimo 1 segundo entre chamadas
+# Meta retorna 3 metricas independentes via x-business-use-case-usage:
+#   - call_count (% do numero de chamadas/hora)
+#   - total_cputime (% de CPU consumido em queries pesadas tipo insights)
+#   - total_time (% de tempo de processamento)
+# O limite real eh o MAIOR dos 3. Armazenamos por conta porque a Meta
+# aplica o limite por business/account separadamente.
+_rate_per_account = {}  # {acc_id: {call, cpu, time, regain_seconds, last_check}}
+_MIN_DELAY = 1
 _last_call_time = 0
+
+
+def _worst_usage_pct():
+    """Retorna (pct, acc_id) do pior uso entre todas as contas monitoradas."""
+    worst = 0
+    worst_acc = None
+    for acc_id, u in _rate_per_account.items():
+        m = max(u.get("call", 0), u.get("cpu", 0), u.get("time", 0))
+        if m > worst:
+            worst = m
+            worst_acc = acc_id
+    return worst, worst_acc
 
 
 def _enforce_rate_limit():
@@ -539,38 +557,67 @@ def _enforce_rate_limit():
     if elapsed < _MIN_DELAY:
         time.sleep(_MIN_DELAY - elapsed)
 
-    # Se uso > 75%, desacelerar
-    if _rate_usage["call_count"] > 75:
+    pct, acc = _worst_usage_pct()
+    if pct > 75:
         wait = 30
-        print(f"[RATE LIMIT] Uso em {_rate_usage['call_count']}% — pausando {wait}s para seguranca")
+        print(f"[RATE LIMIT] {acc}: {pct}% (max call/cpu/time) — pausando {wait}s")
         time.sleep(wait)
-    elif _rate_usage["call_count"] > 50:
-        print(f"[RATE LIMIT] Uso em {_rate_usage['call_count']}% — desacelerando")
+    elif pct > 50:
+        print(f"[RATE LIMIT] {acc}: {pct}% — desacelerando")
         time.sleep(3)
 
     _last_call_time = time.time()
 
 
 def _update_rate_from_headers(resp):
-    """Atualiza info de rate limit dos headers da resposta."""
+    """Atualiza uso por conta a partir de x-business-use-case-usage.
+    Esse header vem como {acc_id: [{call_count, total_cputime, total_time, estimated_time_to_regain_access}]}"""
     import json as _json
     usage = resp.headers.get("x-business-use-case-usage", "")
-    if usage:
-        try:
-            data = _json.loads(usage)
-            for acct, usages in data.items():
-                for u in usages:
-                    _rate_usage["call_count"] = u.get("call_count", 0)
-                    _rate_usage["total_cputime"] = u.get("total_cputime", 0)
-                    _rate_usage["total_time"] = u.get("total_time", 0)
-                    _rate_usage["last_check"] = time.time()
-        except Exception:
-            pass
+    if not usage:
+        return
+    try:
+        data = _json.loads(usage)
+        now_ts = time.time()
+        for acct_id, usages in data.items():
+            if not usages:
+                continue
+            # Meta retorna lista — pega o pior (maior uso) dentre os entries
+            worst_call = worst_cpu = worst_time = worst_regain = 0
+            for u in usages:
+                worst_call = max(worst_call, u.get("call_count", 0))
+                worst_cpu = max(worst_cpu, u.get("total_cputime", 0))
+                worst_time = max(worst_time, u.get("total_time", 0))
+                worst_regain = max(worst_regain, u.get("estimated_time_to_regain_access", 0))
+            _rate_per_account[acct_id] = {
+                "call": worst_call,
+                "cpu": worst_cpu,
+                "time": worst_time,
+                "regain_seconds": worst_regain,
+                "last_check": now_ts,
+            }
+    except Exception:
+        pass
 
 
 def get_dashboard_rate_info():
-    """Retorna info de rate limit para exibir no dashboard."""
-    return dict(_rate_usage)
+    """Retorna info de rate limit para o frontend mostrar no badge."""
+    worst_pct, worst_acc = _worst_usage_pct()
+    accounts = {}
+    for acc_id, u in _rate_per_account.items():
+        accounts[acc_id] = {
+            "call_count": u.get("call", 0),
+            "total_cputime": u.get("cpu", 0),
+            "total_time": u.get("time", 0),
+            "max": max(u.get("call", 0), u.get("cpu", 0), u.get("time", 0)),
+            "regain_seconds": u.get("regain_seconds", 0),
+            "last_check": u.get("last_check", 0),
+        }
+    return {
+        "pct": worst_pct,
+        "worst_account": worst_acc,
+        "accounts": accounts,
+    }
 
 
 def meta_get(endpoint, params=None):

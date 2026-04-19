@@ -4452,12 +4452,36 @@ function startRateMonitor() {
 function updateRateBadge() {
     fetch('/api/dashboard/rate-limit').then(function(r){return r.json()}).then(function(d) {
         if (!d.ok) return;
-        var pct = d.data.call_count || 0;
+        var info = d.data || {};
+        var pct = info.pct || 0;
+        var worst = info.worst_account || '';
+        var accounts = info.accounts || {};
         var badge = document.getElementById('rateBadge');
         var overlay = document.getElementById('rateOverlay');
         badge.style.display = 'inline-block';
         badge.textContent = 'API: ' + pct + '%';
-        badge.title = 'Uso da API Meta: ' + pct + '% das chamadas permitidas. Acima de 75% o sistema desacelera automaticamente para proteger sua conta.';
+
+        // Tooltip detalhado por conta (max de call/cpu/time)
+        var lines = ['Uso da API Meta (pior metrica entre call_count, total_cputime, total_time).'];
+        var accIds = Object.keys(accounts);
+        if (!accIds.length) {
+            lines.push('Ainda sem dados — faca uma consulta no dashboard.');
+        } else {
+            accIds.forEach(function(acc) {
+                var a = accounts[acc];
+                var label = acc + (acc === worst ? '  (mais carregada)' : '');
+                lines.push('');
+                lines.push(label + ':');
+                lines.push('  call: ' + a.call_count + '%  |  cpu: ' + a.total_cputime + '%  |  time: ' + a.total_time + '%');
+                if (a.regain_seconds > 0) {
+                    var m = Math.ceil(a.regain_seconds / 60);
+                    lines.push('  Meta indica bloqueio por ~' + m + 'min.');
+                }
+            });
+            lines.push('');
+            lines.push('>50% desacelera +3s/call. >75% pausa 30s automaticamente.');
+        }
+        badge.title = lines.join('\n');
 
         if (pct > 75) {
             badge.style.background = 'rgba(255,107,107,0.2)';
@@ -4465,14 +4489,14 @@ function updateRateBadge() {
             badge.style.border = '1px solid rgba(255,107,107,0.4)';
             overlay.style.display = 'block';
             overlay.style.background = 'rgba(255,80,80,0.95)';
-            document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% — Sistema pausado temporariamente para proteger sua conta. Aguarde...';
+            document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% (' + worst + ') — Sistema pausado para proteger sua conta. Aguarde...';
         } else if (pct > 50) {
             badge.style.background = 'rgba(255,200,87,0.2)';
             badge.style.color = '#ffc857';
             badge.style.border = '1px solid rgba(255,200,87,0.4)';
             overlay.style.display = 'block';
             overlay.style.background = 'rgba(255,150,0,0.95)';
-            document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% — Desacelerando chamadas para seguranca. Os dados podem demorar um pouco mais.';
+            document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% (' + worst + ') — Desacelerando chamadas.';
         } else {
             badge.style.background = 'rgba(63,223,133,0.15)';
             badge.style.color = '#3fdf85';
