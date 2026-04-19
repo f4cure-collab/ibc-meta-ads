@@ -176,6 +176,36 @@
         </div>
     </div>
 
+    <!-- Contas de Anuncio (multi-account) -->
+    <div class="card" id="adAccountsCard" style="display:none;">
+        <h2>Contas de Anuncio</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:12px;">
+            Conta principal vem do .env do servidor. Contas extras aqui sao consultadas para os tipos de campanha selecionados.
+            Util para quando as campanhas comerciais (PSC, PNL, CSI, etc) estao em uma conta separada.
+        </p>
+        <div id="adAccountsMain" style="padding:10px 12px;background:#0f0f23;border-radius:8px;margin-bottom:12px;font-family:monospace;font-size:12px;color:#4caf50;"></div>
+        <div id="adAccountsList" style="margin-bottom:14px;"></div>
+
+        <div style="border-top:1px solid #2a2a4a;padding-top:14px;">
+            <strong style="color:#4f8cff;font-size:12px;display:block;margin-bottom:10px;">Adicionar conta extra</strong>
+            <div class="row" style="gap:10px;">
+                <div style="flex:1;">
+                    <label>ID da conta (act_...)</label>
+                    <input type="text" id="newAccId" placeholder="act_2148686818481082">
+                </div>
+                <div style="flex:1;">
+                    <label>Nome (opcional)</label>
+                    <input type="text" id="newAccLabel" placeholder="Conta Comercial 01">
+                </div>
+            </div>
+            <label style="margin-top:10px;">Tipos de campanha</label>
+            <div id="newAccTypes" style="display:flex;gap:10px;margin-top:6px;"></div>
+            <button class="btn btn-primary" style="margin-top:12px;" onclick="addAdAccount()">Adicionar conta</button>
+            <div class="alert alert-success" id="accOk"></div>
+            <div class="alert alert-error" id="accErr"></div>
+        </div>
+    </div>
+
     <!-- Diagnostico Meteoricos (temporario) -->
     <div class="card" id="meteoricosCard" style="display:none;">
         <h2>Diagnostico Meteoricos (preview)</h2>
@@ -322,6 +352,11 @@ async function loadUsers() {
         document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
         var mc = document.getElementById('meteoricosCard');
         if (mc) mc.style.display = _isSuper ? 'block' : 'none';
+        var ac = document.getElementById('adAccountsCard');
+        if (ac) {
+            ac.style.display = _isSuper ? 'block' : 'none';
+            if (_isSuper) loadAdAccounts();
+        }
         var pc = document.getElementById('previewCard');
         if (pc) pc.style.display = _isSuper ? 'block' : 'none';
         if (_isSuper) checkUpdate();
@@ -805,6 +840,81 @@ async function applyUpdate() {
     } catch(e) { show('updateErr', e.message); }
     document.getElementById('btnApplyUpdate').disabled = false;
     document.getElementById('btnApplyUpdate').textContent = 'Aplicar Atualizacao';
+}
+
+// ── Contas de anuncio (multi-account) ──
+var _validCampTypes = [];
+var _campTypeLabels = { vendas: 'Vendas', meteoricos: 'Meteoricos', comercial: 'Comercial' };
+
+async function loadAdAccounts() {
+    try {
+        var r = await fetch('/api/admin/ad-accounts');
+        var d = await r.json();
+        if (!d.ok) return;
+        _validCampTypes = d.valid_camp_types || [];
+        document.getElementById('adAccountsMain').innerHTML =
+            '<strong style="color:#4f8cff;">Conta principal (.env):</strong> ' + (d.main_account || '(nao configurada)');
+
+        var list = d.extra_accounts || [];
+        var listEl = document.getElementById('adAccountsList');
+        if (!list.length) {
+            listEl.innerHTML = '<div style="color:#666;font-size:12px;padding:8px 0;">Nenhuma conta extra configurada.</div>';
+        } else {
+            listEl.innerHTML = list.map(function(a){
+                var badges = (a.camp_types||[]).map(function(t){
+                    return '<span style="display:inline-block;padding:2px 8px;background:rgba(88,166,255,0.15);color:#4f8cff;border-radius:4px;font-size:10px;margin-right:4px;">'+(_campTypeLabels[t]||t)+'</span>';
+                }).join('');
+                return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#0f0f23;border-radius:6px;margin-bottom:6px;">'
+                    + '<div><strong style="color:#ccc;font-size:13px;">'+(a.label||a.id)+'</strong>'
+                    + '<div style="color:#888;font-family:monospace;font-size:11px;margin-top:2px;">'+a.id+'</div>'
+                    + '<div style="margin-top:6px;">'+badges+'</div></div>'
+                    + '<button class="btn btn-danger btn-sm" onclick="deleteAdAccount(\''+a.id+'\')">Remover</button>'
+                    + '</div>';
+            }).join('');
+        }
+
+        // Checkboxes de tipos
+        var typesEl = document.getElementById('newAccTypes');
+        typesEl.innerHTML = _validCampTypes.map(function(t){
+            return '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#ccc;font-size:13px;">'
+                + '<input type="checkbox" class="nat-check" value="'+t+'" '+(t==='comercial'?'checked':'')+'> '
+                + (_campTypeLabels[t]||t) + '</label>';
+        }).join('');
+    } catch(e) {
+        console.error(e);
+    }
+}
+
+async function addAdAccount() {
+    hide('accOk'); hide('accErr');
+    var id = (document.getElementById('newAccId').value||'').trim();
+    var label = (document.getElementById('newAccLabel').value||'').trim();
+    var camp_types = Array.prototype.slice.call(document.querySelectorAll('.nat-check:checked')).map(function(c){return c.value;});
+    if (!id) { show('accErr', 'Informe o ID da conta.'); return; }
+    if (!camp_types.length) { show('accErr', 'Selecione ao menos um tipo de campanha.'); return; }
+    try {
+        var r = await fetch('/api/admin/ad-accounts', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({id: id, label: label, camp_types: camp_types})
+        });
+        var d = await r.json();
+        if (!d.ok) { show('accErr', 'Erro: '+d.error); return; }
+        show('accOk', 'Conta salva. Pode levar alguns segundos para os dados aparecerem (cache).');
+        document.getElementById('newAccId').value='';
+        document.getElementById('newAccLabel').value='';
+        loadAdAccounts();
+    } catch(e) { show('accErr', e.message); }
+}
+
+async function deleteAdAccount(id) {
+    if (!confirm('Remover a conta '+id+'?')) return;
+    try {
+        var r = await fetch('/api/admin/ad-accounts/'+encodeURIComponent(id), {method:'DELETE'});
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: '+d.error); return; }
+        loadAdAccounts();
+    } catch(e) { alert(e.message); }
 }
 
 // ── Meteoricos preview (diagnostico temporario) ──

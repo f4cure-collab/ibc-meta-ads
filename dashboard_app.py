@@ -38,6 +38,93 @@ BASE_URL = f"https://graph.facebook.com/{API_VERSION}"
 TOKEN = os.getenv("META_ACCESS_TOKEN", "")
 ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID", "")
 
+# Contas extras (alem da principal do .env) sao gerenciadas via /admin e persistidas
+# em ad_accounts.json local ao servidor — nao requer mexer no .env para adicionar.
+# Formato: [{"id": "act_123", "label": "Conta Comercial", "camp_types": ["comercial"]}]
+AD_ACCOUNTS_FILE = os.path.join(os.path.dirname(__file__), "ad_accounts.json")
+
+
+def _load_ad_accounts():
+    """Le contas extras do JSON local. Retorna [] se arquivo nao existe ou erro."""
+    try:
+        if not os.path.exists(AD_ACCOUNTS_FILE):
+            return []
+        with open(AD_ACCOUNTS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, list):
+            return data
+        return []
+    except Exception as e:
+        print(f"[AD_ACCOUNTS] Erro lendo {AD_ACCOUNTS_FILE}: {e}")
+        return []
+
+
+def _save_ad_accounts(accounts):
+    try:
+        with open(AD_ACCOUNTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(accounts, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[AD_ACCOUNTS] Erro salvando: {e}")
+
+
+def _get_accounts_for_type(camp_type):
+    """Retorna lista de contas Meta a consultar para o tipo de campanha.
+    Conta principal (do .env) sempre vem primeiro. Contas extras do JSON sao
+    incluidas quando tem o camp_type mapeado. Dedup preservando ordem."""
+    seen = []
+    if ACCOUNT_ID:
+        seen.append(ACCOUNT_ID)
+    for acc in _load_ad_accounts():
+        acc_id = (acc.get("id") or "").strip()
+        types = acc.get("camp_types") or []
+        if acc_id and camp_type in types and acc_id not in seen:
+            seen.append(acc_id)
+    return seen
+
+
+def _fetch_type_campaigns(camp_type, fields, effective_status):
+    """Busca campanhas de TODAS as contas configuradas para o camp_type,
+    aplica o filtro por tipo, e retorna a lista com _account_id tagueado."""
+    all_camps = []
+    for acc in _get_accounts_for_type(camp_type):
+        try:
+            rows = meta_get_all_pages(
+                f"{acc}/campaigns",
+                {"fields": fields, "effective_status": effective_status}
+            )
+            for c in rows:
+                c["_account_id"] = acc
+            all_camps.extend(rows)
+        except Exception as e:
+            print(f"[MULTI-ACCT] Falha campanhas {acc}: {e}")
+    return _filter_campaigns_by_type(all_camps, camp_type)
+
+
+def _fetch_insights_for_tagged_campaigns(campaigns, base_params, extra_filters=None):
+    """Busca insights para campanhas taggueadas com _account_id, agrupando as chamadas
+    por conta. base_params deve ter fields, time_range, level, limit, etc. mas NAO
+    filtering por campaign.id (sera injetado automaticamente)."""
+    by_acc = {}
+    for c in campaigns:
+        acc = c.get("_account_id") or ACCOUNT_ID
+        by_acc.setdefault(acc, []).append(c["id"])
+
+    all_rows = []
+    for acc, ids in by_acc.items():
+        if not acc or not ids:
+            continue
+        filters = [{"field": "campaign.id", "operator": "IN", "value": ids}]
+        if extra_filters:
+            filters.extend(extra_filters)
+        params = dict(base_params)
+        params["filtering"] = json.dumps(filters)
+        try:
+            rows = meta_get_all_pages(f"{acc}/insights", params)
+            all_rows.extend(rows)
+        except Exception as e:
+            print(f"[MULTI-ACCT] Falha insights {acc}: {e}")
+    return all_rows
+
 SUPER_ADMIN_EMAIL = "f4cure@gmail.com"  # Admin principal — invisível e intocável
 ADMIN_DEFAULT_PASS = os.getenv("ADMIN_PASSWORD", "ibc!facure@1010")
 USERS_FILE = os.path.join(os.path.dirname(__file__), "users.json")
@@ -783,35 +870,26 @@ def api_campaigns():
             if cached:
                 return jsonify(cached)
 
-        # 1. Buscar campanhas do tipo selecionado
-        campaigns = meta_get_all_pages(
-            f"{ACCOUNT_ID}/campaigns",
-            {
-                "fields": "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
-                "effective_status": _camp_status_filter(camp_status),
-            }
+        # 1. Buscar campanhas do tipo selecionado (multi-conta)
+        sales_campaigns = _fetch_type_campaigns(
+            camp_type,
+            "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
+            _camp_status_filter(camp_status)
         )
-        sales_campaigns = _filter_campaigns_by_type(campaigns, camp_type)
 
         if not sales_campaigns:
             return jsonify({"ok": True, "data": [], "summary": {}})
 
-        # 2. Buscar insights para cada campanha (só com impressões > 0)
-        campaign_ids = [c["id"] for c in sales_campaigns]
-        insights_params = {
-            "fields": INSIGHT_FIELDS_CAMPAIGN,
-            "time_range": json.dumps({"since": date_from, "until": date_to}),
-            "level": "campaign",
-            "filtering": json.dumps([
-                {"field": "campaign.id", "operator": "IN", "value": campaign_ids},
-                {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
-            ]),
-            "limit": 500,
-        }
-
-        insights_data = meta_get_all_pages(
-            f"{ACCOUNT_ID}/insights",
-            insights_params
+        # 2. Buscar insights (agrupado por conta via _account_id)
+        insights_data = _fetch_insights_for_tagged_campaigns(
+            sales_campaigns,
+            base_params={
+                "fields": INSIGHT_FIELDS_CAMPAIGN,
+                "time_range": json.dumps({"since": date_from, "until": date_to}),
+                "level": "campaign",
+                "limit": 500,
+            },
+            extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
         )
 
         insights_map = {}
@@ -990,23 +1068,28 @@ def api_campaigns_multi_insights():
                 return jsonify(cached)
 
         if ids_param == "all":
-            # Buscar campanhas do tipo selecionado
-            all_camps = meta_get_all_pages(
-                f"{ACCOUNT_ID}/campaigns",
-                {"fields": "id,name,objective", "effective_status": _camp_status_filter(camp_status)}
+            # Buscar campanhas do tipo selecionado (multi-conta)
+            sales_camps = _fetch_type_campaigns(
+                camp_type, "id,name,objective", _camp_status_filter(camp_status)
             )
-            sales_camps = _filter_campaigns_by_type(all_camps, camp_type)
             sales_map = {c["id"]: c for c in sales_camps}
             target_ids = list(sales_map.keys())
         else:
             # IDs específicos: aceitar direto sem validar status
             target_ids = [i.strip() for i in ids_param.split(",") if i.strip()]
-            # Buscar nomes das campanhas
-            all_camps = meta_get_all_pages(
-                f"{ACCOUNT_ID}/campaigns",
-                {"fields": "id,name,objective", "effective_status": '["ACTIVE","PAUSED"]'}
-            )
-            sales_map = {c["id"]: c for c in all_camps}
+            # Buscar nomes das campanhas de todas as contas relevantes
+            sales_map = {}
+            for acc in _get_accounts_for_type(camp_type):
+                try:
+                    rows = meta_get_all_pages(
+                        f"{acc}/campaigns",
+                        {"fields": "id,name,objective", "effective_status": '["ACTIVE","PAUSED"]'}
+                    )
+                    for c in rows:
+                        c["_account_id"] = acc
+                        sales_map[c["id"]] = c
+                except Exception as e:
+                    print(f"[MULTI-ACCT] Falha multi-insights {acc}: {e}")
 
         if not target_ids:
             return jsonify({"ok": True, "campaigns": []})
@@ -1571,34 +1654,25 @@ def api_daily_summary():
             if cached:
                 return jsonify(cached)
 
-        # 1. Buscar campanhas do tipo selecionado
-        campaigns = meta_get_all_pages(
-            f"{ACCOUNT_ID}/campaigns",
-            {
-                "fields": "id,name,objective",
-                "effective_status": _camp_status_filter(camp_status),
-            }
+        # 1. Buscar campanhas do tipo selecionado (multi-conta)
+        sales_campaigns = _fetch_type_campaigns(
+            camp_type, "id,name,objective", _camp_status_filter(camp_status)
         )
-        sales_campaigns = _filter_campaigns_by_type(campaigns, camp_type)
 
         if not sales_campaigns:
             return jsonify({"ok": True, "data": []})
 
-        # 2. Buscar insights di&aacute;rios filtrados pelos IDs das campanhas de vendas
-        camp_ids = [c["id"] for c in sales_campaigns]
-        rows = meta_get_all_pages(
-            f"{ACCOUNT_ID}/insights",
-            {
+        # 2. Buscar insights diarios agrupados por conta
+        rows = _fetch_insights_for_tagged_campaigns(
+            sales_campaigns,
+            base_params={
                 "fields": INSIGHT_FIELDS_DAILY,
                 "time_range": json.dumps({"since": date_from, "until": date_to}),
                 "time_increment": 1,
                 "level": "campaign",
-                "filtering": json.dumps([
-                    {"field": "campaign.id", "operator": "IN", "value": camp_ids},
-                    {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
-                ]),
                 "limit": 500,
-            }
+            },
+            extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
         )
 
         # Agregar por dia
@@ -1691,6 +1765,9 @@ def api_cumulative_reach():
                 return jsonify(cached)
 
         # Suporta: 1 ID, múltiplos IDs (vírgula), ou vazio (todas do tipo)
+        # Multi-conta: para multiplos IDs, precisamos saber a conta de cada um.
+        # Como campaign_id pode vir da UI sem contexto, assumimos conta principal
+        # para vendas/meteoricos e varremos contas comerciais para comercial.
         if campaign_id:
             ids_list = [i.strip() for i in campaign_id.split(",") if i.strip()]
             if len(ids_list) == 1:
@@ -1701,15 +1778,19 @@ def api_cumulative_reach():
                 filtering = json.dumps([{"field": "campaign.id", "operator": "IN", "value": ids_list}])
         else:
             camp_status = request.args.get("camp_status", "active")
-            campaigns = meta_get_all_pages(
-                f"{ACCOUNT_ID}/campaigns",
-                {"fields": "id,name,objective", "effective_status": _camp_status_filter(camp_status)}
+            filtered = _fetch_type_campaigns(
+                camp_type, "id,name,objective", _camp_status_filter(camp_status)
             )
-            filtered = _filter_campaigns_by_type(campaigns, camp_type)
-            camp_ids = [c["id"] for c in filtered]
-            if not camp_ids:
+            if not filtered:
                 return jsonify({"ok": True, "data": []})
-            endpoint = f"{ACCOUNT_ID}/insights"
+            # cumulative-reach usa apenas 1 endpoint agregador. Se houver campanhas
+            # em mais de uma conta, usa a conta com mais campanhas (aproximacao).
+            by_acc = {}
+            for c in filtered:
+                by_acc.setdefault(c.get("_account_id") or ACCOUNT_ID, []).append(c["id"])
+            main_acc = max(by_acc, key=lambda k: len(by_acc[k]))
+            camp_ids = by_acc[main_acc]
+            endpoint = f"{main_acc}/insights"
             filtering = json.dumps([{"field": "campaign.id", "operator": "IN", "value": camp_ids}])
 
         # Gerar datas: a cada 2 dias + último dia
@@ -1905,14 +1986,9 @@ def api_all_creatives():
                 }), 403
             # Range permitido: segue adiante (chama API e cacheia)
 
-        campaigns = meta_get_all_pages(
-            f"{ACCOUNT_ID}/campaigns",
-            {
-                "fields": "id,name,objective",
-                "effective_status": _camp_status_filter(camp_status),
-            }
+        sales_campaigns = _fetch_type_campaigns(
+            camp_type, "id,name,objective", _camp_status_filter(camp_status)
         )
-        sales_campaigns = _filter_campaigns_by_type(campaigns, camp_type)
 
         warnings = []
         result = _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings)
@@ -2132,16 +2208,21 @@ def api_breakdowns():
             base_params = {
                 "time_range": json.dumps({"since": date_from, "until": date_to}),
             }
-            if camp_type == CAMP_TYPE_METEORICOS:
-                # Filtrar pelos IDs das campanhas METEORICO_ (ja que nao ha filtro por nome na API)
-                all_camps = meta_get_all_pages(
-                    f"{ACCOUNT_ID}/campaigns",
-                    {"fields": "id,name,objective", "effective_status": '["ACTIVE","PAUSED"]'}
+            if camp_type in (CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL):
+                # Filtrar pelos IDs das campanhas do tipo (multi-conta)
+                filtered = _fetch_type_campaigns(
+                    camp_type, "id,name,objective", '["ACTIVE","PAUSED"]'
                 )
-                met_ids = [c["id"] for c in _filter_campaigns_by_type(all_camps, camp_type)]
-                if not met_ids:
+                target_ids = [c["id"] for c in filtered]
+                if not target_ids:
                     return jsonify({"ok": True, "age": [], "gender": [], "weekday": [], "campaign_id": "all"})
-                base_params["filtering"] = json.dumps([{"field": "campaign.id", "operator": "IN", "value": met_ids}])
+                # breakdowns usa 1 endpoint agregador: usa a conta com mais campanhas
+                by_acc = {}
+                for c in filtered:
+                    by_acc.setdefault(c.get("_account_id") or ACCOUNT_ID, []).append(c["id"])
+                main_acc = max(by_acc, key=lambda k: len(by_acc[k]))
+                endpoint = main_acc + "/insights"
+                base_params["filtering"] = json.dumps([{"field": "campaign.id", "operator": "IN", "value": by_acc[main_acc]}])
             else:
                 base_params["filtering"] = json.dumps([{"field": "campaign.objective", "operator": "IN", "value": ["OUTCOME_SALES"]}])
 
@@ -2811,6 +2892,74 @@ def api_token_expiry():
 
 
 # ── Meteoricos Preview (diagnostico temporario) ───────────────────────
+# ── Gerenciamento de contas de anuncio (multi-account) ────────────────
+@app.route("/api/admin/ad-accounts", methods=["GET"])
+def api_ad_accounts_list():
+    """Lista contas extras (alem da principal do .env). Super admin apenas."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    return jsonify({
+        "ok": True,
+        "main_account": ACCOUNT_ID,
+        "extra_accounts": _load_ad_accounts(),
+        "valid_camp_types": list(VALID_CAMP_TYPES),
+    })
+
+
+@app.route("/api/admin/ad-accounts", methods=["POST"])
+def api_ad_accounts_add():
+    """Adiciona uma conta extra. Body: {id, label, camp_types}."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    data = request.get_json() or {}
+    acc_id = (data.get("id") or "").strip()
+    label = (data.get("label") or "").strip()
+    camp_types = data.get("camp_types") or []
+    # Validacao
+    if not acc_id:
+        return jsonify({"ok": False, "error": "ID da conta e obrigatorio"}), 400
+    if not acc_id.startswith("act_"):
+        acc_id = "act_" + acc_id.lstrip("act_").strip()
+    if not isinstance(camp_types, list) or not camp_types:
+        return jsonify({"ok": False, "error": "Selecione ao menos um tipo de campanha"}), 400
+    for ct in camp_types:
+        if ct not in VALID_CAMP_TYPES:
+            return jsonify({"ok": False, "error": f"Tipo invalido: {ct}"}), 400
+    if acc_id == ACCOUNT_ID:
+        return jsonify({"ok": False, "error": "Esta e a conta principal (ja usada automaticamente)"}), 400
+
+    accounts = _load_ad_accounts()
+    # Se ja existe, atualiza; senao adiciona
+    existing = next((a for a in accounts if a.get("id") == acc_id), None)
+    if existing:
+        existing["label"] = label or existing.get("label", "")
+        existing["camp_types"] = camp_types
+    else:
+        accounts.append({
+            "id": acc_id,
+            "label": label or acc_id,
+            "camp_types": camp_types,
+            "created_by": session.get("username", ""),
+            "created_at": _now_br().strftime("%Y-%m-%d"),
+        })
+    _save_ad_accounts(accounts)
+    return jsonify({"ok": True, "extra_accounts": accounts})
+
+
+@app.route("/api/admin/ad-accounts/<path:acc_id>", methods=["DELETE"])
+def api_ad_accounts_delete(acc_id):
+    """Remove uma conta extra."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    accounts = _load_ad_accounts()
+    before = len(accounts)
+    accounts = [a for a in accounts if a.get("id") != acc_id]
+    if len(accounts) == before:
+        return jsonify({"ok": False, "error": "Conta nao encontrada"}), 404
+    _save_ad_accounts(accounts)
+    return jsonify({"ok": True, "extra_accounts": accounts})
+
+
 @app.route("/api/admin/meteoricos-preview")
 def api_meteoricos_preview():
     """Endpoint de diagnostico: lista todas as campanhas que comecam com METEORICO_
