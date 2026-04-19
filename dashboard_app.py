@@ -2479,14 +2479,15 @@ def api_heartbeat():
 
 @app.route("/api/admin/users/<path:email>/log")
 def api_user_log(email):
-    """Retorna historico de atividade do usuario, agrupado por sessao.
-    Acessivel apenas pelo super admin."""
+    """Retorna historico de atividade do usuario, agrupado por blocos de atividade.
+    Um novo bloco começa quando ha gap > 15min entre eventos (usuario ficou inativo
+    e voltou sem fazer logout). Acessivel apenas pelo super admin."""
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
 
     email = (email or "").strip().lower()
     if not os.path.exists(ACTIVITY_LOG_FILE):
-        return jsonify({"ok": True, "sessions": []})
+        return jsonify({"ok": True, "blocks": []})
 
     try:
         with open(ACTIVITY_LOG_FILE, "r") as f:
@@ -2494,29 +2495,53 @@ def api_user_log(email):
     except Exception:
         log = []
 
-    # Filtra eventos do usuario
-    user_events = [e for e in log if (e.get("email") or "").lower() == email]
+    # Filtra e ordena eventos do usuario por timestamp
+    user_events = sorted(
+        [e for e in log if (e.get("email") or "").lower() == email],
+        key=lambda x: x.get("ts", "")
+    )
 
-    # Agrupa por session_id
-    sessions_map = {}
-    for e in user_events:
-        sid = e.get("session_id") or "_nosession"
-        if sid not in sessions_map:
-            sessions_map[sid] = {"session_id": sid, "events": []}
-        sessions_map[sid]["events"].append(e)
+    # Detecta blocos de atividade: gap > 15min entre eventos consecutivos = novo bloco
+    INACTIVITY_GAP_SEC = 15 * 60
+    blocks_raw = []
+    current = []
+    for ev in user_events:
+        if not current:
+            current = [ev]
+            continue
+        prev_ts = current[-1].get("ts", "")
+        curr_ts = ev.get("ts", "")
+        gap = 0
+        try:
+            if prev_ts and curr_ts:
+                dp = datetime.fromisoformat(prev_ts.replace("Z", "+00:00"))
+                dc = datetime.fromisoformat(curr_ts.replace("Z", "+00:00"))
+                gap = (dc - dp).total_seconds()
+        except Exception:
+            pass
+        # Logout fecha o bloco atual; login apos gap tb abre novo bloco
+        if ev.get("event") == "logout":
+            current.append(ev)
+            blocks_raw.append(current)
+            current = []
+        elif gap > INACTIVITY_GAP_SEC:
+            blocks_raw.append(current)
+            current = [ev]
+        else:
+            current.append(ev)
+    if current:
+        blocks_raw.append(current)
 
-    # Monta resumo de cada sessao
-    sessions = []
-    for sid, data in sessions_map.items():
-        evs = sorted(data["events"], key=lambda x: x.get("ts", ""))
-        login_ev = next((e for e in evs if e.get("event") == "login"), None)
-        logout_ev = next((e for e in reversed(evs) if e.get("event") == "logout"), None)
-        # Ultimo evento (heartbeat ou logout ou login)
-        last_ev = evs[-1] if evs else None
-        start = login_ev.get("ts") if login_ev else (evs[0].get("ts") if evs else "")
-        end = logout_ev.get("ts") if logout_ev else (last_ev.get("ts") if last_ev else "")
-        ip = (login_ev or last_ev or {}).get("ip", "")
-        # Duracao em segundos
+    # Monta resumo de cada bloco
+    blocks = []
+    for blk in blocks_raw:
+        if not blk:
+            continue
+        start = blk[0].get("ts", "")
+        end = blk[-1].get("ts", "")
+        ip = blk[0].get("ip", "")
+        has_logout = any(e.get("event") == "logout" for e in blk)
+        has_login = any(e.get("event") == "login" for e in blk)
         duration = None
         try:
             if start and end:
@@ -2524,21 +2549,18 @@ def api_user_log(email):
                 de = datetime.fromisoformat(end.replace("Z", "+00:00"))
                 duration = int((de - ds).total_seconds())
         except Exception:
-            duration = None
-        sessions.append({
-            "session_id": sid,
+            pass
+        blocks.append({
             "start": start,
             "end": end,
             "ip": ip,
             "duration_seconds": duration,
-            "closed": logout_ev is not None,
-            "heartbeats": sum(1 for e in evs if e.get("event") == "heartbeat"),
+            "closed": has_logout,
+            "is_login": has_login,
         })
 
-    sessions.sort(key=lambda s: s.get("start") or "", reverse=True)
-    # Limita a 30 sessoes mais recentes
-    sessions = sessions[:30]
-    return jsonify({"ok": True, "sessions": sessions})
+    blocks.sort(key=lambda b: b.get("start") or "", reverse=True)
+    return jsonify({"ok": True, "blocks": blocks[:60]})
 
 
 @app.route("/api/admin/preview-as", methods=["POST"])

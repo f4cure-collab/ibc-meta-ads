@@ -609,31 +609,59 @@ async function viewLog(email) {
     content.innerHTML = '<div style="color:#888;text-align:center;padding:24px;">Carregando...</div>';
     document.getElementById('userLogModal').style.display = 'flex';
 
+    var TZ = 'America/Sao_Paulo';
+    function fmtTime(ts) {
+        if (!ts) return '—';
+        return new Date(ts).toLocaleString('pt-BR',{hour:'2-digit',minute:'2-digit',timeZone:TZ});
+    }
+    function fmtDayKey(ts) {
+        if (!ts) return '';
+        return new Date(ts).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:TZ});
+    }
+
     try {
         var r = await fetch('/api/admin/users/' + encodeURIComponent(email) + '/log');
         var d = await r.json();
         if (!d.ok) { content.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + d.error + '</div>'; return; }
-        if (!d.sessions.length) { content.innerHTML = '<div style="color:#888;text-align:center;padding:24px;">Sem registros de atividade.</div>'; return; }
+        var blocks = d.blocks || [];
+        if (!blocks.length) { content.innerHTML = '<div style="color:#888;text-align:center;padding:24px;">Sem registros de atividade.</div>'; return; }
 
-        var html = '<table style="width:100%;font-size:12px;"><thead><tr>'
-            + '<th style="text-align:left;padding:8px;color:#4f8cff;">Inicio</th>'
-            + '<th style="text-align:left;padding:8px;color:#4f8cff;">Fim</th>'
-            + '<th style="text-align:left;padding:8px;color:#4f8cff;">Tempo online</th>'
-            + '<th style="text-align:left;padding:8px;color:#4f8cff;">IP</th>'
-            + '<th style="text-align:left;padding:8px;color:#4f8cff;">Status</th>'
-            + '</tr></thead><tbody>';
-        html += d.sessions.map(function(s) {
-            var start = s.start ? new Date(s.start).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '—';
-            var end = s.end ? new Date(s.end).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '—';
-            var status = s.closed ? '<span style="color:#888;">Encerrada</span>' : '<span style="color:#4caf50;">Ativa</span>';
-            return '<tr><td style="padding:8px;border-bottom:1px solid #2a2a4a;">'+start+'</td>'
-                + '<td style="padding:8px;border-bottom:1px solid #2a2a4a;">'+end+'</td>'
-                + '<td style="padding:8px;border-bottom:1px solid #2a2a4a;color:#ccc;">'+formatDuration(s.duration_seconds)+'</td>'
-                + '<td style="padding:8px;border-bottom:1px solid #2a2a4a;font-family:monospace;color:#aaa;">'+(s.ip || '—')+'</td>'
-                + '<td style="padding:8px;border-bottom:1px solid #2a2a4a;">'+status+'</td></tr>';
-        }).join('');
-        html += '</tbody></table>';
-        html += '<div style="margin-top:12px;color:#666;font-size:11px;">Ultimas ' + d.sessions.length + ' sessoes. "Ativa" significa que nao houve logout explicito — o usuario fechou a aba ou a sessao ainda esta aberta.</div>';
+        // Agrupa blocos por dia (horario de Brasilia)
+        var byDay = {};
+        var dayOrder = [];
+        blocks.forEach(function(b) {
+            var day = fmtDayKey(b.start);
+            if (!byDay[day]) { byDay[day] = []; dayOrder.push(day); }
+            byDay[day].push(b);
+        });
+
+        var html = '';
+        dayOrder.forEach(function(day) {
+            var dayBlocks = byDay[day];
+            // Tempo total ativo no dia
+            var totalSec = dayBlocks.reduce(function(acc, b) { return acc + (b.duration_seconds || 0); }, 0);
+            html += '<div style="margin-bottom:16px;">'
+                + '<div style="font-size:13px;font-weight:600;color:#4f8cff;padding:6px 0;border-bottom:1px solid #2a2a4a;margin-bottom:6px;">'
+                + day + ' <span style="font-weight:400;color:#666;font-size:11px;">— ' + formatDuration(totalSec) + ' total</span></div>'
+                + '<table style="width:100%;font-size:12px;"><thead><tr>'
+                + '<th style="text-align:left;padding:4px 8px;color:#888;font-size:10px;font-weight:400;">ENTRADA</th>'
+                + '<th style="text-align:left;padding:4px 8px;color:#888;font-size:10px;font-weight:400;">SAÍDA</th>'
+                + '<th style="text-align:left;padding:4px 8px;color:#888;font-size:10px;font-weight:400;">DURAÇÃO</th>'
+                + '<th style="text-align:left;padding:4px 8px;color:#888;font-size:10px;font-weight:400;">IP</th>'
+                + '</tr></thead><tbody>';
+            dayBlocks.forEach(function(b) {
+                var endColor = b.closed ? '#888' : '#4caf50';
+                var endTime = b.end ? ('<span style="color:'+endColor+'">'+fmtTime(b.end)+(b.closed?'':' ●')+'</span>') : '—';
+                html += '<tr>'
+                    + '<td style="padding:5px 8px;border-bottom:1px solid #1a1a3e;color:#ccc;">' + fmtTime(b.start) + (b.is_login ? ' <span style="color:#4f8cff;font-size:9px;">LOGIN</span>' : '') + '</td>'
+                    + '<td style="padding:5px 8px;border-bottom:1px solid #1a1a3e;">' + endTime + '</td>'
+                    + '<td style="padding:5px 8px;border-bottom:1px solid #1a1a3e;color:#aaa;">' + (b.duration_seconds ? formatDuration(b.duration_seconds) : '—') + '</td>'
+                    + '<td style="padding:5px 8px;border-bottom:1px solid #1a1a3e;font-family:monospace;color:#666;font-size:10px;">' + (b.ip || '—') + '</td>'
+                    + '</tr>';
+            });
+            html += '</tbody></table></div>';
+        });
+        html += '<div style="color:#555;font-size:11px;margin-top:8px;">● = sessao ainda ativa &nbsp;|&nbsp; Novo periodo detectado quando inativo por 15+ min</div>';
         content.innerHTML = html;
     } catch(e) {
         content.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + e.message + '</div>';
