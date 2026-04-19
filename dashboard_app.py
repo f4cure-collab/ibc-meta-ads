@@ -562,12 +562,34 @@ _MIN_DELAY = 1
 _last_call_time = 0
 
 
+def _decay_usage(u):
+    """Estima uso atual aplicando decay linear desde o ultimo check.
+    Meta usa janela rolante de ~1h (3600s) para call/cpu/time. Se ja passou
+    X segundos sem novas chamadas, o contador real da Meta caiu por X/3600.
+    Essa aproximacao evita mostrar 71% quando nada bate na API ha 10min."""
+    last = u.get("last_check", 0)
+    if not last:
+        return 0, 0, 0
+    elapsed = time.time() - last
+    # Janela Meta ~1h; decay linear. Ignora se muito antigo.
+    if elapsed > 3600:
+        return 0, 0, 0
+    factor = max(0.0, 1.0 - (elapsed / 3600.0))
+    return (
+        int(u.get("call", 0) * factor),
+        int(u.get("cpu", 0) * factor),
+        int(u.get("time", 0) * factor),
+    )
+
+
 def _worst_usage_pct():
-    """Retorna (pct, acc_id) do pior uso entre todas as contas monitoradas."""
+    """Retorna (pct, acc_id) do pior uso entre todas as contas monitoradas.
+    Aplica decay temporal pra nao travar em 71% quando Meta ja resetou."""
     worst = 0
     worst_acc = None
     for acc_id, u in _rate_per_account.items():
-        m = max(u.get("call", 0), u.get("cpu", 0), u.get("time", 0))
+        call, cpu, tim = _decay_usage(u)
+        m = max(call, cpu, tim)
         if m > worst:
             worst = m
             worst_acc = acc_id
@@ -575,20 +597,21 @@ def _worst_usage_pct():
 
 
 def _enforce_rate_limit():
-    """Garante delay minimo entre chamadas e pausa se proximo do limite."""
+    """Garante delay minimo entre chamadas e pausa se proximo do limite.
+    Usa pct decayed (_worst_usage_pct) pra nao travar por valor obsoleto."""
     global _last_call_time
     now = time.time()
     elapsed = now - _last_call_time
     if elapsed < _MIN_DELAY:
         time.sleep(_MIN_DELAY - elapsed)
 
-    pct, acc = _worst_usage_pct()
+    pct, acc = _worst_usage_pct()  # ja aplica decay temporal
     if pct > 75:
         wait = 30
-        print(f"[RATE LIMIT] {acc}: {pct}% (max call/cpu/time) — pausando {wait}s")
+        print(f"[RATE LIMIT] {acc}: {pct}% (decayed) — pausando {wait}s")
         time.sleep(wait)
     elif pct > 50:
-        print(f"[RATE LIMIT] {acc}: {pct}% — desacelerando")
+        print(f"[RATE LIMIT] {acc}: {pct}% (decayed) — desacelerando")
         time.sleep(3)
 
     _last_call_time = time.time()
@@ -626,17 +649,21 @@ def _update_rate_from_headers(resp):
 
 
 def get_dashboard_rate_info():
-    """Retorna info de rate limit para o frontend mostrar no badge."""
+    """Retorna info de rate limit (com decay temporal aplicado)."""
     worst_pct, worst_acc = _worst_usage_pct()
     accounts = {}
+    now = time.time()
     for acc_id, u in _rate_per_account.items():
+        call, cpu, tim = _decay_usage(u)
+        age = int(now - u.get("last_check", now))
         accounts[acc_id] = {
-            "call_count": u.get("call", 0),
-            "total_cputime": u.get("cpu", 0),
-            "total_time": u.get("time", 0),
-            "max": max(u.get("call", 0), u.get("cpu", 0), u.get("time", 0)),
+            "call_count": call,
+            "total_cputime": cpu,
+            "total_time": tim,
+            "max": max(call, cpu, tim),
             "regain_seconds": u.get("regain_seconds", 0),
-            "last_check": u.get("last_check", 0),
+            "age_seconds": age,
+            "stale": age > 300,  # >5min = dado velho
         }
     return {
         "pct": worst_pct,
