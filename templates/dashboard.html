@@ -675,7 +675,7 @@
         </div>
         <div class="cgrid rankings-grid">
             <div class="ccard ccard-rank hide-meteoricos"><h3 id="rank-roas-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (melhor &harr; pior)">&#127942; ROAS por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-roas"></canvas></div></div>
-            <div class="ccard ccard-rank show-meteoricos"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><canvas id="ch-cpl"></canvas></div></div>
+            <div class="ccard ccard-rank show-meteoricos"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpl"></div></div></div>
             <div class="ccard ccard-rank"><h3 id="rank-spend-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128176; Gasto/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-spend"></canvas></div></div>
             <div class="ccard ccard-rank"><h3 id="rank-sales-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)"><span class="rank-sales-icon">&#128722;</span> <span class="rank-sales-label">Vendas</span>/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-sales-day"></canvas></div></div>
         </div>
@@ -1743,8 +1743,7 @@ function _renderRankings(evData){
 
     if (isMeteoricos()) {
         // CPL ranking (menor = melhor). Substitui ROAS para meteoricos.
-        // Default ASC (menor primeiro) — inverte ao clicar.
-        const cpla=!rankSortState.roas;  // flag invertido para semantica "menor=melhor"
+        const cpla=!rankSortState.roas;
         const cd=cpla?1:-1;
         const byCpl=evData
             .map(c=>{
@@ -1752,7 +1751,6 @@ function _renderRankings(evData){
                 return {...c, _leads:conv, cpl:(conv>0&&(c.spend||0)>0)?(c.spend/conv):null};
             })
             .sort((a,b)=>{
-                // cpl null (sem leads) vai para o final
                 if(a.cpl==null&&b.cpl==null)return 0;
                 if(a.cpl==null)return 1;
                 if(b.cpl==null)return -1;
@@ -1760,10 +1758,21 @@ function _renderRankings(evData){
             });
         const maxCpl=byCpl.reduce((m,c)=>Math.max(m,c.cpl||0),0);
         const ct=$('#rank-cpl-title');if(ct)ct.innerHTML=`&#128200; CPL por Evento ${cpla?'&#9650;':'&#9660;'}`;
-        renderList('ch-cpl',byCpl,maxCpl,c=>c.cpl||0,
-            (c,v)=>c.cpl==null?'<span style="color:var(--t3)">sem leads</span>':fmtM(v),
-            (c,v)=>c.cpl==null?`${c.name}: sem leads no periodo (${c._count} campanhas)`:`${c.name}: CPL ${fmtM(v)} (${c._leads} leads, ${c._count} campanhas)`,
-            cplGrad);
+        console.log('[CPL] evData items:', evData.length, 'byCpl items:', byCpl.length, 'first:', byCpl[0]);
+        // Renderiza direto (nao via renderList) para evitar edge cases com o elemento
+        const el=document.getElementById('ch-cpl');
+        if (el && byCpl.length) {
+            el.innerHTML='<div class="rank-list">'+byCpl.map((c,i)=>{
+                const v=c.cpl;
+                const pct=maxCpl>0&&v!=null?Math.max(2,(v/maxCpl)*100):0;
+                const sn=shortEvName(c.name||'');
+                const valHtml=v==null?'<span style="color:var(--t3)">sem leads</span>':fmtM(v);
+                const tip=v==null?`${c.name}: sem leads no periodo (${c._count} campanhas)`:`${c.name}: CPL ${fmtM(v)} (${c._leads} leads, ${c._count} campanhas)`;
+                return`<div class="rank-row" data-tip="${tip}"><span class="rank-pos">${i+1}</span><span class="rank-name">${sn}</span><div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}%;background:${cplGrad}"></div></div><span class="rank-val">${valHtml}</span></div>`;
+            }).join('')+'</div>';
+        } else if (el) {
+            el.innerHTML='<div style="color:var(--t3);text-align:center;padding:40px 20px;font-size:12px">Sem dados no periodo selecionado</div>';
+        }
     } else {
         const rd=rankSortState.roas?1:-1;
         const byRoas=evData.filter(c=>(c.roas||0)>0||(c.spend||0)>0).sort((a,b)=>rd*((b.roas||0)-(a.roas||0)));
