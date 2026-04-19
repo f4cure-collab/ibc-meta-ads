@@ -2042,6 +2042,9 @@ async function refreshCampDetail(){
     }else{
         $('#detail-subtitle').innerHTML=`<strong style="color:var(--accent)">${selectedCampIds.size} campanha${selectedCampIds.size>1?'s':''}</strong> selecionada${selectedCampIds.size>1?'s':''}. Clique novamente para deselecionar.`;
     }
+    // Placeholder de loading no funil enquanto multi-insights carrega
+    const funnelEl = $('#detail-funnel');
+    if (funnelEl) funnelEl.innerHTML = '<div class="load" style="padding:40px 20px"><div class="spin"></div><span style="color:var(--t3);font-size:13px;margin-top:8px;">Atualizando funil e graficos...</span></div>';
     window._cumReachCaches={};
     await loadMultiInsights();
     if(gen!==_detailGeneration)return;
