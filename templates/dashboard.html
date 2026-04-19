@@ -556,6 +556,9 @@
         body.type-meteoricos [data-metric="revenue"],
         body.type-meteoricos [data-metric="rate_lpv_ic"],
         body.type-meteoricos [data-metric="rate_ic_purchase"],
+        body.type-meteoricos [data-metric="initiate_checkout"],
+        body.type-meteoricos [data-metric="cost_per_ic"],
+        body.type-meteoricos [data-metric="ticket"],
         body.type-meteoricos .hide-meteoricos,
         body.type-meteoricos #rank-roas-title,
         body.type-meteoricos .ccard-rank:has(#rank-roas-title) {
@@ -3539,8 +3542,8 @@ async function openAdModal(adId,adName,thumbnailUrl){
                     <div class="scard clickable" data-metric="spend" data-tip="Total investido"><div class="sl">Gasto</div><div class="sv" style="font-size:20px">${fmtM(t.spend)}</div></div>
                     <div class="scard clickable" data-metric="revenue" data-tip="Receita gerada"><div class="sl">Receita</div><div class="sv" style="font-size:20px">${fmtM(t.revenue)}</div></div>
                     <div class="scard clickable" data-metric="roas" data-tip="${roasTip(t.roas)}"><div class="sl">ROAS</div><div class="sv" style="font-size:20px;color:${roasC(t.roas)}">${fmtR(t.roas)}</div></div>
-                    <div class="scard clickable" data-metric="purchases" data-tip="Compras atribu&iacute;das"><div class="sl">Compras</div><div class="sv" style="font-size:20px">${fmt(purch)}</div></div>
-                    <div class="scard clickable" data-metric="cpa" data-tip="Custo por aquisi&ccedil;&atilde;o"><div class="sl">CPA</div><div class="sv" style="font-size:20px">${fmtM(t.cpa)}</div></div>
+                    <div class="scard clickable" data-metric="purchases" data-tip="${isMeteoricos()?'Leads captados':'Compras atribu&iacute;das'}"><div class="sl">${isMeteoricos()?'Leads':'Compras'}</div><div class="sv" style="font-size:20px">${fmt(purch)}</div></div>
+                    <div class="scard clickable" data-metric="cpa" data-tip="${isMeteoricos()?'Custo por lead':'Custo por aquisi&ccedil;&atilde;o'}"><div class="sl">${isMeteoricos()?'CPL':'CPA'}</div><div class="sv" style="font-size:20px">${fmtM(t.cpa)}</div></div>
                     <!-- Funil — volumes -->
                     <div class="scard clickable" data-metric="impressions" data-tip="Total de impress&otilde;es"><div class="sl">Impress&otilde;es</div><div class="sv" style="font-size:20px">${fmt(t.impressions)}</div></div>
                     <div class="scard clickable" data-metric="link_clicks" data-tip="Cliques no link"><div class="sl">Cliques</div><div class="sv" style="font-size:20px">${fmt(t.link_clicks)}</div></div>
@@ -3551,6 +3554,8 @@ async function openAdModal(adId,adName,thumbnailUrl){
                     <div class="scard clickable" data-metric="rate_click_lpv" data-tip="Cliques &rarr; LPV"><div class="sl">Click&rarr;LPV</div><div class="sv" style="font-size:20px">${fmtP(t.link_clicks>0?(t.lpv/t.link_clicks*100):0)}</div></div>
                     <div class="scard clickable" data-metric="rate_lpv_ic" data-tip="LPV &rarr; Checkout"><div class="sl">LPV&rarr;Checkout</div><div class="sv" style="font-size:20px">${fmtP(t.lpv>0?(t.initiate_checkout/t.lpv*100):0)}</div></div>
                     <div class="scard clickable" data-metric="rate_ic_purchase" data-tip="Checkout &rarr; Compra"><div class="sl">Checkout&rarr;Compra</div><div class="sv" style="font-size:20px">${fmtP(t.initiate_checkout>0?(purch/t.initiate_checkout*100):0)}</div></div>
+                    <!-- Taxa LPV->Lead so para meteoricos -->
+                    ${isMeteoricos()?`<div class="scard clickable" data-metric="rate_lpv_lead" data-tip="LPV &rarr; Lead: quantos dos que viram a pagina cadastraram"><div class="sl">LPV&rarr;Lead</div><div class="sv" style="font-size:20px">${fmtP(t.lpv>0?(purch/t.lpv*100):0)}</div></div>`:''}
                     <!-- Custos unitários -->
                     <div class="scard clickable" data-metric="cpm" data-tip="Custo por mil impress&otilde;es"><div class="sl">CPM</div><div class="sv" style="font-size:20px">${fmtM(t.cpm)}</div></div>
                     <div class="scard clickable" data-metric="cpc_link" data-tip="Custo por clique no link"><div class="sl">CPC Link</div><div class="sv" style="font-size:20px">${fmtM(t.cost_per_link_click)}</div></div>

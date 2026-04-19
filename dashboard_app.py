@@ -1756,8 +1756,10 @@ def api_ad_insights(ad_id):
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+        camp_type = _camp_type_from_request()
+        g.camp_type = camp_type
 
-        cache_key = f"ad_insights_{ad_id}_{date_from}_{date_to}"
+        cache_key = f"ad_insights_{camp_type}_{ad_id}_{date_from}_{date_to}"
         cached = get_cached(cache_key)
         if cached:
             return jsonify(cached)
