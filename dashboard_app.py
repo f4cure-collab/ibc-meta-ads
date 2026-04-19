@@ -2692,6 +2692,123 @@ def api_token_expiry():
         return jsonify({"ok": True, "days_left": -1})
 
 
+# ── Meteoricos Preview (diagnostico temporario) ───────────────────────
+@app.route("/api/admin/meteoricos-preview")
+def api_meteoricos_preview():
+    """Endpoint de diagnostico: lista todas as campanhas que comecam com METEORICO_
+    e mostra objective + metricas basicas dos ultimos 30 dias. Usado para entender
+    a estrutura dos dados antes de refatorar o dashboard para suportar esse tipo."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        now_br = _now_br()
+        dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
+        dt_from = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        # 1. Puxar TODAS as campanhas (ativas + pausadas) e filtrar pelo prefixo no nome
+        all_campaigns = meta_get_all_pages(
+            f"{ACCOUNT_ID}/campaigns",
+            {
+                "fields": "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
+                "effective_status": '["ACTIVE","PAUSED","ARCHIVED"]',
+            }
+        )
+        meteoricos = [c for c in all_campaigns if c.get("name", "").upper().startswith("METEORICO_")]
+
+        if not meteoricos:
+            return jsonify({
+                "ok": True,
+                "total": 0,
+                "message": "Nenhuma campanha encontrada com prefixo METEORICO_",
+                "sample_other_campaigns": [c.get("name", "") for c in all_campaigns[:10]],
+            })
+
+        # 2. Contar por objective (pra descobrir qual usam)
+        objectives = {}
+        for c in meteoricos:
+            obj = c.get("objective", "UNKNOWN")
+            objectives[obj] = objectives.get(obj, 0) + 1
+
+        # 3. Pegar insights dos ultimos 30d e inspecionar os action_types disponiveis
+        camp_ids = [c["id"] for c in meteoricos]
+        insights_raw = []
+        action_types_seen = {}
+        if camp_ids:
+            try:
+                insights_raw = meta_get_all_pages(
+                    f"{ACCOUNT_ID}/insights",
+                    {
+                        "level": "campaign",
+                        "fields": "campaign_id,campaign_name,spend,impressions,clicks,actions,cost_per_action_type",
+                        "time_range": json.dumps({"since": dt_from, "until": dt_to}),
+                        "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": camp_ids}]),
+                    }
+                )
+                # Indexar por campaign_id e coletar todos os action_types vistos
+                for row in insights_raw:
+                    for act in (row.get("actions") or []):
+                        at = act.get("action_type", "")
+                        v = 0
+                        try: v = int(float(act.get("value", 0)))
+                        except Exception: pass
+                        if at:
+                            prev = action_types_seen.get(at, {"count_campaigns": 0, "total_value": 0})
+                            prev["count_campaigns"] += 1 if v > 0 else 0
+                            prev["total_value"] += v
+                            action_types_seen[at] = prev
+            except Exception as e:
+                print(f"[METEORICOS-PREVIEW] Erro insights: {e}")
+
+        insights_by_camp = {r.get("campaign_id"): r for r in insights_raw}
+
+        # 4. Montar lista de campanhas com dados
+        result = []
+        for c in meteoricos:
+            ins = insights_by_camp.get(c["id"], {})
+            # Tentar extrair leads de varios action_types possiveis
+            lead_candidates = {}
+            for act in (ins.get("actions") or []):
+                at = act.get("action_type", "")
+                if "lead" in at.lower() or "subscribe" in at.lower():
+                    try: lead_candidates[at] = int(float(act.get("value", 0)))
+                    except Exception: pass
+            result.append({
+                "id": c["id"],
+                "name": c.get("name", ""),
+                "status": c.get("status", ""),
+                "objective": c.get("objective", ""),
+                "daily_budget": (float(c.get("daily_budget", 0)) / 100) if c.get("daily_budget") else None,
+                "lifetime_budget": (float(c.get("lifetime_budget", 0)) / 100) if c.get("lifetime_budget") else None,
+                "start_time": c.get("start_time", ""),
+                "spend_30d": float(ins.get("spend", 0)) if ins else 0,
+                "impressions_30d": int(ins.get("impressions", 0)) if ins else 0,
+                "clicks_30d": int(ins.get("clicks", 0)) if ins else 0,
+                "lead_candidates": lead_candidates,
+            })
+
+        # Ordenar por gasto desc
+        result.sort(key=lambda x: x.get("spend_30d", 0), reverse=True)
+
+        # Ranking de action_types mais comuns (top 20)
+        action_types_ranked = sorted(
+            [{"action_type": k, **v} for k, v in action_types_seen.items()],
+            key=lambda x: x["total_value"],
+            reverse=True
+        )[:20]
+
+        return jsonify({
+            "ok": True,
+            "total": len(meteoricos),
+            "period": f"{dt_from} -> {dt_to}",
+            "objectives_count": objectives,
+            "action_types_seen": action_types_ranked,
+            "campaigns": result,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
 @app.route("/api/admin/config", methods=["GET"])
 def admin_get_config():
     if not session.get("logged_in"):
