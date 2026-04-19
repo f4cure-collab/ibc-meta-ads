@@ -232,14 +232,36 @@
     <div class="card" id="unidentifiedCard" data-adm-section="campaigns" style="display:none;">
         <h2>Campanhas Nao Identificadas</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">
-            Campanhas que foram classificadas como Meteorico ou Comercial mas nao tiveram
-            cidade/produto detectado no nome — caem no grupo "Outros" no dashboard.
+            Campanhas de qualquer conta que ainda nao estao alocadas a um evento/produto.
+            Clique em "Alocar" para atribuir manualmente a categoria (Vendas/Meteoricos/Comercial) e rotulo do evento.
         </p>
-        <div style="display:flex;gap:8px;margin-bottom:12px;">
-            <button class="btn btn-primary" onclick="loadUnidentified('meteoricos')">Meteoricos</button>
-            <button class="btn btn-primary" onclick="loadUnidentified('comercial')" style="background:#58a6ff">Comercial</button>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;">
+            <button class="btn btn-primary" onclick="loadUnidentified()">Carregar</button>
+            <input type="text" id="unidSearch" placeholder="Buscar por nome..." style="flex:1;padding:8px 12px;background:#0f0f23;border:1px solid #2a2a4a;border-radius:6px;color:#e0e0e0;font-size:13px;">
         </div>
         <div id="unidentifiedContent"></div>
+    </div>
+
+    <!-- Modal: Alocar campanha -->
+    <div id="allocateModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:2000;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#1a1a3e;border:1px solid #2a2a4a;border-radius:12px;padding:24px;max-width:520px;width:100%;">
+            <h3 style="color:#fff;font-size:16px;margin-bottom:12px;">Alocar campanha</h3>
+            <div id="allocCampName" style="padding:8px 12px;background:#0f0f23;border-radius:6px;font-family:monospace;font-size:12px;color:#aaa;margin-bottom:16px;word-break:break-all;"></div>
+            <label>Categoria</label>
+            <select id="allocType" style="width:100%;">
+                <option value="vendas">Vendas</option>
+                <option value="meteoricos">Meteoricos</option>
+                <option value="comercial">Comercial</option>
+            </select>
+            <label style="margin-top:12px;">Rotulo do evento/produto</label>
+            <input type="text" id="allocEventName" placeholder="Ex: Meteorico Fortaleza, Master Trainer, Vendas Especial...">
+            <div style="color:#666;font-size:11px;margin-top:4px;">Este nome aparecera como titulo do evento no dashboard.</div>
+            <div style="display:flex;gap:10px;margin-top:18px;">
+                <button class="btn btn-primary" onclick="saveAllocation()">Salvar</button>
+                <button class="btn" style="background:#2a2a4a;color:#ccc;" onclick="closeAllocateModal()">Cancelar</button>
+            </div>
+            <div class="alert alert-error" id="allocErr"></div>
+        </div>
     </div>
 
     <!-- Instrucoes -->
@@ -978,49 +1000,150 @@ async function deleteAdAccount(id) {
     } catch(e) { alert(e.message); }
 }
 
-// ── Campanhas nao identificadas ──
-async function loadUnidentified(campType) {
+// ── Campanhas nao identificadas + overrides manuais ──
+var _unidData = null;
+var _allocCampaign = null;
+
+async function loadUnidentified() {
     var box = document.getElementById('unidentifiedContent');
-    box.innerHTML = '<div style="color:#888;padding:16px;">Carregando...</div>';
+    box.innerHTML = '<div style="color:#888;padding:16px;">Carregando campanhas de todas as contas...</div>';
     try {
-        var r = await fetch('/api/admin/unidentified-campaigns?camp_type=' + encodeURIComponent(campType));
+        var r = await fetch('/api/admin/unidentified-campaigns');
         var d = await r.json();
         if (!d.ok) { box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + d.error + '</div>'; return; }
-
-        var summary = '<div style="color:#ccc;font-size:12px;margin-bottom:10px;">'
-            + '<strong style="color:#4f8cff;">' + campType + '</strong>: '
-            + d.total_filtered + ' campanhas classificadas, '
-            + '<span style="color:' + (d.total_unidentified > 0 ? '#ff9800' : '#4caf50') + ';font-weight:600;">'
-            + d.total_unidentified + ' nao identificadas</span>'
-            + '</div>';
-
-        if (!d.campaigns.length) {
-            box.innerHTML = summary + '<div style="color:#4caf50;padding:12px;background:rgba(76,175,80,0.05);border-radius:6px;font-size:12px;">Todas as campanhas foram reconhecidas.</div>';
-            return;
-        }
-
-        var html = summary + '<table style="width:100%;font-size:11px;"><thead><tr>'
-            + '<th style="text-align:left;padding:6px;color:#888;">Nome</th>'
-            + '<th style="text-align:left;padding:6px;color:#888;">Status</th>'
-            + '<th style="text-align:left;padding:6px;color:#888;">Criada em</th>'
-            + '<th style="text-align:left;padding:6px;color:#888;">Conta</th>'
-            + '</tr></thead><tbody>';
-        d.campaigns.forEach(function(c){
-            var dt = c.created_time ? new Date(c.created_time).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}) : '—';
-            html += '<tr>'
-                + '<td style="padding:6px;border-bottom:1px solid #2a2a4a;color:#ccc;">' + c.name + '</td>'
-                + '<td style="padding:6px;border-bottom:1px solid #2a2a4a;color:' + (c.status==='ACTIVE'?'#4caf50':'#888') + ';">' + c.status + '</td>'
-                + '<td style="padding:6px;border-bottom:1px solid #2a2a4a;color:#aaa;">' + dt + '</td>'
-                + '<td style="padding:6px;border-bottom:1px solid #2a2a4a;color:#666;font-family:monospace;font-size:10px;">' + (c.account_id||'') + '</td>'
-                + '</tr>';
-        });
-        html += '</tbody></table>';
-        html += '<div style="color:#666;font-size:11px;margin-top:8px;">Dica: adicione a cidade/produto a CITY_MAP ou COMERCIAL_PRODUCTS no backend para que sejam reconhecidas.</div>';
-        box.innerHTML = html;
+        _unidData = d;
+        renderUnidentified();
     } catch(e) {
         box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + e.message + '</div>';
     }
 }
+
+function _typeBadge(t) {
+    var bg = {'vendas':'rgba(76,175,80,0.15)','meteoricos':'rgba(255,152,0,0.15)','comercial':'rgba(79,140,255,0.15)'}[t] || 'rgba(136,136,136,0.15)';
+    var col = {'vendas':'#4caf50','meteoricos':'#ff9800','comercial':'#4f8cff'}[t] || '#888';
+    var lbl = {'vendas':'Vendas','meteoricos':'Meteoricos','comercial':'Comercial'}[t] || t;
+    return '<span style="display:inline-block;padding:2px 8px;background:'+bg+';color:'+col+';border-radius:4px;font-size:10px;font-weight:600;">'+lbl+'</span>';
+}
+
+function renderUnidentified() {
+    var d = _unidData;
+    if (!d) return;
+    var box = document.getElementById('unidentifiedContent');
+    var q = (document.getElementById('unidSearch').value || '').toLowerCase();
+
+    var camps = d.campaigns || [];
+    var overrides = d.overrides || [];
+    if (q) {
+        camps = camps.filter(function(c){ return (c.name||'').toLowerCase().indexOf(q) >= 0; });
+        overrides = overrides.filter(function(c){ return (c.name||'').toLowerCase().indexOf(q) >= 0; });
+    }
+
+    var html = '';
+
+    // Seção de overrides ativos
+    if (overrides.length) {
+        html += '<div style="margin-bottom:18px;">';
+        html += '<strong style="color:#4caf50;font-size:12px;">Overrides manuais ativos ('+overrides.length+')</strong>';
+        html += '<table style="width:100%;font-size:11px;margin-top:8px;"><thead><tr>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Campanha</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Categoria</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Rotulo</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Por</th>'
+            + '<th style="text-align:right;padding:6px;color:#888;">Acao</th>'
+            + '</tr></thead><tbody>';
+        overrides.forEach(function(c){
+            html += '<tr>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;color:#ccc;">'+c.name+'</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;">'+_typeBadge(c.override_type)+'</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;color:#8ab4f8;font-weight:600;">'+c.override_event+'</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;color:#888;font-size:10px;">'+(c.override_by||'—')+' em '+(c.override_at||'—')+'</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;text-align:right;">'
+                + '<button class="btn btn-sm" style="background:#2a2a4a;color:#ccc;" onclick="openAllocate(\''+c.id+'\', \''+(c.name||'').replace(/\'/g,"\\'")+'\', \''+(c.override_type||'')+'\', \''+(c.override_event||'').replace(/\'/g,"\\'")+'\')">Editar</button> '
+                + '<button class="btn btn-sm btn-danger" onclick="removeOverride(\''+c.id+'\')">Remover</button>'
+                + '</td></tr>';
+        });
+        html += '</tbody></table></div>';
+    }
+
+    // Seção de não identificadas
+    html += '<div>';
+    html += '<strong style="color:#ff9800;font-size:12px;">Nao identificadas ('+camps.length+')</strong>';
+    if (!camps.length) {
+        html += '<div style="color:#4caf50;padding:12px;background:rgba(76,175,80,0.05);border-radius:6px;font-size:12px;margin-top:8px;">Nenhuma campanha pendente de alocacao.</div>';
+    } else {
+        html += '<table style="width:100%;font-size:11px;margin-top:8px;"><thead><tr>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Nome</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Status</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Tipo auto</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Criada</th>'
+            + '<th style="text-align:right;padding:6px;color:#888;">Acao</th>'
+            + '</tr></thead><tbody>';
+        camps.forEach(function(c){
+            var dt = c.created_time ? new Date(c.created_time).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}) : '—';
+            var autoType = c.auto_detected_type ? _typeBadge(c.auto_detected_type) : '<span style="color:#666;font-size:10px;">nao se aplica</span>';
+            var statusCol = c.status==='ACTIVE'?'#4caf50':'#888';
+            html += '<tr>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;color:#ccc;">'+c.name+'</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;color:'+statusCol+';">'+c.status+'</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;">'+autoType+'</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;color:#aaa;">'+dt+'</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;text-align:right;">'
+                + '<button class="btn btn-sm btn-primary" onclick="openAllocate(\''+c.id+'\', \''+(c.name||'').replace(/\'/g,"\\'")+'\', \''+(c.auto_detected_type||'vendas')+'\', \'\')">Alocar</button>'
+                + '</td></tr>';
+        });
+        html += '</tbody></table>';
+    }
+    html += '</div>';
+    box.innerHTML = html;
+}
+
+function openAllocate(cid, name, defType, defEvent) {
+    _allocCampaign = cid;
+    document.getElementById('allocCampName').textContent = name;
+    document.getElementById('allocType').value = defType || 'vendas';
+    document.getElementById('allocEventName').value = defEvent || '';
+    hide('allocErr');
+    document.getElementById('allocateModal').style.display = 'flex';
+}
+
+function closeAllocateModal() {
+    document.getElementById('allocateModal').style.display = 'none';
+    _allocCampaign = null;
+}
+
+async function saveAllocation() {
+    hide('allocErr');
+    var campType = document.getElementById('allocType').value;
+    var eventName = (document.getElementById('allocEventName').value || '').trim();
+    if (!eventName) { show('allocErr', 'Informe o rotulo do evento.'); return; }
+    try {
+        var r = await fetch('/api/admin/campaign-override', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({campaign_id: _allocCampaign, camp_type: campType, event_name: eventName})
+        });
+        var d = await r.json();
+        if (!d.ok) { show('allocErr', 'Erro: '+d.error); return; }
+        closeAllocateModal();
+        loadUnidentified();
+    } catch(e) { show('allocErr', e.message); }
+}
+
+async function removeOverride(cid) {
+    if (!confirm('Remover o override? A campanha voltara a ser auto-detectada.')) return;
+    try {
+        var r = await fetch('/api/admin/campaign-override/'+encodeURIComponent(cid), {method:'DELETE'});
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: '+d.error); return; }
+        loadUnidentified();
+    } catch(e) { alert(e.message); }
+}
+
+// Re-render quando busca muda
+document.addEventListener('DOMContentLoaded', function(){
+    var s = document.getElementById('unidSearch');
+    if (s) s.addEventListener('input', function(){ if (_unidData) renderUnidentified(); });
+});
 
 // ── Helpers ──
 function show(id, msg) { var el=document.getElementById(id); el.textContent=msg; el.style.display='block'; }

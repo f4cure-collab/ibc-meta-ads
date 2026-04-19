@@ -9,3 +9,4 @@ users.json
 cache.db
 activity_log.json
 ad_accounts.json
+campaign_overrides.json

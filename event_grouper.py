@@ -253,11 +253,17 @@ def group_campaigns_by_event(campaigns, gap_days=60):
             "date_range": "15/01 — 28/02",
         }
     """
-    # 1. Parsear cada campanha
+    # 1. Parsear cada campanha (override manual vence auto-parse)
     parsed = []
     unmatched = []
     for c in campaigns:
-        result = _parse_campaign_name(c.get("name", ""))
+        ov = c.get("_override")
+        if ov and ov.get("event_name"):
+            # Override: usa event_name e event_key fornecidos
+            ek = (ov.get("event_key") or ov.get("event_name", "CUSTOM")).upper().replace(" ", "_")
+            result = ("OVERRIDE", ek, ov.get("event_name"))
+        else:
+            result = _parse_campaign_name(c.get("name", ""))
         start = c.get("start_time", "") or c.get("created_time", "")
         start_date = None
         if start:
@@ -349,6 +355,11 @@ def group_campaigns_by_event(campaigns, gap_days=60):
                 suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""
                 event_name = f"Meteorico — {city}{suffix}"
                 event_id = f"METEORICO_{city_key}_{period_id}"
+            elif et == "OVERRIDE":
+                # Override manual: event_name veio do JSON direto
+                suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""
+                event_name = f"{city}{suffix}"  # city = override.event_name
+                event_id = f"OV_{city_key}_{period_id}"
             else:
                 suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""
                 event_name = f"{event_type_name} — {city}{suffix}"

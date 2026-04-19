@@ -44,6 +44,30 @@ ACCOUNT_ID = os.getenv("META_AD_ACCOUNT_ID", "")
 AD_ACCOUNTS_FILE = os.path.join(os.path.dirname(__file__), "ad_accounts.json")
 
 
+CAMPAIGN_OVERRIDES_FILE = os.path.join(os.path.dirname(__file__), "campaign_overrides.json")
+
+
+def _load_overrides():
+    """Le overrides manuais: {campaign_id: {camp_type, event_name, ...}}"""
+    try:
+        if not os.path.exists(CAMPAIGN_OVERRIDES_FILE):
+            return {}
+        with open(CAMPAIGN_OVERRIDES_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        print(f"[OVERRIDES] Erro lendo: {e}")
+        return {}
+
+
+def _save_overrides(overrides):
+    try:
+        with open(CAMPAIGN_OVERRIDES_FILE, "w", encoding="utf-8") as f:
+            json.dump(overrides, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[OVERRIDES] Erro salvando: {e}")
+
+
 def _load_ad_accounts():
     """Le contas extras do JSON local. Retorna [] se arquivo nao existe ou erro."""
     try:
@@ -295,14 +319,35 @@ def _is_comercial_campaign(name):
 
 def _filter_campaigns_by_type(campaigns, camp_type):
     """Filtra campanhas conforme o tipo selecionado no dashboard.
+    Overrides manuais (campaign_overrides.json) tem precedencia sobre o
+    auto-detect — admin pode reclassificar ou incluir campanhas manualmente.
     - vendas: objective == OUTCOME_SALES
     - meteoricos: nome contem token METEORICO em qualquer posicao
     - comercial: nome contem token de produto (MTR, PSC, OHIO, CSI, PNL)"""
-    if camp_type == CAMP_TYPE_METEORICOS:
-        return [c for c in campaigns if _is_meteoricos_campaign(c.get("name", ""))]
-    if camp_type == CAMP_TYPE_COMERCIAL:
-        return [c for c in campaigns if _is_comercial_campaign(c.get("name", ""))]
-    return [c for c in campaigns if c.get("objective") == "OUTCOME_SALES"]
+    overrides = _load_overrides()
+    result = []
+    for c in campaigns:
+        cid = c.get("id", "")
+        ov = overrides.get(cid)
+        if ov is not None:
+            # Override sempre vence auto-detect
+            if ov.get("camp_type") == camp_type:
+                # injeta dados do override pro grupper usar
+                c["_override"] = ov
+                result.append(c)
+            continue
+        # Auto-detect
+        name = c.get("name", "")
+        if camp_type == CAMP_TYPE_METEORICOS:
+            if _is_meteoricos_campaign(name):
+                result.append(c)
+        elif camp_type == CAMP_TYPE_COMERCIAL:
+            if _is_comercial_campaign(name):
+                result.append(c)
+        else:
+            if c.get("objective") == "OUTCOME_SALES":
+                result.append(c)
+    return result
 
 
 def _camp_type_from_request():
@@ -3063,24 +3108,26 @@ def api_ad_accounts_delete(acc_id):
     return jsonify({"ok": True, "extra_accounts": accounts})
 
 
-# ── Campanhas nao identificadas: entram no filtro do tipo mas nao casam
-#    com nenhum grupo (ex: METEORICO sem cidade, comercial sem produto) ──
+# ── Campanhas nao identificadas: lista campanhas de TODAS contas/tipos ──
 @app.route("/api/admin/unidentified-campaigns")
 def api_unidentified_campaigns():
-    """Lista campanhas que foram classificadas no tipo (meteoricos/comercial)
-    mas nao foram reconhecidas pelo event_grouper (city/product nao detectado).
-    Super admin apenas."""
+    """Lista campanhas que nao foram alocadas a nenhum evento/produto:
+    - Match algum filtro de tipo mas nao parseiam (vao pra 'Outros')
+    - Nao match nenhum filtro (ficam fora de todos os dashboards)
+    Inclui tambem a lista de overrides manuais ja aplicados."""
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
-    camp_type = _normalize_camp_type(request.args.get("camp_type", CAMP_TYPE_METEORICOS))
     try:
-        now_br = _now_br()
-        dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
-        dt_from = (now_br - timedelta(days=90)).strftime("%Y-%m-%d")
+        # Busca campanhas de TODAS as contas configuradas
+        all_accounts = set()
+        if ACCOUNT_ID:
+            all_accounts.add(ACCOUNT_ID)
+        for extra in _load_ad_accounts():
+            if extra.get("id"):
+                all_accounts.add(extra["id"])
 
-        # Busca todas as campanhas do tipo (inclui arquivadas)
-        raw_camps = []
-        for acc in _get_accounts_for_type(camp_type):
+        all_camps = []
+        for acc in all_accounts:
             try:
                 rows = meta_get_all_pages(
                     f"{acc}/campaigns",
@@ -3089,35 +3136,115 @@ def api_unidentified_campaigns():
                 )
                 for c in rows:
                     c["_account_id"] = acc
-                raw_camps.extend(rows)
+                all_camps.extend(rows)
             except Exception as e:
                 print(f"[UNIDENTIFIED] Falha {acc}: {e}")
 
-        filtered = _filter_campaigns_by_type(raw_camps, camp_type)
-
-        # Identifica quais nao foram reconhecidas pelo event_grouper
+        overrides = _load_overrides()
         unidentified = []
-        for c in filtered:
-            parsed = _parse_name(c.get("name", ""))
-            if not parsed:
-                unidentified.append({
-                    "id": c["id"],
-                    "name": c.get("name", ""),
+        override_list = []
+
+        for c in all_camps:
+            cid = c["id"]
+            name = c.get("name", "")
+
+            # Campanha com override ativo — separa em outra lista
+            if cid in overrides:
+                ov = overrides[cid]
+                override_list.append({
+                    "id": cid,
+                    "name": name,
                     "status": c.get("status", ""),
                     "account_id": c.get("_account_id", ""),
                     "created_time": c.get("created_time", ""),
+                    "override_type": ov.get("camp_type", ""),
+                    "override_event": ov.get("event_name", ""),
+                    "override_by": ov.get("created_by", ""),
+                    "override_at": ov.get("created_at", ""),
+                })
+                continue
+
+            # Detecta tipo auto + tenta parsear
+            auto_type = None
+            if _is_meteoricos_campaign(name):
+                auto_type = CAMP_TYPE_METEORICOS
+            elif _is_comercial_campaign(name):
+                auto_type = CAMP_TYPE_COMERCIAL
+            elif c.get("objective") == "OUTCOME_SALES":
+                auto_type = CAMP_TYPE_VENDAS
+
+            parsed = _parse_name(name) if auto_type else None
+
+            # Nao identificada: sem auto_type OU sem parse
+            if not auto_type or not parsed:
+                unidentified.append({
+                    "id": cid,
+                    "name": name,
+                    "status": c.get("status", ""),
+                    "objective": c.get("objective", ""),
+                    "account_id": c.get("_account_id", ""),
+                    "created_time": c.get("created_time", ""),
+                    "auto_detected_type": auto_type,
+                    "in_dashboard": bool(auto_type),  # aparece em Outros se True, senao fora
                 })
 
         unidentified.sort(key=lambda x: x.get("created_time", ""), reverse=True)
+        override_list.sort(key=lambda x: x.get("override_at", ""), reverse=True)
+
         return jsonify({
             "ok": True,
-            "camp_type": camp_type,
-            "total_filtered": len(filtered),
-            "total_unidentified": len(unidentified),
+            "total": len(unidentified),
             "campaigns": unidentified,
+            "overrides": override_list,
+            "valid_camp_types": list(VALID_CAMP_TYPES),
         })
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.route("/api/admin/campaign-override", methods=["POST"])
+def api_campaign_override_set():
+    """Aplica ou atualiza override para uma campanha.
+    Body: {campaign_id, camp_type, event_name, event_key?}"""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    data = request.get_json() or {}
+    cid = (data.get("campaign_id") or "").strip()
+    ct = _normalize_camp_type(data.get("camp_type", ""))
+    event_name = (data.get("event_name") or "").strip()
+    event_key = (data.get("event_key") or "").strip()
+
+    if not cid:
+        return jsonify({"ok": False, "error": "campaign_id obrigatorio"}), 400
+    if not event_name:
+        return jsonify({"ok": False, "error": "event_name obrigatorio"}), 400
+    if data.get("camp_type") and data.get("camp_type") not in VALID_CAMP_TYPES:
+        return jsonify({"ok": False, "error": "camp_type invalido"}), 400
+
+    overrides = _load_overrides()
+    overrides[cid] = {
+        "camp_type": ct,
+        "event_name": event_name,
+        "event_key": event_key or event_name.upper().replace(" ", "_"),
+        "created_by": session.get("username", ""),
+        "created_at": _now_br().strftime("%Y-%m-%d"),
+    }
+    _save_overrides(overrides)
+    return jsonify({"ok": True, "override": overrides[cid]})
+
+
+@app.route("/api/admin/campaign-override/<path:cid>", methods=["DELETE"])
+def api_campaign_override_delete(cid):
+    """Remove override manual."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    overrides = _load_overrides()
+    if cid not in overrides:
+        return jsonify({"ok": False, "error": "Override nao encontrado"}), 404
+    del overrides[cid]
+    _save_overrides(overrides)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/admin/meteoricos-preview")
