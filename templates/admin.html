@@ -328,10 +328,11 @@ function renderUsers() {
     }
 
     // Ordena por ultimo acesso desc (quem acessou mais recentemente primeiro).
+    // Usa last_seen (heartbeat) se disponivel, senao last_login.
     // Usuarios que nunca acessaram caem pro final. Copia pra nao mutar _allUsers.
     filtered = filtered.slice().sort(function(a, b) {
-        var ta = a.last_login || '';
-        var tb = b.last_login || '';
+        var ta = (a.last_seen && a.last_seen > (a.last_login||'')) ? a.last_seen : (a.last_login || '');
+        var tb = (b.last_seen && b.last_seen > (b.last_login||'')) ? b.last_seen : (b.last_login || '');
         if (!ta && !tb) return 0;
         if (!ta) return 1;
         if (!tb) return -1;
@@ -417,9 +418,11 @@ function renderUserRow(u) {
         ? '<div>'+presenceSpan+'</div><div style="margin-top:4px;"><span class="badge-reset">REDEFINIR SENHA</span></div>'
         : '<div>'+presenceSpan+'</div><div style="color:#4caf50;font-size:11px;margin-top:2px;">Ativo</div>';
     var lastLogin = '<span style="color:#666;">Nunca acessou</span>';
-    if (u.last_login) {
+    // Usa o mais recente entre last_seen (heartbeat) e last_login
+    var lastAccessTs = u.last_seen && u.last_seen > (u.last_login||'') ? u.last_seen : u.last_login;
+    if (lastAccessTs) {
         try {
-            var dt = new Date(u.last_login);
+            var dt = new Date(lastAccessTs);
             if (!isNaN(dt.getTime())) {
                 lastLogin = '<span style="color:#ccc;font-size:12px;">' + dt.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) + '</span>';
             }
