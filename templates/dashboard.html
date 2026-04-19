@@ -1082,10 +1082,10 @@
             <h3 style="color:var(--t1);font-size:16px;font-weight:700;margin:24px 0 14px;display:flex;align-items:center;gap:8px" data-tip="Hist&oacute;rico real + proje&ccedil;&atilde;o futura baseada em regress&atilde;o linear">&#128202; Hist&oacute;rico &amp; Proje&ccedil;&atilde;o</h3>
             <div class="cgrid">
                 <div class="ccard fw"><h3 data-tip="Gasto hist&oacute;rico (linha s&oacute;lida) + proje&ccedil;&atilde;o (linha tracejada)">&#128176; Gasto por Dia</h3><canvas id="ch-proj-spend"></canvas></div>
-                <div class="ccard fw"><h3 data-tip="Receita hist&oacute;rica + proje&ccedil;&atilde;o">&#128181; Receita por Dia</h3><canvas id="ch-proj-rev"></canvas></div>
-                <div class="ccard fw"><h3 data-tip="Compras hist&oacute;ricas + proje&ccedil;&atilde;o">&#127942; Compras por Dia</h3><canvas id="ch-proj-purch"></canvas></div>
-                <div class="ccard"><h3 data-tip="ROAS hist&oacute;rico + proje&ccedil;&atilde;o">&#128200; ROAS por Dia</h3><canvas id="ch-proj-roas"></canvas></div>
-                <div class="ccard"><h3 data-tip="CPA hist&oacute;rico + proje&ccedil;&atilde;o">&#128178; CPA por Dia</h3><canvas id="ch-proj-cpa"></canvas></div>
+                <div class="ccard fw" data-metric="revenue"><h3 data-tip="Receita hist&oacute;rica + proje&ccedil;&atilde;o">&#128181; Receita por Dia</h3><canvas id="ch-proj-rev"></canvas></div>
+                <div class="ccard fw"><h3 data-tip="Conversoes hist&oacute;ricas + proje&ccedil;&atilde;o"><span class="proj-conv-icon">&#127942;</span> <span class="proj-conv-label">Compras</span> por Dia</h3><canvas id="ch-proj-purch"></canvas></div>
+                <div class="ccard" data-metric="roas"><h3 data-tip="ROAS hist&oacute;rico + proje&ccedil;&atilde;o">&#128200; ROAS por Dia</h3><canvas id="ch-proj-roas"></canvas></div>
+                <div class="ccard"><h3 data-tip="Custo por conversao hist&oacute;rico + proje&ccedil;&atilde;o">&#128178; <span class="proj-cpa-label">CPA</span> por Dia</h3><canvas id="ch-proj-cpa"></canvas></div>
             </div>
         </div>
     </div>
@@ -1739,18 +1739,28 @@ function _renderRankings(evData){
     const cplGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
 
     if (isMeteoricos()) {
-        // CPL ranking (menor = melhor). Substitui ROAS.
-        // Sort default: ASC (menor primeiro). rankSortState.roas reutilizado.
-        const cd=rankSortState.roas?-1:1;
+        // CPL ranking (menor = melhor). Substitui ROAS para meteoricos.
+        // Default ASC (menor primeiro) — inverte ao clicar.
+        const cpla=!rankSortState.roas;  // flag invertido para semantica "menor=melhor"
+        const cd=cpla?1:-1;
         const byCpl=evData
-            .map(c=>{const conv=c.purchases||0;const cpl=conv>0?(c.spend||0)/conv:Infinity;return{...c,cpl:cpl};})
-            .filter(c=>isFinite(c.cpl)&&c.cpl>0)
-            .sort((a,b)=>cd*(a.cpl-b.cpl));
+            .map(c=>{
+                const conv=c.purchases||0;
+                return {...c, _leads:conv, cpl:(conv>0&&(c.spend||0)>0)?(c.spend/conv):null};
+            })
+            .sort((a,b)=>{
+                // cpl null (sem leads) vai para o final
+                if(a.cpl==null&&b.cpl==null)return 0;
+                if(a.cpl==null)return 1;
+                if(b.cpl==null)return -1;
+                return cd*(a.cpl-b.cpl);
+            });
         const maxCpl=byCpl.reduce((m,c)=>Math.max(m,c.cpl||0),0);
-        const ct=$('#rank-cpl-title');if(ct)ct.innerHTML=`&#128200; CPL por Evento ${rankSortState.roas?'&#9660;':'&#9650;'}`;
+        const ct=$('#rank-cpl-title');if(ct)ct.innerHTML=`&#128200; CPL por Evento ${cpla?'&#9650;':'&#9660;'}`;
         renderList('ch-cpl',byCpl,maxCpl,c=>c.cpl||0,
-            (c,v)=>fmtM(v),
-            (c,v)=>`${c.name}: CPL ${fmtM(v)} (${c.purchases||0} leads, ${c._count} campanhas)`,cplGrad);
+            (c,v)=>c.cpl==null?'<span style="color:var(--t3)">sem leads</span>':fmtM(v),
+            (c,v)=>c.cpl==null?`${c.name}: sem leads no periodo (${c._count} campanhas)`:`${c.name}: CPL ${fmtM(v)} (${c._leads} leads, ${c._count} campanhas)`,
+            cplGrad);
     } else {
         const rd=rankSortState.roas?1:-1;
         const byRoas=evData.filter(c=>(c.roas||0)>0||(c.spend||0)>0).sort((a,b)=>rd*((b.roas||0)-(a.roas||0)));
@@ -2826,6 +2836,7 @@ function renderCards(data){
     Object.entries(groups).forEach(([id,g])=>{if(!stableCampaignOrder.includes(id))ordered.push([id,g]);});
 
     let h='';
+    const isMet=isMeteoricos();
     for(const[cid,g]of ordered){
         const ts=g.ads.reduce((s,a)=>s+(a.spend||0),0),tr=g.ads.reduce((s,a)=>s+(a.revenue||0),0),tp=g.ads.reduce((s,a)=>s+(a.purchases||0),0);
         const ti=g.ads.reduce((s,a)=>s+(a.impressions||0),0);
@@ -2833,9 +2844,12 @@ function renderCards(data){
         const ar=ts>0?tr/ts:0;
         const acpa=tp>0?ts/tp:0;
         const afreq=trc>0?(ti/trc):0;
+        const lblConv = isMet ? 'Leads' : 'Compras';
+        const lblCPA = isMet ? 'CPL' : 'CPA';
+        const roasBlock = isMet ? '' : `<span data-tip="${roasTip(ar)}">ROAS: <span class="sv" style="color:${roasC(ar)}">${fmtR(ar)}</span></span>`;
         h+=`<div class="cg">
             <div class="cg-head closed" data-g="${cid}"><h3><span class="arrow">&#9660;</span>${g.name} <span style="font-size:12px;color:var(--t3);font-weight:400">(${g.ads.length})</span></h3>
-            <div class="cg-stats"><span data-tip="Gasto total da campanha no per&iacute;odo">Gasto: <span class="sv">${fmtM(ts)}</span></span><span data-tip="${roasTip(ar)}">ROAS: <span class="sv" style="color:${roasC(ar)}">${fmtR(ar)}</span></span><span data-tip="Total de compras atribu&iacute;das">Compras: <span class="sv">${fmt(tp)}</span></span><span data-tip="Custo m&eacute;dio por compra (gasto / compras)">CPA: <span class="sv">${fmtM(acpa)}</span></span></div></div>
+            <div class="cg-stats"><span data-tip="Gasto total da campanha no per&iacute;odo">Gasto: <span class="sv">${fmtM(ts)}</span></span>${roasBlock}<span data-tip="Total de ${lblConv.toLowerCase()} atribu&iacute;dos">${lblConv}: <span class="sv">${fmt(tp)}</span></span><span data-tip="Custo m&eacute;dio por ${isMet?'lead':'compra'} (gasto / ${lblConv.toLowerCase()})">${lblCPA}: <span class="sv">${fmtM(acpa)}</span></span></div></div>
             <div class="cg-body closed" data-gb="${cid}"><div class="cr-grid">${g.ads.map(cardH).join('')}</div></div></div>`;
     }
     ct.innerHTML=h;
@@ -2880,29 +2894,29 @@ function cardH(c){
                 <div class="lbl">Gasto</div>
                 <div class="val">${fmtM(c.spend)}</div>
             </div>
-            <div class="cr-mm" data-tip="ROAS (Return on Ad Spend): quanto o criativo retornou em receita para cada R$ 1 investido. Ex: ROAS 2,00 = cada R$ 1 gasto virou R$ 2 de receita.">
+            <div class="cr-mm" data-metric="roas" data-tip="ROAS (Return on Ad Spend): quanto o criativo retornou em receita para cada R$ 1 investido.">
                 <div class="lbl">ROAS</div>
                 <div class="val" style="color:${rc}">${fmtR(c.roas)}</div>
             </div>
-            <div class="cr-mm" data-tip="Score: nota geral calculada a partir de compras, ROAS, gasto e tend&ecirc;ncia. Serve pra comparar criativos rapidamente — quanto maior, melhor.">
+            <div class="cr-mm" data-tip="Score: nota geral calculada a partir de conversoes, custo, gasto e tend&ecirc;ncia. Serve pra comparar criativos rapidamente — quanto maior, melhor.">
                 <div class="lbl">Score</div>
                 <div class="val">${fmt(c.score)}</div>
             </div>
         </div>
         <div class="cr-stats-grid">
-            <div class="cr-st" data-tip="Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.">
-                <div class="lbl">Compras</div>
+            <div class="cr-st" data-tip="${isMeteoricos()?'Leads: total de cadastros atribu&iacute;dos a este criativo.':'Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.'}">
+                <div class="lbl">${isMeteoricos()?'Leads':'Compras'}</div>
                 <div class="val">${fmt(c.purchases)}</div>
             </div>
-            <div class="cr-st" data-tip="CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — calculado como gasto dividido pelo n&uacute;mero de compras.">
-                <div class="lbl">CPA</div>
+            <div class="cr-st" data-tip="${isMeteoricos()?'CPL (Custo por Lead): quanto custou em m&eacute;dia cada cadastro — gasto / leads.':'CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — gasto / compras.'}">
+                <div class="lbl">${isMeteoricos()?'CPL':'CPA'}</div>
                 <div class="val">${fmtM(c.cpa)}</div>
             </div>
             <div class="cr-st" data-tip="CTR (Click Through Rate): percentual de pessoas que viram o an&uacute;ncio e clicaram. Mede o quanto a arte/copy atrai cliques.">
                 <div class="lbl">CTR</div>
                 <div class="val">${fmtP(c.ctr)}</div>
             </div>
-            <div class="cr-st" data-tip="Receita: valor total em reais gerado pelas compras atribu&iacute;das a este criativo.">
+            <div class="cr-st" data-metric="revenue" data-tip="Receita: valor total em reais gerado pelas compras atribu&iacute;das a este criativo.">
                 <div class="lbl">Receita</div>
                 <div class="val">${fmtM(c.revenue)}</div>
             </div>
@@ -2918,17 +2932,17 @@ function cardH(c){
         <div class="cr-periods">
             <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 7 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">7 Dias</div>
-                <div class="pblock-row" data-tip="Gasto: valor investido neste criativo nos &uacute;ltimos 7 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_7d)}</span></div>
-                <div class="pblock-row" data-tip="Compras: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 7 dias."><span class="pl">Comp.</span><span class="pr">${c.purchases_7d||0}</span></div>
-                <div class="pblock-row" data-tip="ROAS nos &uacute;ltimos 7 dias: receita gerada para cada R$ 1 investido nesse per&iacute;odo."><span class="pl">ROAS</span><span class="pr" style="color:${r7c}">${fmtR(c.roas_7d)}</span></div>
-                ${(()=>{const sh=shareCompare(c.share_7d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha que foi destinado a este criativo nos &uacute;ltimos 7 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_7d||0}%</span></div>`;})()}
+                <div class="pblock-row" data-tip="Gasto investido nos &uacute;ltimos 7 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_7d)}</span></div>
+                <div class="pblock-row" data-tip="${isMeteoricos()?'Leads nos &uacute;ltimos 7 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 7 dias.'}"><span class="pl">${isMeteoricos()?'Leads':'Comp.'}</span><span class="pr">${c.purchases_7d||0}</span></div>
+                <div class="pblock-row" data-metric="roas" data-tip="ROAS nos &uacute;ltimos 7 dias."><span class="pl">ROAS</span><span class="pr" style="color:${r7c}">${fmtR(c.roas_7d)}</span></div>
+                ${(()=>{const sh=shareCompare(c.share_7d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha nos &uacute;ltimos 7 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_7d||0}%</span></div>`;})()}
             </div>
             <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 3 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">3 Dias</div>
-                <div class="pblock-row" data-tip="Gasto: valor investido neste criativo nos &uacute;ltimos 3 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_3d)}</span></div>
-                <div class="pblock-row" data-tip="Compras: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 3 dias."><span class="pl">Comp.</span><span class="pr">${c.purchases_3d||0}</span></div>
-                <div class="pblock-row" data-tip="ROAS nos &uacute;ltimos 3 dias: receita gerada para cada R$ 1 investido nesse per&iacute;odo."><span class="pl">ROAS</span><span class="pr" style="color:${r3c}">${fmtR(c.roas_3d)}</span></div>
-                ${(()=>{const sh=shareCompare(c.share_3d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha que foi destinado a este criativo nos &uacute;ltimos 3 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_3d||0}%</span></div>`;})()}
+                <div class="pblock-row" data-tip="Gasto investido nos &uacute;ltimos 3 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_3d)}</span></div>
+                <div class="pblock-row" data-tip="${isMeteoricos()?'Leads nos &uacute;ltimos 3 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 3 dias.'}"><span class="pl">${isMeteoricos()?'Leads':'Comp.'}</span><span class="pr">${c.purchases_3d||0}</span></div>
+                <div class="pblock-row" data-metric="roas" data-tip="ROAS nos &uacute;ltimos 3 dias."><span class="pl">ROAS</span><span class="pr" style="color:${r3c}">${fmtR(c.roas_3d)}</span></div>
+                ${(()=>{const sh=shareCompare(c.share_3d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha nos &uacute;ltimos 3 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_3d||0}%</span></div>`;})()}
             </div>
         </div>
         <div class="cr-footer">
@@ -3884,16 +3898,23 @@ function renderProjection(){
     const avgCpa=sumPurch>0?sumSpend/sumPurch:0;
 
     $('#proj-period-label').textContent=projDays;
-    $('#proj-summary').innerHTML=`
-        <div class="scard"><div class="sl" data-tip="Gasto total projetado para os pr&oacute;ximos ${projDays} dias">Gasto Previsto</div><div class="sv" style="font-size:22px">${fmtM(sumSpend)}</div></div>
-        <div class="scard"><div class="sl" data-tip="Receita total projetada">Receita Prevista</div><div class="sv" style="font-size:22px">${fmtM(sumRev)}</div></div>
-        <div class="scard"><div class="sl" data-tip="Lucro previsto = Receita - Gasto">Lucro Previsto</div><div class="sv" style="font-size:22px;color:${sumRev-sumSpend>=0?'var(--green)':'var(--red)'}">${fmtM(sumRev-sumSpend)}</div></div>
-        <div class="scard"><div class="sl" data-tip="ROAS m&eacute;dio projetado">ROAS Previsto</div><div class="sv" style="font-size:22px;color:${roasC(avgRoas)}">${fmtR(avgRoas)}</div></div>
-        <div class="scard"><div class="sl" data-tip="Compras projetadas no per&iacute;odo">Compras Previstas</div><div class="sv" style="font-size:22px">${fmt(Math.round(sumPurch))}</div></div>
-        <div class="scard"><div class="sl" data-tip="CPA m&eacute;dio projetado">CPA Previsto</div><div class="sv" style="font-size:22px">${fmtM(avgCpa)}</div></div>
-        <div class="scard"><div class="sl" data-tip="Gasto m&eacute;dio di&aacute;rio projetado">Gasto/Dia</div><div class="sv" style="font-size:22px">${fmtM(sumSpend/projDays)}</div></div>
-        <div class="scard"><div class="sl" data-tip="Compras m&eacute;dias di&aacute;rias projetadas">Vendas/Dia</div><div class="sv" style="font-size:22px">${(sumPurch/projDays).toFixed(1)}</div></div>
-    `;
+    const isMet = isMeteoricos();
+    const convLabel = isMet ? 'Leads' : 'Compras';
+    const cpaLabel = isMet ? 'CPL' : 'CPA';
+    const dailyConvLabel = isMet ? 'Leads/Dia' : 'Vendas/Dia';
+    const cardsHtml = [
+        `<div class="scard"><div class="sl" data-tip="Gasto total projetado para os pr&oacute;ximos ${projDays} dias">Gasto Previsto</div><div class="sv" style="font-size:22px">${fmtM(sumSpend)}</div></div>`,
+    ];
+    if (!isMet) {
+        cardsHtml.push(`<div class="scard" data-metric="revenue"><div class="sl" data-tip="Receita total projetada">Receita Prevista</div><div class="sv" style="font-size:22px">${fmtM(sumRev)}</div></div>`);
+        cardsHtml.push(`<div class="scard" data-metric="revenue"><div class="sl" data-tip="Lucro previsto = Receita - Gasto">Lucro Previsto</div><div class="sv" style="font-size:22px;color:${sumRev-sumSpend>=0?'var(--green)':'var(--red)'}">${fmtM(sumRev-sumSpend)}</div></div>`);
+        cardsHtml.push(`<div class="scard" data-metric="roas"><div class="sl" data-tip="ROAS m&eacute;dio projetado">ROAS Previsto</div><div class="sv" style="font-size:22px;color:${roasC(avgRoas)}">${fmtR(avgRoas)}</div></div>`);
+    }
+    cardsHtml.push(`<div class="scard"><div class="sl" data-tip="${convLabel} projetados no per&iacute;odo">${convLabel} Previstos</div><div class="sv" style="font-size:22px">${fmt(Math.round(sumPurch))}</div></div>`);
+    cardsHtml.push(`<div class="scard"><div class="sl" data-tip="${cpaLabel} m&eacute;dio projetado">${cpaLabel} Previsto</div><div class="sv" style="font-size:22px">${fmtM(avgCpa)}</div></div>`);
+    cardsHtml.push(`<div class="scard"><div class="sl" data-tip="Gasto m&eacute;dio di&aacute;rio projetado">Gasto/Dia</div><div class="sv" style="font-size:22px">${fmtM(sumSpend/projDays)}</div></div>`);
+    cardsHtml.push(`<div class="scard"><div class="sl" data-tip="${convLabel} m&eacute;dios di&aacute;rios projetados">${dailyConvLabel}</div><div class="sv" style="font-size:22px">${(sumPurch/projDays).toFixed(1)}</div></div>`);
+    $('#proj-summary').innerHTML = cardsHtml.join('');
 
     // Tend&ecirc;ncias (slopes)
     function trendCard(label,base,fmtFn,tipBase){
@@ -3905,12 +3926,18 @@ function renderProjection(){
         return`<div class="scard" data-tip="${tipBase}. Incremento m&eacute;dio por dia: ${fmtFn(slope)}"><div class="sl">${label}</div><div class="sv" style="font-size:18px;color:${color}">${icon} ${pct>0?'+':''}${pct.toFixed(1)}%/dia</div></div>`;
     }
 
-    $('#proj-trends').innerHTML=
-        trendCard('Gasto',baseSpend,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria do gasto baseada na regress&atilde;o linear dos &uacute;ltimos '+nBase+' dias')+
-        trendCard('Receita',baseRev,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria da receita')+
-        trendCard('Compras',basePurch,v=>v.toFixed(2),'Varia&ccedil;&atilde;o percentual di&aacute;ria das compras')+
-        trendCard('ROAS',baseRoas,v=>v.toFixed(2)+'x','Varia&ccedil;&atilde;o percentual di&aacute;ria do ROAS')+
-        trendCard('CPA',baseCpa,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria do CPA');
+    const trendsHtml = [
+        trendCard('Gasto',baseSpend,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria do gasto baseada na regress&atilde;o linear dos &uacute;ltimos '+nBase+' dias'),
+    ];
+    if (!isMet) {
+        trendsHtml.push(trendCard('Receita',baseRev,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria da receita'));
+    }
+    trendsHtml.push(trendCard(convLabel,basePurch,v=>v.toFixed(2),`Varia&ccedil;&atilde;o percentual di&aacute;ria de ${convLabel.toLowerCase()}`));
+    if (!isMet) {
+        trendsHtml.push(trendCard('ROAS',baseRoas,v=>v.toFixed(2)+'x','Varia&ccedil;&atilde;o percentual di&aacute;ria do ROAS'));
+    }
+    trendsHtml.push(trendCard(cpaLabel,baseCpa,fmtM,`Varia&ccedil;&atilde;o percentual di&aacute;ria do ${cpaLabel}`));
+    $('#proj-trends').innerHTML = trendsHtml.join('');
 
     // Gr&aacute;ficos: hist&oacute;rico (linha s&oacute;lida) + proje&ccedil;&atilde;o (linha tracejada)
     const allLabels=[...histDates,...futureDates];
@@ -3935,10 +3962,16 @@ function renderProjection(){
     }
 
     makeProjChart('ch-proj-spend','psp','Gasto',histSpend,projSpend,'#ff6b6b');
-    makeProjChart('ch-proj-rev','prv','Receita',histRev,projRev,'#3fdf85');
-    makeProjChart('ch-proj-purch','ppu','Compras',histPurch,projPurch,'#bc8cff');
-    makeProjChart('ch-proj-roas','pro','ROAS',histRoas,projRoas,'#58a6ff');
-    makeProjChart('ch-proj-cpa','pcp','CPA',histCpa,projCpa,'#ffc857');
+    if (!isMet) {
+        makeProjChart('ch-proj-rev','prv','Receita',histRev,projRev,'#3fdf85');
+        makeProjChart('ch-proj-roas','pro','ROAS',histRoas,projRoas,'#58a6ff');
+    }
+    makeProjChart('ch-proj-purch','ppu',convLabel,histPurch,projPurch,'#bc8cff');
+    makeProjChart('ch-proj-cpa','pcp',cpaLabel,histCpa,projCpa,'#ffc857');
+    // Atualiza labels estaticos nos titulos dos graficos
+    document.querySelectorAll('.proj-conv-label').forEach(el => el.textContent = convLabel);
+    document.querySelectorAll('.proj-conv-icon').forEach(el => el.innerHTML = isMet ? '&#9733;' : '&#127942;');
+    document.querySelectorAll('.proj-cpa-label').forEach(el => el.textContent = cpaLabel);
 }
 
 $$('#proj-days-btns .pbtn').forEach(b=>{b.addEventListener('click',()=>{
