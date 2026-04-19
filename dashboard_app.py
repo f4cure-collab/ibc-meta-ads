@@ -266,10 +266,19 @@ def _get_conversion_types(camp_type):
 
 
 def _is_comercial_campaign(name):
-    """True se o nome contem algum token de produto comercial (MTR/PSC/OHIO/CSI/PNL)."""
+    """True se o nome contem algum token de produto comercial (MTR/PSC/OHIO/CSI/PNL)
+    E nao for campanha de nutricao/remarketing (que nao gera lead novo)."""
     if not name:
         return False
-    tokens = set(name.upper().replace("-", "_").split("_"))
+    name_u = name.upper().replace("-", "_")
+    # Normaliza acentos basicos (NUTRIÇÃO -> NUTRICAO)
+    name_u = (name_u.replace("Ç", "C").replace("Ã", "A").replace("Á", "A")
+              .replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U"))
+    tokens = set(name_u.split("_"))
+    # Exclui campanhas de nutricao, remarketing, retargeting
+    exclude = {"NUTRICAO", "RMKT", "REMARKETING", "RETARGETING", "NURTURE"}
+    if tokens & exclude:
+        return False
     return any(k in tokens for k in COMERCIAL_PRODUCTS)
 
 
