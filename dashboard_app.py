@@ -13,7 +13,7 @@ import threading
 import functools
 import requests
 from datetime import datetime, timedelta, timezone
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
 from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock
@@ -139,6 +139,46 @@ PURCHASE_TYPES = [
     "offsite_conversion.fb_pixel_purchase",
     "onsite_conversion.purchase",
 ]
+
+LEAD_TYPES = [
+    "lead",
+    "onsite_conversion.lead_grouped",
+    "offsite_conversion.fb_pixel_lead",
+]
+
+CAMP_TYPE_VENDAS = "vendas"
+CAMP_TYPE_METEORICOS = "meteoricos"
+VALID_CAMP_TYPES = (CAMP_TYPE_VENDAS, CAMP_TYPE_METEORICOS)
+
+
+def _normalize_camp_type(ct):
+    """Normaliza e valida o parametro camp_type vindo da request."""
+    ct = (ct or "").strip().lower()
+    if ct not in VALID_CAMP_TYPES:
+        return CAMP_TYPE_VENDAS
+    return ct
+
+
+def _get_conversion_types(camp_type):
+    """Retorna a lista de action_types da conversao primaria do tipo."""
+    if camp_type == CAMP_TYPE_METEORICOS:
+        return LEAD_TYPES
+    return PURCHASE_TYPES
+
+
+def _filter_campaigns_by_type(campaigns, camp_type):
+    """Filtra campanhas conforme o tipo selecionado no dashboard.
+    - vendas: objective == OUTCOME_SALES (comportamento original)
+    - meteoricos: nome comeca com METEORICO_ (independe do objective)"""
+    if camp_type == CAMP_TYPE_METEORICOS:
+        return [c for c in campaigns if c.get("name", "").upper().startswith("METEORICO_")]
+    return [c for c in campaigns if c.get("objective") == "OUTCOME_SALES"]
+
+
+def _camp_type_from_request():
+    """Helper que le camp_type da request e normaliza. Default vendas."""
+    return _normalize_camp_type(request.args.get("camp_type", CAMP_TYPE_VENDAS))
+
 
 # Funil: Landing Page View, View Content, Add to Cart, Initiate Checkout
 LPV_TYPES = ["landing_page_view"]
@@ -441,16 +481,18 @@ def meta_get_all_pages(endpoint, params=None, max_retries=3):
     return all_data
 
 
-def extract_purchase_value(actions_or_values, field="value"):
-    """Extrai valor de purchase evitando duplicação.
+def extract_purchase_value(actions_or_values, field="value", types=None):
+    """Extrai valor da conversao primaria evitando duplicacao.
 
-    Estratégia: pega o PRIMEIRO match da ordem PURCHASE_TYPES que tiver valor > 0.
+    Estratégia: pega o PRIMEIRO match da ordem `types` que tiver valor > 0.
     Se nenhum tiver valor > 0, retorna 0.
     """
     if not actions_or_values:
         return 0.0
+    if types is None:
+        types = PURCHASE_TYPES
     # Procurar na ordem de prioridade dos tipos
-    for ptype in PURCHASE_TYPES:
+    for ptype in types:
         for item in actions_or_values:
             if item.get("action_type") == ptype:
                 v = 0.0
@@ -462,7 +504,7 @@ def extract_purchase_value(actions_or_values, field="value"):
                     return v
     # Nenhum match com valor > 0: retornar o primeiro match qualquer
     for item in actions_or_values:
-        if item.get("action_type") in PURCHASE_TYPES:
+        if item.get("action_type") in types:
             try:
                 return float(item.get(field, 0) or 0)
             except Exception:
@@ -470,11 +512,13 @@ def extract_purchase_value(actions_or_values, field="value"):
     return 0.0
 
 
-def extract_purchase_count(actions):
-    """Extrai contagem de purchases evitando duplicação."""
+def extract_purchase_count(actions, types=None):
+    """Extrai contagem da conversao primaria evitando duplicacao."""
     if not actions:
         return 0
-    for ptype in PURCHASE_TYPES:
+    if types is None:
+        types = PURCHASE_TYPES
+    for ptype in types:
         for item in actions:
             if item.get("action_type") == ptype:
                 try:
@@ -484,7 +528,7 @@ def extract_purchase_count(actions):
                 if v > 0:
                     return v
     for item in actions:
-        if item.get("action_type") in PURCHASE_TYPES:
+        if item.get("action_type") in types:
             try:
                 return int(float(item.get("value", 0) or 0))
             except Exception:
@@ -528,15 +572,27 @@ def _safe_float(v):
         return 0.0
 
 
-def parse_insights(row):
+def _current_camp_type():
+    """Le camp_type do contexto Flask g (setado pelo endpoint). Default vendas."""
+    try:
+        return getattr(g, "camp_type", CAMP_TYPE_VENDAS) or CAMP_TYPE_VENDAS
+    except Exception:
+        return CAMP_TYPE_VENDAS
+
+
+def parse_insights(row, camp_type=None):
     """Transforma uma linha de insights da API em dict limpo.
 
-    IMPORTANTE:
-    - Usa 'inline_link_clicks' como fonte principal de link_clicks (campo oficial da Meta).
-      Fallback para 'actions[link_click]' se não estiver presente.
-    - Usa 'purchase_roas' oficial quando disponível; fallback para revenue/spend.
-    - Deduplica purchase types (evita contar 2x).
+    camp_type:
+    - 'vendas': conversao = purchase, com revenue/ROAS
+    - 'meteoricos': conversao = lead, revenue/ROAS = 0 (nao se aplica)
+    - None: le do Flask g (contexto da request). Evita threading manual em helpers.
+
+    Campo `purchases` no retorno continua carregando a contagem da conversao primaria
+    (compra ou lead) para nao quebrar call sites. Frontend adapta label por camp_type.
     """
+    if camp_type is None:
+        camp_type = _current_camp_type()
     spend = _safe_float(row.get("spend"))
     impressions = _safe_int(row.get("impressions"))
     clicks = _safe_int(row.get("clicks"))
@@ -546,20 +602,26 @@ def parse_insights(row):
     action_values = row.get("action_values", []) or []
     purchase_roas_list = row.get("purchase_roas", []) or []
 
-    purchases = extract_purchase_count(actions)
-    revenue = extract_purchase_value(action_values)
+    conv_types = _get_conversion_types(camp_type)
+    purchases = extract_purchase_count(actions, types=conv_types)
 
-    # ROAS: usar purchase_roas oficial como fonte primária
-    roas = 0
-    if purchase_roas_list:
-        for pr in purchase_roas_list:
-            if pr.get("action_type") in PURCHASE_TYPES:
-                roas = _safe_float(pr.get("value"))
-                break
-        if roas == 0 and purchase_roas_list:
-            roas = _safe_float(purchase_roas_list[0].get("value"))
-    if roas == 0:
-        roas = revenue / spend if spend > 0 else 0
+    if camp_type == CAMP_TYPE_METEORICOS:
+        # Leads nao tem valor monetario direto
+        revenue = 0.0
+        roas = 0.0
+    else:
+        revenue = extract_purchase_value(action_values, types=conv_types)
+        # ROAS: usar purchase_roas oficial como fonte primária
+        roas = 0
+        if purchase_roas_list:
+            for pr in purchase_roas_list:
+                if pr.get("action_type") in conv_types:
+                    roas = _safe_float(pr.get("value"))
+                    break
+            if roas == 0 and purchase_roas_list:
+                roas = _safe_float(purchase_roas_list[0].get("value"))
+        if roas == 0:
+            roas = revenue / spend if spend > 0 else 0
 
     cpa = spend / purchases if purchases > 0 else 0
     ctr = _safe_float(row.get("ctr"))
@@ -679,24 +741,26 @@ INSIGHT_FIELDS_DAILY_CAMP = (
 @app.route("/api/dashboard/campaigns")
 @not_viewer_required
 def api_campaigns():
-    """Lista campanhas de vendas com métricas agregadas."""
+    """Lista campanhas (vendas ou meteoricos) com métricas agregadas."""
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
         camp_status = request.args.get("camp_status", "active")
         force = request.args.get("force", "false") == "true"
+        camp_type = _camp_type_from_request()
+        g.camp_type = camp_type
 
         blocked = _enforce_range_for_role(date_from, date_to)
         if blocked:
             return blocked
 
-        cache_key = f"campaigns_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"campaigns_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
                 return jsonify(cached)
 
-        # 1. Buscar campanhas de VENDAS
+        # 1. Buscar campanhas do tipo selecionado
         campaigns = meta_get_all_pages(
             f"{ACCOUNT_ID}/campaigns",
             {
@@ -704,7 +768,7 @@ def api_campaigns():
                 "effective_status": _camp_status_filter(camp_status),
             }
         )
-        sales_campaigns = [c for c in campaigns if c.get("objective") == "OUTCOME_SALES"]
+        sales_campaigns = _filter_campaigns_by_type(campaigns, camp_type)
 
         if not sales_campaigns:
             return jsonify({"ok": True, "data": [], "summary": {}})
@@ -729,7 +793,7 @@ def api_campaigns():
 
         insights_map = {}
         for row in insights_data:
-            insights_map[row.get("campaign_id")] = parse_insights(row)
+            insights_map[row.get("campaign_id")] = parse_insights(row, camp_type=camp_type)
 
         # 3. Montar resposta
         result = []
@@ -850,6 +914,7 @@ def api_campaign_insights(campaign_id):
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+        g.camp_type = _camp_type_from_request()
 
         blocked = _enforce_range_for_role(date_from, date_to)
         if blocked:
@@ -885,6 +950,8 @@ def api_campaigns_multi_insights():
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+        camp_type = _camp_type_from_request()
+        g.camp_type = camp_type
 
         blocked = _enforce_range_for_role(date_from, date_to)
         if blocked:
@@ -893,19 +960,19 @@ def api_campaigns_multi_insights():
         camp_status = request.args.get("camp_status", "all")
         force = request.args.get("force", "false") == "true"
 
-        cache_key = f"multi_insights_{ids_param}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"multi_insights_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
                 return jsonify(cached)
 
         if ids_param == "all":
-            # Buscar campanhas de vendas
+            # Buscar campanhas do tipo selecionado
             all_camps = meta_get_all_pages(
                 f"{ACCOUNT_ID}/campaigns",
                 {"fields": "id,name,objective", "effective_status": _camp_status_filter(camp_status)}
             )
-            sales_camps = [c for c in all_camps if c.get("objective") == "OUTCOME_SALES"]
+            sales_camps = _filter_campaigns_by_type(all_camps, camp_type)
             sales_map = {c["id"]: c for c in sales_camps}
             target_ids = list(sales_map.keys())
         else:
@@ -1442,6 +1509,7 @@ def api_campaign_creatives(campaign_id):
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+        g.camp_type = _camp_type_from_request()
 
         blocked = _enforce_range_for_role(date_from, date_to)
         if blocked:
@@ -1461,24 +1529,26 @@ def api_campaign_creatives(campaign_id):
 @app.route("/api/dashboard/daily-summary")
 @not_viewer_required
 def api_daily_summary():
-    """Insights diários agregados de TODAS as campanhas de vendas (somatório)."""
+    """Insights diários agregados de TODAS as campanhas do tipo selecionado (somatório)."""
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
         camp_status = request.args.get("camp_status", "active")
         force = request.args.get("force", "false") == "true"
+        camp_type = _camp_type_from_request()
+        g.camp_type = camp_type
 
         blocked = _enforce_range_for_role(date_from, date_to)
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
                 return jsonify(cached)
 
-        # 1. Buscar campanhas de vendas
+        # 1. Buscar campanhas do tipo selecionado
         campaigns = meta_get_all_pages(
             f"{ACCOUNT_ID}/campaigns",
             {
@@ -1486,7 +1556,7 @@ def api_daily_summary():
                 "effective_status": _camp_status_filter(camp_status),
             }
         )
-        sales_campaigns = [c for c in campaigns if c.get("objective") == "OUTCOME_SALES"]
+        sales_campaigns = _filter_campaigns_by_type(campaigns, camp_type)
 
         if not sales_campaigns:
             return jsonify({"ok": True, "data": []})
@@ -1582,6 +1652,8 @@ def api_cumulative_reach():
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+        camp_type = _camp_type_from_request()
+        g.camp_type = camp_type
 
         blocked = _enforce_range_for_role(date_from, date_to)
         if blocked:
@@ -1589,13 +1661,13 @@ def api_cumulative_reach():
         campaign_id = request.args.get("campaign_id", "")  # 1 ID ou vários separados por vírgula
         force = request.args.get("force", "false") == "true"
 
-        cache_key = f"cumulative_reach_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"cumulative_reach_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
                 return jsonify(cached)
 
-        # Suporta: 1 ID, múltiplos IDs (vírgula), ou vazio (todas de vendas)
+        # Suporta: 1 ID, múltiplos IDs (vírgula), ou vazio (todas do tipo)
         if campaign_id:
             ids_list = [i.strip() for i in campaign_id.split(",") if i.strip()]
             if len(ids_list) == 1:
@@ -1608,9 +1680,10 @@ def api_cumulative_reach():
             camp_status = request.args.get("camp_status", "active")
             campaigns = meta_get_all_pages(
                 f"{ACCOUNT_ID}/campaigns",
-                {"fields": "id,objective", "effective_status": _camp_status_filter(camp_status)}
+                {"fields": "id,name,objective", "effective_status": _camp_status_filter(camp_status)}
             )
-            camp_ids = [c["id"] for c in campaigns if c.get("objective") == "OUTCOME_SALES"]
+            filtered = _filter_campaigns_by_type(campaigns, camp_type)
+            camp_ids = [c["id"] for c in filtered]
             if not camp_ids:
                 return jsonify({"ok": True, "data": []})
             endpoint = f"{ACCOUNT_ID}/insights"
@@ -1765,18 +1838,20 @@ def api_ad_insights(ad_id):
 @app.route("/api/dashboard/all-creatives")
 @login_required
 def api_all_creatives():
-    """Busca criativos de TODAS as campanhas de vendas com métricas avançadas."""
+    """Busca criativos de TODAS as campanhas do tipo selecionado com métricas avançadas."""
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
         camp_status = request.args.get("camp_status", "active")
         force = request.args.get("force", "false") == "true"
+        camp_type = _camp_type_from_request()
+        g.camp_type = camp_type
 
         # Viewer: so pode usar dados ja em cache (evita acionar chamadas pesadas a API).
         # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
         is_viewer = session.get("role") == "viewer"
 
-        cache_key = f"all_creatives_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"all_creatives_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -1812,7 +1887,7 @@ def api_all_creatives():
                 "effective_status": _camp_status_filter(camp_status),
             }
         )
-        sales_campaigns = [c for c in campaigns if c.get("objective") == "OUTCOME_SALES"]
+        sales_campaigns = _filter_campaigns_by_type(campaigns, camp_type)
 
         warnings = []
         result = _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings)
@@ -1834,6 +1909,7 @@ def api_comparison():
         campaign_ids = [cid.strip() for cid in campaign_ids if cid.strip()]
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+        g.camp_type = _camp_type_from_request()
 
         blocked = _enforce_range_for_role(date_from, date_to)
         if blocked:
@@ -2005,29 +2081,44 @@ def api_breakdowns():
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+        camp_type = _camp_type_from_request()
+        g.camp_type = camp_type
 
         blocked = _enforce_range_for_role(date_from, date_to)
         if blocked:
             return blocked
         campaign_id = request.args.get("campaign_id", "")
 
-        cache_key = f"breakdowns_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"breakdowns_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         cached = get_cached(cache_key)
         if cached:
             return jsonify(cached)
 
-        # Determinar endpoint: campanha especifica ou conta toda (só vendas)
+        conv_types = _get_conversion_types(camp_type)
+
+        # Determinar endpoint: campanha especifica ou conta toda (filtrada por tipo)
         if campaign_id:
             endpoint = campaign_id + "/insights"
+            base_params = {
+                "time_range": json.dumps({"since": date_from, "until": date_to}),
+            }
         else:
             endpoint = ACCOUNT_ID + "/insights"
-
-        base_params = {
-            "time_range": json.dumps({"since": date_from, "until": date_to}),
-            "filtering": json.dumps([{"field": "campaign.objective", "operator": "IN", "value": ["OUTCOME_SALES"]}]) if not campaign_id else None,
-        }
-        # Limpar None
-        base_params = {k: v for k, v in base_params.items() if v is not None}
+            base_params = {
+                "time_range": json.dumps({"since": date_from, "until": date_to}),
+            }
+            if camp_type == CAMP_TYPE_METEORICOS:
+                # Filtrar pelos IDs das campanhas METEORICO_ (ja que nao ha filtro por nome na API)
+                all_camps = meta_get_all_pages(
+                    f"{ACCOUNT_ID}/campaigns",
+                    {"fields": "id,name,objective", "effective_status": '["ACTIVE","PAUSED"]'}
+                )
+                met_ids = [c["id"] for c in _filter_campaigns_by_type(all_camps, camp_type)]
+                if not met_ids:
+                    return jsonify({"ok": True, "age": [], "gender": [], "weekday": [], "campaign_id": "all"})
+                base_params["filtering"] = json.dumps([{"field": "campaign.id", "operator": "IN", "value": met_ids}])
+            else:
+                base_params["filtering"] = json.dumps([{"field": "campaign.objective", "operator": "IN", "value": ["OUTCOME_SALES"]}])
 
         ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas"
 
@@ -2036,26 +2127,28 @@ def api_breakdowns():
             revenue = 0
             roas = 0
             for a in (row.get("actions") or []):
-                if a.get("action_type") in PURCHASE_TYPES:
+                if a.get("action_type") in conv_types:
                     conv = int(a.get("value", 0))
                     break
-            for a in (row.get("action_values") or []):
-                if a.get("action_type") in PURCHASE_TYPES:
-                    revenue = float(a.get("value", 0))
-                    break
-            for a in (row.get("purchase_roas") or []):
-                if a.get("action_type") in PURCHASE_TYPES:
-                    roas = float(a.get("value", 0))
-                    break
-            if roas == 0:
-                for a in (row.get("website_purchase_roas") or []):
-                    if a.get("action_type") in PURCHASE_TYPES:
+            # Leads nao tem revenue/ROAS
+            if camp_type == CAMP_TYPE_VENDAS:
+                for a in (row.get("action_values") or []):
+                    if a.get("action_type") in conv_types:
+                        revenue = float(a.get("value", 0))
+                        break
+                for a in (row.get("purchase_roas") or []):
+                    if a.get("action_type") in conv_types:
                         roas = float(a.get("value", 0))
                         break
-            if roas == 0 and revenue > 0:
-                s = float(row.get("spend", 0))
-                if s > 0:
-                    roas = round(revenue / s, 2)
+                if roas == 0:
+                    for a in (row.get("website_purchase_roas") or []):
+                        if a.get("action_type") in conv_types:
+                            roas = float(a.get("value", 0))
+                            break
+                if roas == 0 and revenue > 0:
+                    s = float(row.get("spend", 0))
+                    if s > 0:
+                        roas = round(revenue / s, 2)
             return conv, revenue, roas
 
         # 0. Buscar totais gerais para calcular ticket médio
@@ -2900,13 +2993,14 @@ def _scheduled_refresh():
             sess["username"] = SUPER_ADMIN_EMAIL
             sess["role"] = "super_admin"
 
-        # ── ETAPA 1 (2:00): Campanhas (todos os ranges) ──
+        # ── ETAPA 1 (2:00): Campanhas (todos os ranges, ambos tipos) ──
         try:
-            print("[SCHEDULER] Etapa 1/5: Carregando campanhas (4 ranges)...")
+            print("[SCHEDULER] Etapa 1/5: Carregando campanhas (4 ranges x 2 tipos)...")
             for days, dt_from in ranges:
-                print(f"[SCHEDULER]   Campanhas {days}d ({dt_from} a {dt_to})")
-                client.get(f"/api/dashboard/campaigns?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
-                time.sleep(5)
+                for ct in VALID_CAMP_TYPES:
+                    print(f"[SCHEDULER]   Campanhas {ct} {days}d ({dt_from} a {dt_to})")
+                    client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
+                    time.sleep(5)
             print("[SCHEDULER] Campanhas OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro campanhas: {e}")
@@ -2915,13 +3009,14 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min antes da proxima etapa...")
         time.sleep(1800)
 
-        # ── ETAPA 2 (2:30): Resumo diario (todos os ranges) ──
+        # ── ETAPA 2 (2:30): Resumo diario (todos os ranges, ambos tipos) ──
         try:
-            print("[SCHEDULER] Etapa 2/5: Carregando resumo diario (4 ranges)...")
+            print("[SCHEDULER] Etapa 2/5: Carregando resumo diario...")
             for days, dt_from in ranges:
-                print(f"[SCHEDULER]   Resumo diario {days}d")
-                client.get(f"/api/dashboard/daily-summary?date_from={dt_from}&date_to={dt_to}&camp_status=active")
-                time.sleep(5)
+                for ct in VALID_CAMP_TYPES:
+                    print(f"[SCHEDULER]   Resumo diario {ct} {days}d")
+                    client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active")
+                    time.sleep(5)
             print("[SCHEDULER] Resumo diario OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro resumo diario: {e}")
@@ -2934,21 +3029,25 @@ def _scheduled_refresh():
         try:
             print("[SCHEDULER] Etapa 3/5: Carregando criativos por campanha (range 30d)...")
             dt_from_30 = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
-            sales_camps = []
+            all_camps_list = []
             try:
                 data = meta_get(f"{ACCOUNT_ID}/campaigns", {
                     "fields": "id,name,objective",
                     "effective_status": '["ACTIVE"]',
                     "limit": "200"
                 })
-                sales_camps = [c for c in data.get("data", []) if c.get("objective") in PURCHASE_TYPES or c.get("objective") == "OUTCOME_SALES"]
+                # Pega campanhas de ambos os tipos (vendas + meteoricos) com o tipo marcado
+                raw_camps = data.get("data", [])
+                for ct in VALID_CAMP_TYPES:
+                    for c in _filter_campaigns_by_type(raw_camps, ct):
+                        all_camps_list.append((ct, c))
             except Exception as e:
                 print(f"[SCHEDULER] Erro ao buscar campanhas: {e}")
 
-            for i, camp in enumerate(sales_camps):
+            for i, (ct, camp) in enumerate(all_camps_list):
                 try:
-                    print(f"[SCHEDULER]   Criativos campanha {i+1}/{len(sales_camps)}: {camp.get('name', camp['id'])}")
-                    client.get(f"/api/dashboard/campaigns/{camp['id']}/creatives?date_from={dt_from_30}&date_to={dt_to}")
+                    print(f"[SCHEDULER]   Criativos {ct} {i+1}/{len(all_camps_list)}: {camp.get('name', camp['id'])}")
+                    client.get(f"/api/dashboard/campaigns/{camp['id']}/creatives?camp_type={ct}&date_from={dt_from_30}&date_to={dt_to}")
                     time.sleep(10)
                 except Exception as e:
                     print(f"[SCHEDULER]   Erro: {e}")
@@ -2962,13 +3061,14 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min...")
         time.sleep(1800)
 
-        # ── ETAPA 4 (3:30): Breakdowns demograficos (todos os ranges) ──
+        # ── ETAPA 4 (3:30): Breakdowns demograficos (todos os ranges, ambos tipos) ──
         try:
-            print("[SCHEDULER] Etapa 4/5: Carregando breakdowns (4 ranges)...")
+            print("[SCHEDULER] Etapa 4/5: Carregando breakdowns...")
             for days, dt_from in ranges:
-                print(f"[SCHEDULER]   Breakdowns {days}d")
-                client.get(f"/api/dashboard/breakdowns?date_from={dt_from}&date_to={dt_to}")
-                time.sleep(10)
+                for ct in VALID_CAMP_TYPES:
+                    print(f"[SCHEDULER]   Breakdowns {ct} {days}d")
+                    client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}")
+                    time.sleep(10)
             print("[SCHEDULER] Breakdowns OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro breakdowns: {e}")
@@ -2976,13 +3076,14 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min...")
         time.sleep(1800)
 
-        # ── ETAPA 5 (4:00): Todos criativos consolidado (todos os ranges) ──
+        # ── ETAPA 5 (4:00): Todos criativos consolidado (todos os ranges, ambos tipos) ──
         try:
-            print("[SCHEDULER] Etapa 5/5: Carregando todos criativos consolidados (4 ranges)...")
+            print("[SCHEDULER] Etapa 5/5: Carregando todos criativos consolidados...")
             for days, dt_from in ranges:
-                print(f"[SCHEDULER]   All-creatives {days}d")
-                client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active")
-                time.sleep(30)
+                for ct in VALID_CAMP_TYPES:
+                    print(f"[SCHEDULER]   All-creatives {ct} {days}d")
+                    client.get(f"/api/dashboard/all-creatives?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active")
+                    time.sleep(30)
             print("[SCHEDULER] Todos criativos OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro todos criativos: {e}")
@@ -3017,16 +3118,18 @@ def _refresh_recent_loop():
                     sess["role"] = "super_admin"
                 for days in days_to_refresh:
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
-                    try:
-                        client.get(f"/api/dashboard/campaigns?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
-                        time.sleep(3)
-                        client.get(f"/api/dashboard/daily-summary?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
-                        time.sleep(3)
-                        client.get(f"/api/dashboard/all-creatives?date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
-                        time.sleep(5)
-                        refresh_scheduler_lock("refresh_recent")
-                    except Exception as e:
-                        print(f"[REFRESH] Erro {days}d: {e}")
+                    for ct in VALID_CAMP_TYPES:
+                        try:
+                            q = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true"
+                            client.get(f"/api/dashboard/campaigns?{q}")
+                            time.sleep(3)
+                            client.get(f"/api/dashboard/daily-summary?{q}")
+                            time.sleep(3)
+                            client.get(f"/api/dashboard/all-creatives?{q}")
+                            time.sleep(5)
+                            refresh_scheduler_lock("refresh_recent")
+                        except Exception as e:
+                            print(f"[REFRESH] Erro {days}d/{ct}: {e}")
             print(f"[REFRESH] Cache atualizado em {datetime.now().strftime('%H:%M')}")
         except Exception as e:
             print(f"[REFRESH] Erro no loop: {e}")

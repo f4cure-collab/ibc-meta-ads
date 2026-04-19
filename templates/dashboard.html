@@ -549,13 +549,34 @@
         ::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(88,166,255,.5),rgba(88,166,255,.25))}
         ::-webkit-scrollbar-corner{background:var(--bg0)}
         ::selection{background:rgba(88,166,255,.3);color:#fff}
+
+        /* Tipo meteoricos: oculta metricas que nao se aplicam a captacao de leads */
+        body.type-meteoricos .m-roas,
+        body.type-meteoricos .m-revenue,
+        body.type-meteoricos [data-metric="roas"],
+        body.type-meteoricos [data-metric="revenue"] {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
 <div class="header">
     <div class="header-left">
         <div style="height:36px;width:65px;overflow:hidden;display:flex;align-items:center;" data-tip="Dashboard de performance das campanhas Meta Ads do IBC Eventos"><img src="/static/Logo_ibc.svg" alt="IBC" style="height:36px;"></div>
-        <span class="badge" data-tip="Filtrando apenas campanhas com objetivo OUTCOME_SALES (vendas)">Vendas</span>
+        <div class="camp-type-switcher" style="position:relative;">
+            <button id="campTypeBtn" class="badge" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:none;font:inherit;" data-tip="Alternar entre tipos de campanha">
+                <span id="campTypeLabel">Vendas</span>
+                <span style="font-size:9px;opacity:.7;">&#9660;</span>
+            </button>
+            <div id="campTypeMenu" style="display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--bg2,#1a1a3e);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:4px;z-index:1000;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+                <button class="camp-type-opt" data-type="vendas" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
+                    <span style="color:#4caf50;margin-right:6px;">&#128722;</span>Vendas
+                </button>
+                <button class="camp-type-opt" data-type="meteoricos" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
+                    <span style="color:#ff9800;margin-right:6px;">&#9733;</span>Meteoricos
+                </button>
+            </div>
+        </div>
     </div>
     <div class="header-right" style="display:flex;align-items:center;gap:12px;">
         <span id="rateBadge" style="display:none;font-size:11px;padding:3px 10px;border-radius:6px;cursor:help;transition:all .3s;"></span>
@@ -1084,6 +1105,36 @@
 (function(){
 'use strict';
 
+// ── Tipo de campanha (vendas / meteoricos): persistido em localStorage ──
+var CURRENT_CAMP_TYPE = localStorage.getItem('camp_type') || 'vendas';
+function isMeteoricos() { return CURRENT_CAMP_TYPE === 'meteoricos'; }
+// Rotulos adaptativos por tipo
+function labelConversao() { return isMeteoricos() ? 'Leads' : 'Compras'; }
+function labelCPA() { return isMeteoricos() ? 'CPL' : 'CPA'; }
+
+// Aplica classe no body para CSS poder ocultar ROAS/Receita via regras
+function applyCampTypeClass() {
+    document.body.classList.remove('type-vendas', 'type-meteoricos');
+    document.body.classList.add('type-' + CURRENT_CAMP_TYPE);
+    var lbl = document.getElementById('campTypeLabel');
+    if (lbl) lbl.textContent = isMeteoricos() ? 'Meteoricos' : 'Vendas';
+}
+
+// Monkey-patch fetch: anexa camp_type automaticamente em todas as chamadas /api/dashboard/*
+// Evita ter que modificar cada uma das ~20 chamadas individualmente.
+(function(){
+    var origFetch = window.fetch;
+    window.fetch = function(url, opts) {
+        try {
+            if (typeof url === 'string' && url.indexOf('/api/dashboard/') === 0 && url.indexOf('camp_type=') === -1) {
+                var sep = url.indexOf('?') >= 0 ? '&' : '?';
+                url = url + sep + 'camp_type=' + encodeURIComponent(CURRENT_CAMP_TYPE);
+            }
+        } catch(e) {}
+        return origFetch.call(this, url, opts);
+    };
+})();
+
 // ── Tooltip system ──
 const tipBox=document.getElementById('tooltip-box');
 document.addEventListener('mouseover',function(e){
@@ -1189,6 +1240,33 @@ function yesterday(){const d=new Date();d.setDate(d.getDate()-1);return toYMD(d)
 function dAgo(n){const d=new Date();d.setDate(d.getDate()-1-n);return toYMD(d);}
 function initD(){const t=yesterday(),f=dAgo(29);['#date-from','#cr-df','#an-df'].forEach(s=>{if($(s))$(s).value=f;});['#date-to','#cr-dt','#an-dt'].forEach(s=>{if($(s))$(s).value=t;});}
 initD();
+
+// Aplica classe do tipo de campanha no body e vincula o dropdown
+applyCampTypeClass();
+(function bindCampTypeSwitcher(){
+    var btn = document.getElementById('campTypeBtn');
+    var menu = document.getElementById('campTypeMenu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
+    });
+    document.addEventListener('click', function(e){
+        if (!menu.contains(e.target) && e.target !== btn) menu.style.display = 'none';
+    });
+    document.querySelectorAll('.camp-type-opt').forEach(function(opt){
+        opt.addEventListener('mouseenter', function(){ opt.style.background = 'rgba(255,255,255,0.06)'; });
+        opt.addEventListener('mouseleave', function(){ opt.style.background = 'none'; });
+        opt.addEventListener('click', function(){
+            var newType = opt.getAttribute('data-type');
+            if (newType === CURRENT_CAMP_TYPE) { menu.style.display = 'none'; return; }
+            CURRENT_CAMP_TYPE = newType;
+            localStorage.setItem('camp_type', newType);
+            // Recarrega a pagina para garantir estado limpo — caches, chips, seleções, etc.
+            window.location.reload();
+        });
+    });
+})();
 
 function trendH(t,tip){
     const dt=tip?` data-tip="${tip}"`:'';
