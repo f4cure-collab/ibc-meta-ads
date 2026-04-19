@@ -786,7 +786,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th><th class="show-meteoricos" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cpl')">CPL</th></tr></thead>
                             <tbody id="bd-weekday"></tbody>
                         </table>
                     </div>
@@ -4164,13 +4164,21 @@ function renderBdTables() {
             '<td style="text-align:right;">' + fmtM(a.cpa) + '</td></tr>';
     }).join('');
 
-    // Dia da semana
-    var ws = sortArr(d.weekday, _bdSorts.weekday.key, _bdSorts.weekday.asc);
+    // Dia da semana — inclui CPL calculado (gasto_avg / conv_avg) para leadcapture
+    var ws = sortArr(d.weekday.map(function(w){
+        var cpl = (w.conv_avg||0) > 0 ? (w.spend_avg||0) / w.conv_avg : 0;
+        return Object.assign({}, w, {cpl: cpl});
+    }), _bdSorts.weekday.key, _bdSorts.weekday.asc);
+    var showCpl = isLeadCapture();
     $('#bd-weekday').innerHTML = ws.map(function(w){
+        var cplCell = showCpl
+            ? '<td class="show-meteoricos" style="text-align:right;font-weight:700;color:#7ee787;">' + fmtM(w.cpl) + '</td>'
+            : '<td class="show-meteoricos" style="display:none;"></td>';
         return '<tr><td style="color:var(--t1);font-weight:600;">' + w.day + '</td>' +
             '<td style="text-align:right;">' + fmtM(w.spend_avg) + '</td>' +
             '<td style="text-align:right;color:var(--accent2);">' + w.conv_avg + '</td>' +
-            '<td data-metric="roas" style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td></tr>';
+            '<td data-metric="roas" style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td>' +
+            cplCell + '</tr>';
     }).join('');
 
     // Re-aplica labels (CPA -> CPL nos headers das tabelas)
@@ -4300,11 +4308,12 @@ function renderBdCharts(d) {
         }
     });
 
-    // ── Dia da semana: Barras + Linha de ROAS (ou CPL se lead capture) ──
+    // ── Dia da semana: Barras + Linha de ROAS (vendas) ou Linha de CPL (leadcapture) ──
     var isLead = isLeadCapture();
-    // Para meteoricos/comercial: cor da barra fica por volume (verde maior). ROAS nao se aplica.
-    // Para vendas: mantem coloracao por ROAS e linha secundaria de ROAS.
     var maxConv = weekdaySorted.reduce(function(m,w){ return Math.max(m, w.conv_avg||0); }, 0) || 1;
+    // Calcula CPL para cada dia (usado em leadcapture)
+    var weekdayCpl = weekdaySorted.map(function(w){ return (w.conv_avg||0) > 0 ? (w.spend_avg||0) / w.conv_avg : 0; });
+
     var weekdayDatasets = [
         {
             label: 'Conv/dia',
@@ -4320,7 +4329,22 @@ function renderBdCharts(d) {
             borderSkipped: false
         }
     ];
-    if (!isLead) {
+    if (isLead) {
+        weekdayDatasets.push({
+            label: 'CPL',
+            data: weekdayCpl,
+            type: 'line',
+            borderColor: 'rgba(126,231,135,1)',
+            backgroundColor: 'rgba(126,231,135,.1)',
+            pointBackgroundColor: 'rgba(126,231,135,1)',
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            borderWidth: 2,
+            fill: true,
+            tension: 0.3,
+            yAxisID: 'y1'
+        });
+    } else {
         weekdayDatasets.push({
             label: 'ROAS',
             data: weekdaySorted.map(function(w){ return w.roas; }),
@@ -4338,11 +4362,11 @@ function renderBdCharts(d) {
     }
     var weekdayScales = {
         x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
-        y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.08)' } }
+        y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.08)' } },
+        y1: isLead
+            ? { position: 'right', ticks: { color: '#7ee787', font: { size: 10 }, callback: function(v){ return 'R$'+v; } }, grid: { display: false } }
+            : { position: 'right', ticks: { color: '#58a6ff', font: { size: 10 }, callback: function(v){ return v+'x'; } }, grid: { display: false } }
     };
-    if (!isLead) {
-        weekdayScales.y1 = { position: 'right', ticks: { color: '#58a6ff', font: { size: 10 }, callback: function(v){ return v+'x'; } }, grid: { display: false } };
-    }
     _bdCharts.weekday = new Chart($('#chart-weekday'), {
         type: 'bar',
         data: {
