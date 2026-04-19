@@ -803,11 +803,13 @@ def parse_insights(row, camp_type=None):
 
 
 def _camp_status_filter(camp_status="active"):
-    """Retorna o filtro effective_status para a Meta API."""
+    """Retorna o filtro effective_status para a Meta API.
+    'all' inclui ARCHIVED para cobrir campanhas de eventos ja encerrados
+    (muito comum em meteoricos, cujos eventos sao de datas passadas)."""
     if camp_status == "paused":
-        return '["PAUSED"]'
+        return '["PAUSED","ARCHIVED"]'
     elif camp_status == "all":
-        return '["ACTIVE","PAUSED"]'
+        return '["ACTIVE","PAUSED","ARCHIVED"]'
     return '["ACTIVE"]'
 
 
