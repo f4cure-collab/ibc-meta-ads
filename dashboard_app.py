@@ -17,7 +17,7 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
 from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock
-from event_grouper import group_campaigns_by_event
+from event_grouper import group_campaigns_by_event, _parse_campaign_name as _parse_name
 
 # Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
 _ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -265,17 +265,28 @@ def _get_conversion_types(camp_type):
     return PURCHASE_TYPES
 
 
+def _name_tokens(name):
+    """Tokeniza nome de campanha normalizando acentos, pontos e hifens."""
+    if not name:
+        return set()
+    u = name.upper().replace("-", "_").replace(".", "_")
+    u = (u.replace("Ç", "C").replace("Ã", "A").replace("Á", "A")
+         .replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U"))
+    return set(t for t in u.split("_") if t)
+
+
+def _is_meteoricos_campaign(name):
+    """True se o nome contem token METEORICO/METEORICOS em qualquer posicao."""
+    tokens = _name_tokens(name)
+    return "METEORICO" in tokens or "METEORICOS" in tokens
+
+
 def _is_comercial_campaign(name):
     """True se o nome contem algum token de produto comercial (MTR/PSC/OHIO/CSI/PNL)
     E nao for campanha de nutricao/remarketing (que nao gera lead novo)."""
-    if not name:
+    tokens = _name_tokens(name)
+    if not tokens:
         return False
-    name_u = name.upper().replace("-", "_")
-    # Normaliza acentos basicos (NUTRIÇÃO -> NUTRICAO)
-    name_u = (name_u.replace("Ç", "C").replace("Ã", "A").replace("Á", "A")
-              .replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U"))
-    tokens = set(name_u.split("_"))
-    # Exclui campanhas de nutricao, remarketing, retargeting
     exclude = {"NUTRICAO", "RMKT", "REMARKETING", "RETARGETING", "NURTURE"}
     if tokens & exclude:
         return False
@@ -285,10 +296,10 @@ def _is_comercial_campaign(name):
 def _filter_campaigns_by_type(campaigns, camp_type):
     """Filtra campanhas conforme o tipo selecionado no dashboard.
     - vendas: objective == OUTCOME_SALES
-    - meteoricos: nome comeca com METEORICO_
+    - meteoricos: nome contem token METEORICO em qualquer posicao
     - comercial: nome contem token de produto (MTR, PSC, OHIO, CSI, PNL)"""
     if camp_type == CAMP_TYPE_METEORICOS:
-        return [c for c in campaigns if c.get("name", "").upper().startswith("METEORICO_")]
+        return [c for c in campaigns if _is_meteoricos_campaign(c.get("name", ""))]
     if camp_type == CAMP_TYPE_COMERCIAL:
         return [c for c in campaigns if _is_comercial_campaign(c.get("name", ""))]
     return [c for c in campaigns if c.get("objective") == "OUTCOME_SALES"]
@@ -3050,6 +3061,63 @@ def api_ad_accounts_delete(acc_id):
         return jsonify({"ok": False, "error": "Conta nao encontrada"}), 404
     _save_ad_accounts(accounts)
     return jsonify({"ok": True, "extra_accounts": accounts})
+
+
+# ── Campanhas nao identificadas: entram no filtro do tipo mas nao casam
+#    com nenhum grupo (ex: METEORICO sem cidade, comercial sem produto) ──
+@app.route("/api/admin/unidentified-campaigns")
+def api_unidentified_campaigns():
+    """Lista campanhas que foram classificadas no tipo (meteoricos/comercial)
+    mas nao foram reconhecidas pelo event_grouper (city/product nao detectado).
+    Super admin apenas."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    camp_type = _normalize_camp_type(request.args.get("camp_type", CAMP_TYPE_METEORICOS))
+    try:
+        now_br = _now_br()
+        dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
+        dt_from = (now_br - timedelta(days=90)).strftime("%Y-%m-%d")
+
+        # Busca todas as campanhas do tipo (inclui arquivadas)
+        raw_camps = []
+        for acc in _get_accounts_for_type(camp_type):
+            try:
+                rows = meta_get_all_pages(
+                    f"{acc}/campaigns",
+                    {"fields": "id,name,status,objective,created_time",
+                     "effective_status": _camp_status_filter("all")}
+                )
+                for c in rows:
+                    c["_account_id"] = acc
+                raw_camps.extend(rows)
+            except Exception as e:
+                print(f"[UNIDENTIFIED] Falha {acc}: {e}")
+
+        filtered = _filter_campaigns_by_type(raw_camps, camp_type)
+
+        # Identifica quais nao foram reconhecidas pelo event_grouper
+        unidentified = []
+        for c in filtered:
+            parsed = _parse_name(c.get("name", ""))
+            if not parsed:
+                unidentified.append({
+                    "id": c["id"],
+                    "name": c.get("name", ""),
+                    "status": c.get("status", ""),
+                    "account_id": c.get("_account_id", ""),
+                    "created_time": c.get("created_time", ""),
+                })
+
+        unidentified.sort(key=lambda x: x.get("created_time", ""), reverse=True)
+        return jsonify({
+            "ok": True,
+            "camp_type": camp_type,
+            "total_filtered": len(filtered),
+            "total_unidentified": len(unidentified),
+            "campaigns": unidentified,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/admin/meteoricos-preview")

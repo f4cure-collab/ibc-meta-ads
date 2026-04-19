@@ -75,6 +75,7 @@ EVENT_TYPE_MAP = {
     "SPK": "Speaker",
     "DSP": "Desperte seu Poder",
     "AIE": "Alto Impacto Empresarial",
+    "METEORICO": "Meteorico",
 }
 
 # Produtos comerciais (highticket). Usados para agrupar campanhas de leads comerciais.
@@ -105,14 +106,41 @@ def _parse_campaign_name(name):
     Retorna (event_type, city_key, city_name) ou None se não conseguir parsear.
     """
     name_upper = name.upper().replace("Á", "A").replace("É", "E").replace("Ú", "U").replace("Ã", "A").replace("Ó", "O")
+    tokens_split = set(name_upper.replace("-", "_").replace(".", "_").split("_"))
 
     # Comercial: agrupa por produto (MTR, PSC, OHIO, CSI, PNL) em vez de evento+cidade
-    tokens_split = set(name_upper.replace("-", "_").split("_"))
     for prod_key, prod_name in COMERCIAL_PRODUCT_MAP.items():
         if prod_key in tokens_split:
             # Reutiliza o contrato (event_type, city_key, city_name).
             # event_type = codigo do produto, city_name = nome completo.
             return (prod_key, prod_key, prod_name)
+
+    # Meteoricos: qualquer campanha com token METEORICO e agrupada por CIDADE apenas.
+    # Ignora DSP/SPK/AIE no nome (todo meteorico e um so tipo de evento).
+    if "METEORICO" in tokens_split or "METEORICOS" in tokens_split:
+        best_city = None
+        best_key = None
+        for key, full in CITY_MAP.items():
+            if key == "RMKT":
+                continue
+            if key in tokens_split:
+                if best_key is None or len(key) > len(best_key):
+                    best_key = key
+                    best_city = full
+        if not best_city:
+            for key, full in CITY_MAP.items():
+                if key == "RMKT" or len(key) <= 3:
+                    continue
+                if key in name_upper:
+                    if best_key is None or len(key) > len(best_key):
+                        best_key = key
+                        best_city = full
+        if best_city:
+            best_key = CITY_KEY_NORMALIZE.get(best_key, best_key)
+            best_city = CITY_MAP.get(best_key, best_city)
+            return ("METEORICO", best_key, best_city)
+        # METEORICO sem cidade reconhecida -> nao identificada (cai em Outros)
+        return None
 
     # Detectar RMKT
     if "_RMKT" in name_upper:
@@ -300,6 +328,12 @@ def group_campaigns_by_event(campaigns, gap_days=60):
                 suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""
                 event_name = f"{event_type_name}{suffix}"
                 event_id = f"{et}_{period_id}"
+            elif et == "METEORICO":
+                # Meteoricos: agrupa todas as campanhas da cidade em 1 evento
+                # (nome: "Meteorico — Porto Velho")
+                suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""
+                event_name = f"Meteorico — {city}{suffix}"
+                event_id = f"METEORICO_{city_key}_{period_id}"
             else:
                 suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""
                 event_name = f"{event_type_name} — {city}{suffix}"

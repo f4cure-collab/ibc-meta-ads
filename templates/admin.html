@@ -205,6 +205,20 @@
         </div>
     </div>
 
+    <!-- Campanhas nao identificadas -->
+    <div class="card" id="unidentifiedCard" style="display:none;">
+        <h2>Campanhas Nao Identificadas</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:12px;">
+            Campanhas que foram classificadas como Meteorico ou Comercial mas nao tiveram
+            cidade/produto detectado no nome — caem no grupo "Outros" no dashboard.
+        </p>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">
+            <button class="btn btn-primary" onclick="loadUnidentified('meteoricos')">Meteoricos</button>
+            <button class="btn btn-primary" onclick="loadUnidentified('comercial')" style="background:#58a6ff">Comercial</button>
+        </div>
+        <div id="unidentifiedContent"></div>
+    </div>
+
     <!-- Diagnostico Meteoricos (temporario) -->
     <div class="card" id="meteoricosCard" style="display:none;">
         <h2>Diagnostico Meteoricos (preview)</h2>
@@ -351,6 +365,8 @@ async function loadUsers() {
         document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
         var mc = document.getElementById('meteoricosCard');
         if (mc) mc.style.display = _isSuper ? 'block' : 'none';
+        var uc = document.getElementById('unidentifiedCard');
+        if (uc) uc.style.display = _isSuper ? 'block' : 'none';
         var ac = document.getElementById('adAccountsCard');
         if (ac) {
             ac.style.display = _isSuper ? 'block' : 'none';
@@ -938,6 +954,50 @@ async function deleteAdAccount(id) {
         if (!d.ok) { alert('Erro: '+d.error); return; }
         loadAdAccounts();
     } catch(e) { alert(e.message); }
+}
+
+// ── Campanhas nao identificadas ──
+async function loadUnidentified(campType) {
+    var box = document.getElementById('unidentifiedContent');
+    box.innerHTML = '<div style="color:#888;padding:16px;">Carregando...</div>';
+    try {
+        var r = await fetch('/api/admin/unidentified-campaigns?camp_type=' + encodeURIComponent(campType));
+        var d = await r.json();
+        if (!d.ok) { box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + d.error + '</div>'; return; }
+
+        var summary = '<div style="color:#ccc;font-size:12px;margin-bottom:10px;">'
+            + '<strong style="color:#4f8cff;">' + campType + '</strong>: '
+            + d.total_filtered + ' campanhas classificadas, '
+            + '<span style="color:' + (d.total_unidentified > 0 ? '#ff9800' : '#4caf50') + ';font-weight:600;">'
+            + d.total_unidentified + ' nao identificadas</span>'
+            + '</div>';
+
+        if (!d.campaigns.length) {
+            box.innerHTML = summary + '<div style="color:#4caf50;padding:12px;background:rgba(76,175,80,0.05);border-radius:6px;font-size:12px;">Todas as campanhas foram reconhecidas.</div>';
+            return;
+        }
+
+        var html = summary + '<table style="width:100%;font-size:11px;"><thead><tr>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Nome</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Status</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Criada em</th>'
+            + '<th style="text-align:left;padding:6px;color:#888;">Conta</th>'
+            + '</tr></thead><tbody>';
+        d.campaigns.forEach(function(c){
+            var dt = c.created_time ? new Date(c.created_time).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}) : '—';
+            html += '<tr>'
+                + '<td style="padding:6px;border-bottom:1px solid #2a2a4a;color:#ccc;">' + c.name + '</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #2a2a4a;color:' + (c.status==='ACTIVE'?'#4caf50':'#888') + ';">' + c.status + '</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #2a2a4a;color:#aaa;">' + dt + '</td>'
+                + '<td style="padding:6px;border-bottom:1px solid #2a2a4a;color:#666;font-family:monospace;font-size:10px;">' + (c.account_id||'') + '</td>'
+                + '</tr>';
+        });
+        html += '</tbody></table>';
+        html += '<div style="color:#666;font-size:11px;margin-top:8px;">Dica: adicione a cidade/produto a CITY_MAP ou COMERCIAL_PRODUCTS no backend para que sejam reconhecidas.</div>';
+        box.innerHTML = html;
+    } catch(e) {
+        box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + e.message + '</div>';
+    }
 }
 
 // ── Meteoricos preview (diagnostico temporario) ──
