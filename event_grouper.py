@@ -250,19 +250,25 @@ def group_campaigns_by_event(campaigns, gap_days=60):
         # Campanhas sem data válida vão para o final (não criam gaps)
         items.sort(key=lambda x: x["start_date"] if x["start_date"] and x["start_date"] > min_valid_date else datetime.max)
 
-        # Separar em sub-eventos por gap (ignorar itens sem data válida)
-        sub_events = []
-        current_group = [items[0]]
-        for i in range(1, len(items)):
-            prev_date = items[i - 1]["start_date"]
-            curr_date = items[i]["start_date"]
-            prev_valid = prev_date and prev_date > min_valid_date
-            curr_valid = curr_date and curr_date > min_valid_date
-            if prev_valid and curr_valid and (curr_date - prev_date).days > gap_days:
-                sub_events.append(current_group)
-                current_group = []
-            current_group.append(items[i])
-        sub_events.append(current_group)
+        # Comerciais (MTR, PSC, OHIO, CSI, PNL) sao produtos perpetuos — nao
+        # separar por gap temporal, sempre 1 unico grupo por produto.
+        is_comercial_group = items[0]["event_type"] in COMERCIAL_PRODUCT_MAP
+        if is_comercial_group:
+            sub_events = [items]
+        else:
+            # Separar em sub-eventos por gap (ignorar itens sem data válida)
+            sub_events = []
+            current_group = [items[0]]
+            for i in range(1, len(items)):
+                prev_date = items[i - 1]["start_date"]
+                curr_date = items[i]["start_date"]
+                prev_valid = prev_date and prev_date > min_valid_date
+                curr_valid = curr_date and curr_date > min_valid_date
+                if prev_valid and curr_valid and (curr_date - prev_date).days > gap_days:
+                    sub_events.append(current_group)
+                    current_group = []
+                current_group.append(items[i])
+            sub_events.append(current_group)
 
         for idx, group in enumerate(sub_events):
             if not group:
