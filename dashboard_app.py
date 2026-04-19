@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
-from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock
+from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh
 from event_grouper import group_campaigns_by_event, _parse_campaign_name as _parse_name
 
 # Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
@@ -3662,17 +3662,25 @@ def _refresh_recent_loop():
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
-                            # Campanhas e resumo diario pre-carregam com status=all (padrao
-                            # do dashboard: inclui campanhas que tiveram veiculacao mesmo
-                            # ja pausadas). Criativos mantem status=active para nao inflar.
+                            # Chaves de cache correspondentes (matching backend logic).
+                            # Pula requisicao se cache ainda tem >40% do TTL original.
+                            k_camp = f"campaigns_{ct}_all_{dt_from}_{dt_to}"
+                            k_daily = f"daily_summary_{ct}_all_{dt_from}_{dt_to}"
+                            k_creat = f"all_creatives_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
-                            client.get(f"/api/dashboard/campaigns?{base}&camp_status=all")
-                            time.sleep(3)
-                            client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all")
-                            time.sleep(3)
-                            client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active")
-                            time.sleep(5)
-                            refresh_scheduler_lock("refresh_recent")
+
+                            refreshed_any = False
+                            if should_refresh(k_camp):
+                                client.get(f"/api/dashboard/campaigns?{base}&camp_status=all")
+                                refreshed_any = True; time.sleep(3)
+                            if should_refresh(k_daily):
+                                client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all")
+                                refreshed_any = True; time.sleep(3)
+                            if should_refresh(k_creat):
+                                client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active")
+                                refreshed_any = True; time.sleep(5)
+                            if refreshed_any:
+                                refresh_scheduler_lock("refresh_recent")
                         except Exception as e:
                             print(f"[REFRESH] Erro {days}d/{ct}: {e}")
             print(f"[REFRESH] Cache atualizado em {datetime.now().strftime('%H:%M')}")

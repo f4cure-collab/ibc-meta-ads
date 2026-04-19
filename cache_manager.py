@@ -120,6 +120,37 @@ def set_cached(cache_key, data, ttl_hours=20):
         print(f"[CACHE] Erro ao salvar: {e}")
 
 
+def should_refresh(cache_key, min_ttl_ratio=0.4):
+    """Decide se vale a pena refrescar uma entrada de cache.
+
+    Retorna True se:
+    - Entrada nao existe (nunca foi populada)
+    - Ja expirou
+    - Tem menos que min_ttl_ratio do TTL original restante
+
+    Exemplo: TTL de 1h, min_ttl_ratio=0.4 -> refresh quando sobra <24min.
+    Evita que o refresh loop gaste API com entradas que ainda estao frescas."""
+    try:
+        conn = _get_db()
+        row = conn.execute(
+            "SELECT created_at, expires_at FROM api_cache WHERE cache_key = ?",
+            (cache_key,)
+        ).fetchone()
+        conn.close()
+        if not row:
+            return True
+        created_at = datetime.fromisoformat(row[0])
+        expires_at = datetime.fromisoformat(row[1])
+        now = datetime.now()
+        if now >= expires_at:
+            return True
+        original_ttl = (expires_at - created_at).total_seconds()
+        remaining = (expires_at - now).total_seconds()
+        return remaining < original_ttl * min_ttl_ratio
+    except Exception:
+        return True
+
+
 def clear_cache():
     """Limpa todo o cache."""
     try:
