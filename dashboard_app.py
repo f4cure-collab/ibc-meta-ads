@@ -3250,7 +3250,8 @@ def _scheduled_refresh():
             for days, dt_from in ranges:
                 for ct in VALID_CAMP_TYPES:
                     print(f"[SCHEDULER]   Campanhas {ct} {days}d ({dt_from} a {dt_to})")
-                    client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true")
+                    # status=all para cobrir campanhas que tiveram veiculacao mesmo pausadas
+                    client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=all&force=true")
                     time.sleep(5)
             print("[SCHEDULER] Campanhas OK")
         except Exception as e:
@@ -3266,7 +3267,7 @@ def _scheduled_refresh():
             for days, dt_from in ranges:
                 for ct in VALID_CAMP_TYPES:
                     print(f"[SCHEDULER]   Resumo diario {ct} {days}d")
-                    client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active")
+                    client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=all")
                     time.sleep(5)
             print("[SCHEDULER] Resumo diario OK")
         except Exception as e:
@@ -3371,12 +3372,15 @@ def _refresh_recent_loop():
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
-                            q = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active&force=true"
-                            client.get(f"/api/dashboard/campaigns?{q}")
+                            # Campanhas e resumo diario pre-carregam com status=all (padrao
+                            # do dashboard: inclui campanhas que tiveram veiculacao mesmo
+                            # ja pausadas). Criativos mantem status=active para nao inflar.
+                            base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
+                            client.get(f"/api/dashboard/campaigns?{base}&camp_status=all")
                             time.sleep(3)
-                            client.get(f"/api/dashboard/daily-summary?{q}")
+                            client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all")
                             time.sleep(3)
-                            client.get(f"/api/dashboard/all-creatives?{q}")
+                            client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active")
                             time.sleep(5)
                             refresh_scheduler_lock("refresh_recent")
                         except Exception as e:

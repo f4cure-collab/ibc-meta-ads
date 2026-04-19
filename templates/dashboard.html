@@ -638,9 +638,9 @@
             </div>
             <div class="fg"><label data-tip="Filtrar campanhas por status (ativa ou pausada)">Status</label>
                 <div class="preset-btns" id="camp-status-btns">
-                    <button class="pbtn active" data-cs="active" data-tip="Apenas campanhas ativas (rodando)">Ativas</button>
+                    <button class="pbtn" data-cs="active" data-tip="Apenas campanhas ativas (rodando)">Ativas</button>
                     <button class="pbtn" data-cs="paused" data-tip="Apenas campanhas pausadas">Pausadas</button>
-                    <button class="pbtn" data-cs="all" data-tip="Todas as campanhas (ativas + pausadas)">Todas</button>
+                    <button class="pbtn active" data-cs="all" data-tip="Todas as campanhas que tiveram veiculacao (ativas + pausadas)">Todas</button>
                 </div>
             </div>
             <div class="fg"><label data-tip="Data inicial (m&iacute;n: janeiro 2026)">De</label><input type="date" class="fi" id="date-from" min="2026-01-01" data-tip="Data inicial"></div>
@@ -1407,7 +1407,7 @@ if($('.pbc'))setupP($('.pbc'),'#cr-df','#cr-dt');
 async function api(u){const r=await fetch(u);if(r.status===401){window.location.href='/login';return null;}const d=await r.json();if(!d.ok)throw new Error(d.error||'Erro');return d;}
 
 // ══════════ CAMPAIGNS ══════════
-let campStatusFilter='active';
+let campStatusFilter='all';
 
 // Botões de status da campanha
 document.querySelectorAll('#camp-status-btns .pbtn').forEach(b=>{
@@ -2617,7 +2617,9 @@ async function loadCr(force){
     // Limpar banner anterior
     const oldBanner=$('#cr-warnings');if(oldBanner)oldBanner.remove();
     try{
-        const r=await api(`/api/dashboard/all-creatives?date_from=${df}&date_to=${dt}&camp_status=${campStatusFilter}${fq}`);
+        // Criativos SEMPRE busca com camp_status=active para nao explodir cache.
+        // (Campanhas pausadas tem muitos anuncios que inflam o payload e usam API.)
+        const r=await api(`/api/dashboard/all-creatives?date_from=${df}&date_to=${dt}&camp_status=active${fq}`);
         crData=r.data||[];activeChips.clear();
         buildStableCampaignOrder();
         buildChips();renderCr();
