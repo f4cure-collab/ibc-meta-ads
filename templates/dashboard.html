@@ -3921,27 +3921,40 @@ function renderProjection(){
     cardsHtml.push(`<div class="scard"><div class="sl" data-tip="${convLabel} m&eacute;dios di&aacute;rios projetados">${dailyConvLabel}</div><div class="sv" style="font-size:22px">${(sumPurch/projDays).toFixed(1)}</div></div>`);
     $('#proj-summary').innerHTML = cardsHtml.join('');
 
-    // Tend&ecirc;ncias (slopes)
-    function trendCard(label,base,fmtFn,tipBase){
+    // Tend&ecirc;ncias (slopes).
+    // lowerIsBetter=true: custo (CPA/CPL/CPM) — subir e ruim (vermelho), descer e bom (verde).
+    // lowerIsBetter=false: metrica positiva (Receita/Leads/ROAS) — subir e bom (verde).
+    function trendCard(label,base,fmtFn,tipBase,lowerIsBetter){
         const{slope}=linReg(base);
         const avg=base.reduce((a,b)=>a+b,0)/Math.max(base.length,1);
         const pct=avg>0?(slope/avg*100):0;
         const icon=slope>0.1*Math.abs(avg)/10?'&#9650;':slope<-0.1*Math.abs(avg)/10?'&#9660;':'&mdash;';
-        const color=pct>2?'var(--green)':pct<-2?'var(--red)':'var(--yellow)';
+        let color='var(--yellow)';
+        if (lowerIsBetter) {
+            // Custo: subir e ruim
+            if (pct>2) color='var(--red)';
+            else if (pct<-2) color='var(--green)';
+        } else {
+            // Positiva: subir e bom
+            if (pct>2) color='var(--green)';
+            else if (pct<-2) color='var(--red)';
+        }
         return`<div class="scard" data-tip="${tipBase}. Incremento m&eacute;dio por dia: ${fmtFn(slope)}"><div class="sl">${label}</div><div class="sv" style="font-size:18px;color:${color}">${icon} ${pct>0?'+':''}${pct.toFixed(1)}%/dia</div></div>`;
     }
 
     const trendsHtml = [
-        trendCard('Gasto',baseSpend,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria do gasto baseada na regress&atilde;o linear dos &uacute;ltimos '+nBase+' dias'),
+        // Gasto sozinho e neutro (escalar pode ser bom), mantem comportamento legado: subir=verde
+        trendCard('Gasto',baseSpend,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria do gasto baseada na regress&atilde;o linear dos &uacute;ltimos '+nBase+' dias',false),
     ];
     if (!isMet) {
-        trendsHtml.push(trendCard('Receita',baseRev,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria da receita'));
+        trendsHtml.push(trendCard('Receita',baseRev,fmtM,'Varia&ccedil;&atilde;o percentual di&aacute;ria da receita',false));
     }
-    trendsHtml.push(trendCard(convLabel,basePurch,v=>v.toFixed(2),`Varia&ccedil;&atilde;o percentual di&aacute;ria de ${convLabel.toLowerCase()}`));
+    trendsHtml.push(trendCard(convLabel,basePurch,v=>v.toFixed(2),`Varia&ccedil;&atilde;o percentual di&aacute;ria de ${convLabel.toLowerCase()}`,false));
     if (!isMet) {
-        trendsHtml.push(trendCard('ROAS',baseRoas,v=>v.toFixed(2)+'x','Varia&ccedil;&atilde;o percentual di&aacute;ria do ROAS'));
+        trendsHtml.push(trendCard('ROAS',baseRoas,v=>v.toFixed(2)+'x','Varia&ccedil;&atilde;o percentual di&aacute;ria do ROAS',false));
     }
-    trendsHtml.push(trendCard(cpaLabel,baseCpa,fmtM,`Varia&ccedil;&atilde;o percentual di&aacute;ria do ${cpaLabel}`));
+    // CPA/CPL: menor e melhor — inverte cores
+    trendsHtml.push(trendCard(cpaLabel,baseCpa,fmtM,`Varia&ccedil;&atilde;o percentual di&aacute;ria do ${cpaLabel} (menor = melhor)`,true));
     $('#proj-trends').innerHTML = trendsHtml.join('');
 
     // Gr&aacute;ficos: hist&oacute;rico (linha s&oacute;lida) + proje&ccedil;&atilde;o (linha tracejada)
