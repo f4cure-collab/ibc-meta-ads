@@ -3111,12 +3111,12 @@ def api_ad_accounts_delete(acc_id):
 # ── Campanhas nao identificadas: lista campanhas de TODAS contas/tipos ──
 @app.route("/api/admin/unidentified-campaigns")
 def api_unidentified_campaigns():
-    """Lista campanhas que nao foram alocadas a nenhum evento/produto:
-    - Match algum filtro de tipo mas nao parseiam (vao pra 'Outros')
-    - Nao match nenhum filtro (ficam fora de todos os dashboards)
-    Inclui tambem a lista de overrides manuais ja aplicados."""
+    """Lista campanhas que nao foram alocadas a nenhum evento/produto.
+    Por padrao, retorna somente campanhas com impressoes/spend no ano corrente
+    (param only_with_data=1). Para ver tudo, passar only_with_data=0."""
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    only_with_data = request.args.get("only_with_data", "1") == "1"
     try:
         # Busca campanhas de TODAS as contas configuradas
         all_accounts = set()
@@ -3140,6 +3140,33 @@ def api_unidentified_campaigns():
             except Exception as e:
                 print(f"[UNIDENTIFIED] Falha {acc}: {e}")
 
+        # Se only_with_data, consulta insights agregados do ano corrente para
+        # descobrir quais campanhas tiveram impressoes > 0 em 2026 (ou ano atual)
+        campaigns_with_data = None
+        if only_with_data and all_camps:
+            now_br = _now_br()
+            year_start = f"{now_br.year}-01-01"
+            year_end = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
+            campaigns_with_data = set()
+            for acc in all_accounts:
+                try:
+                    rows = meta_get_all_pages(
+                        f"{acc}/insights",
+                        {
+                            "fields": "campaign_id,impressions",
+                            "time_range": json.dumps({"since": year_start, "until": year_end}),
+                            "level": "campaign",
+                            "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
+                            "limit": 500,
+                        }
+                    )
+                    for r in rows:
+                        cid = r.get("campaign_id")
+                        if cid:
+                            campaigns_with_data.add(cid)
+                except Exception as e:
+                    print(f"[UNIDENTIFIED] Falha insights {acc}: {e}")
+
         overrides = _load_overrides()
         unidentified = []
         override_list = []
@@ -3147,6 +3174,10 @@ def api_unidentified_campaigns():
         for c in all_camps:
             cid = c["id"]
             name = c.get("name", "")
+
+            # Aplica filtro de atividade (se habilitado)
+            if campaigns_with_data is not None and cid not in campaigns_with_data:
+                continue
 
             # Campanha com override ativo — separa em outra lista
             if cid in overrides:
@@ -3185,7 +3216,7 @@ def api_unidentified_campaigns():
                     "account_id": c.get("_account_id", ""),
                     "created_time": c.get("created_time", ""),
                     "auto_detected_type": auto_type,
-                    "in_dashboard": bool(auto_type),  # aparece em Outros se True, senao fora
+                    "in_dashboard": bool(auto_type),
                 })
 
         unidentified.sort(key=lambda x: x.get("created_time", ""), reverse=True)
@@ -3194,6 +3225,8 @@ def api_unidentified_campaigns():
         return jsonify({
             "ok": True,
             "total": len(unidentified),
+            "total_campaigns_scanned": len(all_camps),
+            "only_with_data": only_with_data,
             "campaigns": unidentified,
             "overrides": override_list,
             "valid_camp_types": list(VALID_CAMP_TYPES),

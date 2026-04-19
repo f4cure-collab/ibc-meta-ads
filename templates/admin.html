@@ -60,6 +60,15 @@
         .action-item.danger:hover{background:#3a1a1a;color:#f44336}
         .action-divider{height:1px;background:#2a2a4a;margin:4px 0}
 
+        /* Chips de filtro (Campanhas Nao Identificadas) */
+        .unid-fchip{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#aaa;padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer;transition:all .15s}
+        .unid-fchip:hover{background:rgba(255,255,255,0.08);color:#ccc}
+        .unid-fchip.active{background:rgba(79,140,255,0.15);border-color:rgba(79,140,255,0.4);color:#4f8cff;font-weight:600}
+        .unid-page-btn{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);color:#aaa;padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;min-width:30px}
+        .unid-page-btn:hover{background:rgba(255,255,255,0.08)}
+        .unid-page-btn.active{background:rgba(79,140,255,0.2);color:#4f8cff;font-weight:700}
+        .unid-page-btn:disabled{opacity:.4;cursor:default}
+
         /* Submenu de navegacao */
         .adm-nav{display:flex;gap:4px;margin:16px 0 24px;border-bottom:1px solid #2a2a4a;overflow-x:auto;padding-bottom:0}
         .adm-nav-btn{background:none;border:none;color:#888;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:color .15s,border-color .15s}
@@ -233,11 +242,36 @@
         <h2>Campanhas Nao Identificadas</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">
             Campanhas de qualquer conta que ainda nao estao alocadas a um evento/produto.
-            Clique em "Alocar" para atribuir manualmente a categoria (Vendas/Meteoricos/Comercial) e rotulo do evento.
+            Clique em "Alocar" para atribuir manualmente a categoria e rotulo do evento.
         </p>
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;">
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
             <button class="btn btn-primary" onclick="loadUnidentified()">Carregar</button>
-            <input type="text" id="unidSearch" placeholder="Buscar por nome..." style="flex:1;padding:8px 12px;background:#0f0f23;border:1px solid #2a2a4a;border-radius:6px;color:#e0e0e0;font-size:13px;">
+            <input type="text" id="unidSearch" placeholder="Buscar por nome..." style="flex:1;min-width:200px;padding:8px 12px;background:#0f0f23;border:1px solid #2a2a4a;border-radius:6px;color:#e0e0e0;font-size:13px;">
+            <label style="display:flex;align-items:center;gap:6px;color:#ccc;font-size:12px;cursor:pointer;">
+                <input type="checkbox" id="unidOnlyWithData" checked> Apenas com atividade no ano
+            </label>
+        </div>
+        <!-- Filtros -->
+        <div style="display:flex;gap:20px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:rgba(255,255,255,0.02);border-radius:8px;">
+            <div>
+                <div style="color:#888;font-size:10px;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Status</div>
+                <div class="unid-filter-group" data-filter="status" style="display:flex;gap:4px;">
+                    <button class="unid-fchip active" data-value="all">Todas</button>
+                    <button class="unid-fchip" data-value="ACTIVE">Ativas</button>
+                    <button class="unid-fchip" data-value="PAUSED">Pausadas</button>
+                    <button class="unid-fchip" data-value="ARCHIVED">Arquivadas</button>
+                </div>
+            </div>
+            <div>
+                <div style="color:#888;font-size:10px;font-weight:600;text-transform:uppercase;margin-bottom:4px;">Tipo auto-detectado</div>
+                <div class="unid-filter-group" data-filter="type" style="display:flex;gap:4px;">
+                    <button class="unid-fchip active" data-value="all">Todos</button>
+                    <button class="unid-fchip" data-value="vendas">Vendas</button>
+                    <button class="unid-fchip" data-value="meteoricos">Meteoricos</button>
+                    <button class="unid-fchip" data-value="comercial">Comercial</button>
+                    <button class="unid-fchip" data-value="unassigned">Sem tipo</button>
+                </div>
+            </div>
         </div>
         <div id="unidentifiedContent"></div>
     </div>
@@ -1003,15 +1037,20 @@ async function deleteAdAccount(id) {
 // ── Campanhas nao identificadas + overrides manuais ──
 var _unidData = null;
 var _allocCampaign = null;
+var _unidFilters = { status: 'all', type: 'all' };
+var _unidPage = 1;
+var _unidPageSize = 20;
 
 async function loadUnidentified() {
     var box = document.getElementById('unidentifiedContent');
-    box.innerHTML = '<div style="color:#888;padding:16px;">Carregando campanhas de todas as contas...</div>';
+    var onlyData = document.getElementById('unidOnlyWithData').checked ? '1' : '0';
+    box.innerHTML = '<div style="color:#888;padding:16px;">Carregando campanhas de todas as contas... (consulta insights do ano, pode demorar 5-15s)</div>';
     try {
-        var r = await fetch('/api/admin/unidentified-campaigns');
+        var r = await fetch('/api/admin/unidentified-campaigns?only_with_data=' + onlyData);
         var d = await r.json();
         if (!d.ok) { box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + d.error + '</div>'; return; }
         _unidData = d;
+        _unidPage = 1;
         renderUnidentified();
     } catch(e) {
         box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + e.message + '</div>';
@@ -1033,12 +1072,32 @@ function renderUnidentified() {
 
     var camps = d.campaigns || [];
     var overrides = d.overrides || [];
-    if (q) {
-        camps = camps.filter(function(c){ return (c.name||'').toLowerCase().indexOf(q) >= 0; });
-        overrides = overrides.filter(function(c){ return (c.name||'').toLowerCase().indexOf(q) >= 0; });
+
+    // Filtros: busca, status, tipo auto
+    function matchFilters(c, isOverride) {
+        if (q && (c.name||'').toLowerCase().indexOf(q) < 0) return false;
+        if (_unidFilters.status !== 'all' && c.status !== _unidFilters.status) return false;
+        if (_unidFilters.type !== 'all') {
+            if (isOverride) {
+                if (c.override_type !== _unidFilters.type) return false;
+            } else {
+                if (_unidFilters.type === 'unassigned') {
+                    if (c.auto_detected_type) return false;
+                } else if (c.auto_detected_type !== _unidFilters.type) return false;
+            }
+        }
+        return true;
     }
+    camps = camps.filter(function(c){ return matchFilters(c, false); });
+    overrides = overrides.filter(function(c){ return matchFilters(c, true); });
 
     var html = '';
+
+    // Resumo
+    html += '<div style="color:#666;font-size:11px;margin-bottom:10px;">'
+        + 'Total escaneado: <strong style="color:#ccc;">'+d.total_campaigns_scanned+'</strong>'
+        + (d.only_with_data ? ' · <span style="color:#4caf50;">filtrado por atividade no ano</span>' : '')
+        + ' · Ate agora: '+camps.length+' nao identificadas, '+overrides.length+' com override</div>';
 
     // Seção de overrides ativos
     if (overrides.length) {
@@ -1065,12 +1124,17 @@ function renderUnidentified() {
         html += '</tbody></table></div>';
     }
 
-    // Seção de não identificadas
+    // Seção de não identificadas com paginação
     html += '<div>';
     html += '<strong style="color:#ff9800;font-size:12px;">Nao identificadas ('+camps.length+')</strong>';
     if (!camps.length) {
-        html += '<div style="color:#4caf50;padding:12px;background:rgba(76,175,80,0.05);border-radius:6px;font-size:12px;margin-top:8px;">Nenhuma campanha pendente de alocacao.</div>';
+        html += '<div style="color:#4caf50;padding:12px;background:rgba(76,175,80,0.05);border-radius:6px;font-size:12px;margin-top:8px;">Nenhuma campanha pendente de alocacao com os filtros atuais.</div>';
     } else {
+        var totalPages = Math.max(1, Math.ceil(camps.length / _unidPageSize));
+        if (_unidPage > totalPages) _unidPage = totalPages;
+        var start = (_unidPage - 1) * _unidPageSize;
+        var pageItems = camps.slice(start, start + _unidPageSize);
+
         html += '<table style="width:100%;font-size:11px;margin-top:8px;"><thead><tr>'
             + '<th style="text-align:left;padding:6px;color:#888;">Nome</th>'
             + '<th style="text-align:left;padding:6px;color:#888;">Status</th>'
@@ -1078,10 +1142,10 @@ function renderUnidentified() {
             + '<th style="text-align:left;padding:6px;color:#888;">Criada</th>'
             + '<th style="text-align:right;padding:6px;color:#888;">Acao</th>'
             + '</tr></thead><tbody>';
-        camps.forEach(function(c){
+        pageItems.forEach(function(c){
             var dt = c.created_time ? new Date(c.created_time).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}) : '—';
             var autoType = c.auto_detected_type ? _typeBadge(c.auto_detected_type) : '<span style="color:#666;font-size:10px;">nao se aplica</span>';
-            var statusCol = c.status==='ACTIVE'?'#4caf50':'#888';
+            var statusCol = c.status==='ACTIVE'?'#4caf50':(c.status==='PAUSED'?'#ffc107':'#888');
             html += '<tr>'
                 + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;color:#ccc;">'+c.name+'</td>'
                 + '<td style="padding:6px;border-bottom:1px solid #1a1a3e;color:'+statusCol+';">'+c.status+'</td>'
@@ -1092,10 +1156,52 @@ function renderUnidentified() {
                 + '</td></tr>';
         });
         html += '</tbody></table>';
+
+        // Paginator
+        if (totalPages > 1) {
+            html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;gap:10px;">';
+            html += '<div style="color:#666;font-size:11px;">Mostrando '+(start+1)+'-'+Math.min(start+_unidPageSize, camps.length)+' de '+camps.length+'</div>';
+            html += '<div style="display:flex;gap:4px;">';
+            html += '<button class="unid-page-btn" onclick="unidGoPage('+(_unidPage-1)+')" '+(_unidPage<=1?'disabled':'')+'>&larr;</button>';
+            // Mostrar ate 7 numeros de pagina centrados no atual
+            var maxBtns = 7;
+            var startP = Math.max(1, _unidPage - Math.floor(maxBtns/2));
+            var endP = Math.min(totalPages, startP + maxBtns - 1);
+            if (endP - startP + 1 < maxBtns) startP = Math.max(1, endP - maxBtns + 1);
+            if (startP > 1) html += '<button class="unid-page-btn" onclick="unidGoPage(1)">1</button>' + (startP > 2 ? '<span style="color:#555;padding:0 4px;">...</span>' : '');
+            for (var p = startP; p <= endP; p++) {
+                html += '<button class="unid-page-btn '+(p===_unidPage?'active':'')+'" onclick="unidGoPage('+p+')">'+p+'</button>';
+            }
+            if (endP < totalPages) html += (endP < totalPages-1 ? '<span style="color:#555;padding:0 4px;">...</span>' : '') + '<button class="unid-page-btn" onclick="unidGoPage('+totalPages+')">'+totalPages+'</button>';
+            html += '<button class="unid-page-btn" onclick="unidGoPage('+(_unidPage+1)+')" '+(_unidPage>=totalPages?'disabled':'')+'>&rarr;</button>';
+            html += '</div></div>';
+        }
     }
     html += '</div>';
     box.innerHTML = html;
 }
+
+function unidGoPage(p) {
+    _unidPage = p;
+    renderUnidentified();
+    // Scroll para o topo da tabela
+    var card = document.getElementById('unidentifiedCard');
+    if (card) card.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+// Handlers dos chips de filtro
+document.addEventListener('click', function(e) {
+    var chip = e.target.closest('.unid-fchip');
+    if (!chip) return;
+    var group = chip.closest('.unid-filter-group');
+    if (!group) return;
+    var filter = group.getAttribute('data-filter');
+    group.querySelectorAll('.unid-fchip').forEach(function(c){ c.classList.remove('active'); });
+    chip.classList.add('active');
+    _unidFilters[filter] = chip.getAttribute('data-value');
+    _unidPage = 1;
+    if (_unidData) renderUnidentified();
+});
 
 function openAllocate(cid, name, defType, defEvent) {
     _allocCampaign = cid;
