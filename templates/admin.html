@@ -180,10 +180,9 @@
     <div class="card" id="adAccountsCard" style="display:none;">
         <h2>Contas de Anuncio</h2>
         <p style="color:#888;font-size:13px;margin-bottom:12px;">
-            Conta principal vem do .env do servidor. Contas extras aqui sao consultadas para os tipos de campanha selecionados.
-            Util para quando as campanhas comerciais (PSC, PNL, CSI, etc) estao em uma conta separada.
+            Todas as contas sincronizadas sao consultadas pelo dashboard nos tipos de campanha mapeados.
+            A conta principal (do .env) cobre todos os tipos por padrao.
         </p>
-        <div id="adAccountsMain" style="padding:10px 12px;background:#0f0f23;border-radius:8px;margin-bottom:12px;font-family:monospace;font-size:12px;color:#4caf50;"></div>
         <div id="adAccountsList" style="margin-bottom:14px;"></div>
 
         <div style="border-top:1px solid #2a2a4a;padding-top:14px;">
@@ -194,8 +193,8 @@
                     <input type="text" id="newAccId" placeholder="act_2148686818481082">
                 </div>
                 <div style="flex:1;">
-                    <label>Nome (opcional)</label>
-                    <input type="text" id="newAccLabel" placeholder="Conta Comercial 01">
+                    <label>Nome (opcional — vem da Meta automaticamente)</label>
+                    <input type="text" id="newAccLabel" placeholder="Opcional">
                 </div>
             </div>
             <label style="margin-top:10px;">Tipos de campanha</label>
@@ -846,30 +845,54 @@ async function applyUpdate() {
 var _validCampTypes = [];
 var _campTypeLabels = { vendas: 'Vendas', meteoricos: 'Meteoricos', comercial: 'Comercial' };
 
+function _statusDot(status) {
+    var color = '#888', bg = 'rgba(136,136,136,0.12)';
+    if (status === 'ACTIVE') { color = '#4caf50'; bg = 'rgba(76,175,80,0.15)'; }
+    else if (status === 'DISABLED' || status === 'CLOSED') { color = '#f44336'; bg = 'rgba(244,67,54,0.15)'; }
+    else if (status === 'ERROR') { color = '#ff9800'; bg = 'rgba(255,152,0,0.15)'; }
+    else if (status === 'UNKNOWN') { color = '#888'; bg = 'rgba(136,136,136,0.12)'; }
+    else { color = '#ff9800'; bg = 'rgba(255,152,0,0.12)'; }  // estados intermediarios
+    return {color: color, bg: bg};
+}
+
 async function loadAdAccounts() {
+    var listEl = document.getElementById('adAccountsList');
+    listEl.innerHTML = '<div style="color:#888;font-size:12px;padding:8px 0;">Carregando contas...</div>';
     try {
         var r = await fetch('/api/admin/ad-accounts');
         var d = await r.json();
-        if (!d.ok) return;
+        if (!d.ok) { listEl.innerHTML = '<div style="color:#f44336;">Erro: '+d.error+'</div>'; return; }
         _validCampTypes = d.valid_camp_types || [];
-        document.getElementById('adAccountsMain').innerHTML =
-            '<strong style="color:#4f8cff;">Conta principal (.env):</strong> ' + (d.main_account || '(nao configurada)');
 
-        var list = d.extra_accounts || [];
-        var listEl = document.getElementById('adAccountsList');
-        if (!list.length) {
-            listEl.innerHTML = '<div style="color:#666;font-size:12px;padding:8px 0;">Nenhuma conta extra configurada.</div>';
+        var accs = d.accounts || [];
+        if (!accs.length) {
+            listEl.innerHTML = '<div style="color:#666;font-size:12px;padding:8px 0;">Nenhuma conta configurada.</div>';
         } else {
-            listEl.innerHTML = list.map(function(a){
-                var badges = (a.camp_types||[]).map(function(t){
-                    return '<span style="display:inline-block;padding:2px 8px;background:rgba(88,166,255,0.15);color:#4f8cff;border-radius:4px;font-size:10px;margin-right:4px;">'+(_campTypeLabels[t]||t)+'</span>';
+            listEl.innerHTML = accs.map(function(a){
+                var dot = _statusDot(a.status);
+                var statusPill = '<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;background:'+dot.bg+';color:'+dot.color+';border-radius:12px;font-size:10px;font-weight:600;">'
+                    + '<span style="width:6px;height:6px;background:'+dot.color+';border-radius:50%;"></span>'
+                    + a.status_label + '</span>';
+                var mainBadge = a.is_main ? '<span style="display:inline-block;padding:2px 8px;background:rgba(79,140,255,0.2);color:#4f8cff;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px;">PRINCIPAL</span>' : '';
+                var typesBadges = (a.camp_types||[]).map(function(t){
+                    return '<span style="display:inline-block;padding:2px 8px;background:rgba(88,166,255,0.12);color:#8ab4f8;border-radius:4px;font-size:10px;margin-right:4px;">'+(_campTypeLabels[t]||t)+'</span>';
                 }).join('');
-                return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#0f0f23;border-radius:6px;margin-bottom:6px;">'
-                    + '<div><strong style="color:#ccc;font-size:13px;">'+(a.label||a.id)+'</strong>'
-                    + '<div style="color:#888;font-family:monospace;font-size:11px;margin-top:2px;">'+a.id+'</div>'
-                    + '<div style="margin-top:6px;">'+badges+'</div></div>'
-                    + '<button class="btn btn-danger btn-sm" onclick="deleteAdAccount(\''+a.id+'\')">Remover</button>'
-                    + '</div>';
+                var currency = a.currency ? ' · '+a.currency : '';
+                var removeBtn = a.is_main ? '<span style="color:#555;font-size:11px;">Gerenciada no .env</span>'
+                    : '<button class="btn btn-danger btn-sm" onclick="deleteAdAccount(\''+a.id+'\')">Remover</button>';
+                return '<div style="padding:12px 14px;background:#0f0f23;border-radius:8px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.04);">'
+                    + '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;">'
+                    + '<div style="flex:1;min-width:0;">'
+                    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'
+                    + '<strong style="color:#fff;font-size:14px;">'+(a.label||a.name||a.id)+'</strong>'
+                    + mainBadge + statusPill
+                    + '</div>'
+                    + '<div style="color:#888;font-family:monospace;font-size:11px;margin-bottom:6px;">'+a.id+currency+'</div>'
+                    + '<div>'+typesBadges+'</div>'
+                    + (a.error ? '<div style="color:#f44336;font-size:11px;margin-top:6px;">'+a.error+'</div>' : '')
+                    + '</div>'
+                    + '<div style="flex-shrink:0;">'+removeBtn+'</div>'
+                    + '</div></div>';
             }).join('');
         }
 
@@ -881,7 +904,7 @@ async function loadAdAccounts() {
                 + (_campTypeLabels[t]||t) + '</label>';
         }).join('');
     } catch(e) {
-        console.error(e);
+        listEl.innerHTML = '<div style="color:#f44336;">Erro: '+e.message+'</div>';
     }
 }
 

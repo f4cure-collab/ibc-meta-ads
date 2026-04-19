@@ -2893,15 +2893,83 @@ def api_token_expiry():
 
 # ── Meteoricos Preview (diagnostico temporario) ───────────────────────
 # ── Gerenciamento de contas de anuncio (multi-account) ────────────────
+
+# Mapeamento de account_status da Meta API para label humano
+_META_ACCOUNT_STATUS = {
+    1: ("Ativa", "ACTIVE"),
+    2: ("Desativada", "DISABLED"),
+    3: ("Nao liquidada", "UNSETTLED"),
+    7: ("Revisao de risco", "PENDING_RISK_REVIEW"),
+    8: ("Pag. pendente", "PENDING_SETTLEMENT"),
+    9: ("Em periodo de carencia", "IN_GRACE_PERIOD"),
+    100: ("Fechamento pendente", "PENDING_CLOSURE"),
+    101: ("Fechada", "CLOSED"),
+}
+
+
+def _fetch_account_meta(acc_id):
+    """Consulta Meta API para obter nome e status da conta. Cache em memoria simples."""
+    try:
+        info = meta_get(acc_id, {"fields": "name,account_status,currency,timezone_name"})
+        status_num = info.get("account_status", 0)
+        status_label, status_key = _META_ACCOUNT_STATUS.get(status_num, (f"Status {status_num}", "UNKNOWN"))
+        return {
+            "id": acc_id,
+            "name": info.get("name", acc_id),
+            "status": status_key,
+            "status_label": status_label,
+            "currency": info.get("currency", ""),
+            "timezone": info.get("timezone_name", ""),
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "id": acc_id,
+            "name": acc_id,
+            "status": "ERROR",
+            "status_label": "Erro ao consultar",
+            "currency": "",
+            "timezone": "",
+            "error": str(e),
+        }
+
+
 @app.route("/api/admin/ad-accounts", methods=["GET"])
 def api_ad_accounts_list():
-    """Lista contas extras (alem da principal do .env). Super admin apenas."""
+    """Lista todas as contas sincronizadas (principal + extras) com metadados da Meta API."""
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    extras = _load_ad_accounts()
+    extras_by_id = {a.get("id"): a for a in extras}
+
+    # Lista unificada: principal primeiro, depois extras
+    result = []
+    seen = set()
+    if ACCOUNT_ID:
+        meta = _fetch_account_meta(ACCOUNT_ID)
+        meta["is_main"] = True
+        meta["label"] = meta.get("name") or ACCOUNT_ID
+        # Principal sempre cobre todos os tipos (conta default)
+        meta["camp_types"] = list(VALID_CAMP_TYPES)
+        result.append(meta)
+        seen.add(ACCOUNT_ID)
+
+    for extra in extras:
+        acc_id = (extra.get("id") or "").strip()
+        if not acc_id or acc_id in seen:
+            continue
+        meta = _fetch_account_meta(acc_id)
+        meta["is_main"] = False
+        meta["label"] = extra.get("label") or meta.get("name") or acc_id
+        meta["camp_types"] = extra.get("camp_types") or []
+        meta["created_by"] = extra.get("created_by", "")
+        meta["created_at"] = extra.get("created_at", "")
+        result.append(meta)
+        seen.add(acc_id)
+
     return jsonify({
         "ok": True,
-        "main_account": ACCOUNT_ID,
-        "extra_accounts": _load_ad_accounts(),
+        "accounts": result,
         "valid_camp_types": list(VALID_CAMP_TYPES),
     })
 
