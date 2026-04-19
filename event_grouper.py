@@ -77,6 +77,15 @@ EVENT_TYPE_MAP = {
     "AIE": "Alto Impacto Empresarial",
 }
 
+# Produtos comerciais (highticket). Usados para agrupar campanhas de leads comerciais.
+COMERCIAL_PRODUCT_MAP = {
+    "MTR": "Master Trainer",
+    "PSC": "Professional & Self Coaching",
+    "OHIO": "Ohio",
+    "CSI": "Constelacao Sistemica",
+    "PNL": "PNL",
+}
+
 # Normalizar variantes de city_key para forma canônica
 CITY_KEY_NORMALIZE = {
     "JOAO_PESSOA": "JOAOPESSOA",
@@ -96,6 +105,14 @@ def _parse_campaign_name(name):
     Retorna (event_type, city_key, city_name) ou None se não conseguir parsear.
     """
     name_upper = name.upper().replace("Á", "A").replace("É", "E").replace("Ú", "U").replace("Ã", "A").replace("Ó", "O")
+
+    # Comercial: agrupa por produto (MTR, PSC, OHIO, CSI, PNL) em vez de evento+cidade
+    tokens_split = set(name_upper.replace("-", "_").split("_"))
+    for prod_key, prod_name in COMERCIAL_PRODUCT_MAP.items():
+        if prod_key in tokens_split:
+            # Reutiliza o contrato (event_type, city_key, city_name).
+            # event_type = codigo do produto, city_name = nome completo.
+            return (prod_key, prod_key, prod_name)
 
     # Detectar RMKT
     if "_RMKT" in name_upper:
@@ -271,6 +288,12 @@ def group_campaigns_by_event(campaigns, gap_days=60):
             if et == "RMKT":
                 event_name = "Remarketing Geral"
                 event_id = "RMKT"
+            elif et in COMERCIAL_PRODUCT_MAP:
+                # Comercial: event_name e o proprio nome do produto (ex: "Master Trainer")
+                event_type_name = COMERCIAL_PRODUCT_MAP[et]
+                suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""
+                event_name = f"{event_type_name}{suffix}"
+                event_id = f"{et}_{period_id}"
             else:
                 suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""
                 event_name = f"{event_type_name} — {city}{suffix}"

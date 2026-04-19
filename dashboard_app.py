@@ -148,7 +148,18 @@ LEAD_TYPES = [
 
 CAMP_TYPE_VENDAS = "vendas"
 CAMP_TYPE_METEORICOS = "meteoricos"
-VALID_CAMP_TYPES = (CAMP_TYPE_VENDAS, CAMP_TYPE_METEORICOS)
+CAMP_TYPE_COMERCIAL = "comercial"
+VALID_CAMP_TYPES = (CAMP_TYPE_VENDAS, CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL)
+
+# Produtos comerciais (highticket). Chave = token no nome da campanha.
+# CSI/PNL estao pausados atualmente mas aparecem quando o filtro de status inclui pausadas.
+COMERCIAL_PRODUCTS = {
+    "MTR": "Master Trainer",
+    "PSC": "Professional & Self Coaching",
+    "OHIO": "Ohio",
+    "CSI": "Constelacao Sistemica",
+    "PNL": "PNL",
+}
 
 
 def _normalize_camp_type(ct):
@@ -160,18 +171,30 @@ def _normalize_camp_type(ct):
 
 
 def _get_conversion_types(camp_type):
-    """Retorna a lista de action_types da conversao primaria do tipo."""
-    if camp_type == CAMP_TYPE_METEORICOS:
+    """Retorna a lista de action_types da conversao primaria do tipo.
+    Vendas = purchase. Meteoricos e Comercial = lead (ambos captacao)."""
+    if camp_type in (CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL):
         return LEAD_TYPES
     return PURCHASE_TYPES
 
 
+def _is_comercial_campaign(name):
+    """True se o nome contem algum token de produto comercial (MTR/PSC/OHIO/CSI/PNL)."""
+    if not name:
+        return False
+    tokens = set(name.upper().replace("-", "_").split("_"))
+    return any(k in tokens for k in COMERCIAL_PRODUCTS)
+
+
 def _filter_campaigns_by_type(campaigns, camp_type):
     """Filtra campanhas conforme o tipo selecionado no dashboard.
-    - vendas: objective == OUTCOME_SALES (comportamento original)
-    - meteoricos: nome comeca com METEORICO_ (independe do objective)"""
+    - vendas: objective == OUTCOME_SALES
+    - meteoricos: nome comeca com METEORICO_
+    - comercial: nome contem token de produto (MTR, PSC, OHIO, CSI, PNL)"""
     if camp_type == CAMP_TYPE_METEORICOS:
         return [c for c in campaigns if c.get("name", "").upper().startswith("METEORICO_")]
+    if camp_type == CAMP_TYPE_COMERCIAL:
+        return [c for c in campaigns if _is_comercial_campaign(c.get("name", ""))]
     return [c for c in campaigns if c.get("objective") == "OUTCOME_SALES"]
 
 

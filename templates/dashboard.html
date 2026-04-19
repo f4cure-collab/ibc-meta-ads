@@ -550,23 +550,23 @@
         ::-webkit-scrollbar-corner{background:var(--bg0)}
         ::selection{background:rgba(88,166,255,.3);color:#fff}
 
-        /* Tipo meteoricos: oculta metricas que nao se aplicam a captacao de leads
-           (sem receita, sem ROAS, sem checkout — funil termina no lead/cadastro) */
-        body.type-meteoricos [data-metric="roas"],
-        body.type-meteoricos [data-metric="revenue"],
-        body.type-meteoricos [data-metric="rate_lpv_ic"],
-        body.type-meteoricos [data-metric="rate_ic_purchase"],
-        body.type-meteoricos [data-metric="initiate_checkout"],
-        body.type-meteoricos [data-metric="cost_per_ic"],
-        body.type-meteoricos [data-metric="ticket"],
-        body.type-meteoricos .hide-meteoricos,
-        body.type-meteoricos #rank-roas-title,
-        body.type-meteoricos .ccard-rank:has(#rank-roas-title) {
+        /* Tipos com captura de lead (meteoricos + comercial): oculta metricas que
+           nao se aplicam (sem receita, ROAS, checkout — funil termina no lead) */
+        body.type-leadcapture [data-metric="roas"],
+        body.type-leadcapture [data-metric="revenue"],
+        body.type-leadcapture [data-metric="rate_lpv_ic"],
+        body.type-leadcapture [data-metric="rate_ic_purchase"],
+        body.type-leadcapture [data-metric="initiate_checkout"],
+        body.type-leadcapture [data-metric="cost_per_ic"],
+        body.type-leadcapture [data-metric="ticket"],
+        body.type-leadcapture .hide-meteoricos,
+        body.type-leadcapture #rank-roas-title,
+        body.type-leadcapture .ccard-rank:has(#rank-roas-title) {
             display: none !important;
         }
-        /* Mostra somente para meteoricos (CPL ranking substitui ROAS) */
+        /* Mostra somente para captura de lead (CPL ranking substitui ROAS) */
         .show-meteoricos { display: none; }
-        body.type-meteoricos .show-meteoricos { display: block !important; }
+        body.type-leadcapture .show-meteoricos { display: block !important; }
     </style>
 </head>
 <body>
@@ -578,12 +578,15 @@
                 <span id="campTypeLabel">Vendas</span>
                 <span style="font-size:9px;opacity:.7;">&#9660;</span>
             </button>
-            <div id="campTypeMenu" style="display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--bg2,#1a1a3e);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:4px;z-index:1000;min-width:160px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
+            <div id="campTypeMenu" style="display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--bg2,#1a1a3e);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:4px;z-index:1000;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
                 <button class="camp-type-opt" data-type="vendas" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
                     <span style="color:#4caf50;margin-right:6px;">&#128722;</span>Vendas
                 </button>
                 <button class="camp-type-opt" data-type="meteoricos" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
                     <span style="color:#ff9800;margin-right:6px;">&#9733;</span>Meteoricos
+                </button>
+                <button class="camp-type-opt" data-type="comercial" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
+                    <span style="color:#58a6ff;margin-right:6px;">&#128188;</span>Comercial
                 </button>
             </div>
         </div>
@@ -1116,27 +1119,34 @@
 (function(){
 'use strict';
 
-// ── Tipo de campanha (vendas / meteoricos): persistido em localStorage ──
+// ── Tipo de campanha (vendas / meteoricos / comercial): persistido em localStorage ──
 var CURRENT_CAMP_TYPE = localStorage.getItem('camp_type') || 'vendas';
 function isMeteoricos() { return CURRENT_CAMP_TYPE === 'meteoricos'; }
+function isComercial() { return CURRENT_CAMP_TYPE === 'comercial'; }
+// Captura de lead: meteoricos OU comercial — ambos usam mesma logica de UI.
+function isLeadCapture() { return isMeteoricos() || isComercial(); }
 // Rotulos adaptativos por tipo
-function labelConversao() { return isMeteoricos() ? 'Leads' : 'Compras'; }
-function labelCPA() { return isMeteoricos() ? 'CPL' : 'CPA'; }
+function labelConversao() { return isLeadCapture() ? 'Leads' : 'Compras'; }
+function labelCPA() { return isLeadCapture() ? 'CPL' : 'CPA'; }
 
 // Aplica classe no body para CSS poder ocultar ROAS/Receita via regras
 function applyCampTypeClass() {
-    document.body.classList.remove('type-vendas', 'type-meteoricos');
+    document.body.classList.remove('type-vendas', 'type-meteoricos', 'type-comercial', 'type-leadcapture');
     document.body.classList.add('type-' + CURRENT_CAMP_TYPE);
+    // Classe generica pra captura de leads (CSS pode usar uma so regra p/ ambos)
+    if (isLeadCapture()) document.body.classList.add('type-leadcapture');
     var lbl = document.getElementById('campTypeLabel');
-    if (lbl) lbl.textContent = isMeteoricos() ? 'Meteoricos' : 'Vendas';
+    if (lbl) {
+        lbl.textContent = isComercial() ? 'Comercial' : (isLeadCapture() ? 'Meteoricos' : 'Vendas');
+    }
     adaptStaticLabelsToType();
 }
 
 // Percorre o DOM e adapta labels estaticos conforme o tipo selecionado.
-// Elementos marcam opcoes via data-label-vendas / data-label-meteoricos.
-// Tambem reescreve textos em tabelas/filtros que contem "Compras"/"CPA".
+// Elementos marcam opcoes via data-label-vendas / data-label-meteoricos (leadcapture
+// reusa o sufixo 'meteoricos' porque a logica de UI e identica).
 function adaptStaticLabelsToType() {
-    var suffix = isMeteoricos() ? 'meteoricos' : 'vendas';
+    var suffix = isLeadCapture() ? 'meteoricos' : 'vendas';
     // 1. Elementos com data-label-*  — substitui diretamente
     document.querySelectorAll('[data-label-vendas][data-label-meteoricos]').forEach(function(el){
         var t = el.getAttribute('data-label-' + suffix);
@@ -1144,9 +1154,11 @@ function adaptStaticLabelsToType() {
     });
     // Titulo da tabela de campanhas
     document.querySelectorAll('.tbl-camps-label').forEach(function(el){
-        el.textContent = isMeteoricos() ? 'Campanhas de Meteoricos' : 'Campanhas de Vendas';
+        if (isComercial()) el.textContent = 'Campanhas Comerciais';
+        else if (isLeadCapture()) el.textContent = 'Campanhas de Meteoricos';
+        else el.textContent = 'Campanhas de Vendas';
     });
-    if (!isMeteoricos()) return;
+    if (!isLeadCapture()) return;
     // 2. Reescrita em bloco para meteoricos: so faz uma vez (marca via dataset)
     // Labels/headers nas colunas "Compras" e "CPA" (cobre data-key= e data-sort=)
     document.querySelectorAll('th[data-key="purchases"], th[data-key="cpa"], th[data-sort="purchases"], th[data-sort="cpa"]').forEach(function(th){
@@ -1749,7 +1761,7 @@ function _renderRankings(evData){
 
     const cplGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
 
-    if (isMeteoricos()) {
+    if (isLeadCapture()) {
         // CPL ranking (menor = melhor). Default ASC: menor CPL primeiro.
         // rankSortState.roas=true (default) -> ASC; false -> DESC (inverte ao clicar).
         const cpla=rankSortState.roas;
@@ -1803,13 +1815,13 @@ function _renderRankings(evData){
     const maxSD=bySalesDay.reduce((m,c)=>Math.max(m,c.salesPerDay||0),0);
     const slt=$('#rank-sales-title');
     if(slt){
-        const conv = isMeteoricos() ? 'Leads' : 'Vendas';
-        const icon = isMeteoricos() ? '&#9733;' : '&#128722;';
+        const conv = isLeadCapture() ? 'Leads' : 'Vendas';
+        const icon = isLeadCapture() ? '&#9733;' : '&#128722;';
         slt.innerHTML=`${icon} <span class="rank-sales-label">${conv}</span>/Dia por Evento ${rankSortState.sales?'&#9660;':'&#9650;'}`;
     }
     renderList('ch-sales-day',bySalesDay,maxSD,c=>c.salesPerDay||0,
         (c,v)=>v.toFixed(2)+'/dia',
-        (c,v)=>{const lbl=isMeteoricos()?'leads':'vendas';return`${c.name}: ${v.toFixed(2)} ${lbl}/dia (${c.purchases||0} ${lbl}, ${c._count} campanhas)`;},salesGrad);
+        (c,v)=>{const lbl=isLeadCapture()?'leads':'vendas';return`${c.name}: ${v.toFixed(2)} ${lbl}/dia (${c.purchases||0} ${lbl}, ${c._count} campanhas)`;},salesGrad);
 }
 
 // Click nos t&iacute;tulos dos rankings para inverter ordem
@@ -1831,7 +1843,7 @@ function buildFunnelHTML(t){
     const ic=t.initiate_checkout||0;
     const purch=t.purchases||0;
 
-    const meteoricos = isMeteoricos();
+    const meteoricos = isLeadCapture();
     // Funil de Meteoricos (captacao de lead): Impressoes -> Cliques -> LPV -> Cadastro (lead)
     // Funil de Vendas: Impressoes -> Cliques -> LPV -> Checkout -> Compra
     let steps, conversions, totalRate;
@@ -2094,8 +2106,8 @@ const DETAIL_METRICS={
     spend:{label:'Gasto Total',color:'#ff6b6b',fmt:fmtM,calc:d=>d.spend||0,axis:'money'},
     revenue:{label:'Receita Total',color:'#3fdf85',fmt:fmtM,calc:d=>d.revenue||0,axis:'money'},
     roas:{label:'ROAS',color:'#58a6ff',fmt:fmtR,calc:d=>d.roas||0,axis:'ratio'},
-    purchases:{label:isMeteoricos()?'Leads':'Compras',color:'#56d4dd',fmt:fmt,calc:d=>d.purchases||0,axis:'count'},
-    cpa:{label:isMeteoricos()?'CPL':'CPA',color:'#ffc857',fmt:fmtM,calc:d=>d.cpa||0,axis:'unit_cost'},
+    purchases:{label:isLeadCapture()?'Leads':'Compras',color:'#56d4dd',fmt:fmt,calc:d=>d.purchases||0,axis:'count'},
+    cpa:{label:isLeadCapture()?'CPL':'CPA',color:'#ffc857',fmt:fmtM,calc:d=>d.cpa||0,axis:'unit_cost'},
     cpm:{label:'CPM',color:'#bc8cff',fmt:fmtM,calc:d=>{const i=d.impressions||0;return i>0?(d.spend/i)*1000:0;},axis:'unit_cost'},
     // Funil — volumes (ordem do funil)
     impressions:{label:'Impressões',color:'#1f6feb',fmt:fmt,calc:d=>d.impressions||0,axis:'big'},
@@ -2463,10 +2475,10 @@ const CAMP_METRICS={
     spend:{label:'Gasto',color:'#f85149',fmt:fmtM,key:'spend',axis:'money'},
     revenue:{label:'Receita',color:'#3fb950',fmt:fmtM,key:'revenue',axis:'money'},
     roas:{label:'ROAS',color:'#58a6ff',fmt:fmtR,key:'roas',axis:'ratio'},
-    cpa:{label:isMeteoricos()?'CPL':'CPA',color:'#d29922',fmt:fmtM,key:'cpa',axis:'unit_cost'},
+    cpa:{label:isLeadCapture()?'CPL':'CPA',color:'#d29922',fmt:fmtM,key:'cpa',axis:'unit_cost'},
     cpm:{label:'CPM',color:'#bc8cff',fmt:fmtM,key:'cpm',axis:'unit_cost'},
     ctr:{label:'CTR',color:'#79c0ff',fmt:fmtP,key:'ctr',axis:'pct'},
-    purchases:{label:isMeteoricos()?'Leads':'Compras',color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
+    purchases:{label:isLeadCapture()?'Leads':'Compras',color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
     impressions:{label:'Impress\u00f5es',color:'#1f6feb',fmt:fmt,key:'impressions',axis:'big'},
     clicks:{label:'Cliques',color:'#a5d6ff',fmt:fmt,key:'clicks',axis:'count'},
     rate_click_lpv:{label:'Click\u2192LPV',color:'#56d4dd',fmt:fmtP,key:'rate_click_lpv',axis:'pct'},
@@ -2855,7 +2867,7 @@ function renderCards(data){
     Object.entries(groups).forEach(([id,g])=>{if(!stableCampaignOrder.includes(id))ordered.push([id,g]);});
 
     let h='';
-    const isMet=isMeteoricos();
+    const isMet=isLeadCapture();
     for(const[cid,g]of ordered){
         const ts=g.ads.reduce((s,a)=>s+(a.spend||0),0),tr=g.ads.reduce((s,a)=>s+(a.revenue||0),0),tp=g.ads.reduce((s,a)=>s+(a.purchases||0),0);
         const ti=g.ads.reduce((s,a)=>s+(a.impressions||0),0);
@@ -2923,12 +2935,12 @@ function cardH(c){
             </div>
         </div>
         <div class="cr-stats-grid">
-            <div class="cr-st" data-tip="${isMeteoricos()?'Leads: total de cadastros atribu&iacute;dos a este criativo.':'Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.'}">
-                <div class="lbl">${isMeteoricos()?'Leads':'Compras'}</div>
+            <div class="cr-st" data-tip="${isLeadCapture()?'Leads: total de cadastros atribu&iacute;dos a este criativo.':'Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.'}">
+                <div class="lbl">${isLeadCapture()?'Leads':'Compras'}</div>
                 <div class="val">${fmt(c.purchases)}</div>
             </div>
-            <div class="cr-st" data-tip="${isMeteoricos()?'CPL (Custo por Lead): quanto custou em m&eacute;dia cada cadastro — gasto / leads.':'CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — gasto / compras.'}">
-                <div class="lbl">${isMeteoricos()?'CPL':'CPA'}</div>
+            <div class="cr-st" data-tip="${isLeadCapture()?'CPL (Custo por Lead): quanto custou em m&eacute;dia cada cadastro — gasto / leads.':'CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — gasto / compras.'}">
+                <div class="lbl">${isLeadCapture()?'CPL':'CPA'}</div>
                 <div class="val">${fmtM(c.cpa)}</div>
             </div>
             <div class="cr-st" data-tip="CTR (Click Through Rate): percentual de pessoas que viram o an&uacute;ncio e clicaram. Mede o quanto a arte/copy atrai cliques.">
@@ -2952,14 +2964,14 @@ function cardH(c){
             <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 7 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">7 Dias</div>
                 <div class="pblock-row" data-tip="Gasto investido nos &uacute;ltimos 7 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_7d)}</span></div>
-                <div class="pblock-row" data-tip="${isMeteoricos()?'Leads nos &uacute;ltimos 7 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 7 dias.'}"><span class="pl">${isMeteoricos()?'Leads':'Comp.'}</span><span class="pr">${c.purchases_7d||0}</span></div>
+                <div class="pblock-row" data-tip="${isLeadCapture()?'Leads nos &uacute;ltimos 7 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 7 dias.'}"><span class="pl">${isLeadCapture()?'Leads':'Comp.'}</span><span class="pr">${c.purchases_7d||0}</span></div>
                 <div class="pblock-row" data-metric="roas" data-tip="ROAS nos &uacute;ltimos 7 dias."><span class="pl">ROAS</span><span class="pr" style="color:${r7c}">${fmtR(c.roas_7d)}</span></div>
                 ${(()=>{const sh=shareCompare(c.share_7d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha nos &uacute;ltimos 7 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_7d||0}%</span></div>`;})()}
             </div>
             <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 3 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">3 Dias</div>
                 <div class="pblock-row" data-tip="Gasto investido nos &uacute;ltimos 3 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_3d)}</span></div>
-                <div class="pblock-row" data-tip="${isMeteoricos()?'Leads nos &uacute;ltimos 3 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 3 dias.'}"><span class="pl">${isMeteoricos()?'Leads':'Comp.'}</span><span class="pr">${c.purchases_3d||0}</span></div>
+                <div class="pblock-row" data-tip="${isLeadCapture()?'Leads nos &uacute;ltimos 3 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 3 dias.'}"><span class="pl">${isLeadCapture()?'Leads':'Comp.'}</span><span class="pr">${c.purchases_3d||0}</span></div>
                 <div class="pblock-row" data-metric="roas" data-tip="ROAS nos &uacute;ltimos 3 dias."><span class="pl">ROAS</span><span class="pr" style="color:${r3c}">${fmtR(c.roas_3d)}</span></div>
                 ${(()=>{const sh=shareCompare(c.share_3d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha nos &uacute;ltimos 3 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_3d||0}%</span></div>`;})()}
             </div>
@@ -3558,8 +3570,8 @@ async function openAdModal(adId,adName,thumbnailUrl){
                     <div class="scard clickable" data-metric="spend" data-tip="Total investido"><div class="sl">Gasto</div><div class="sv" style="font-size:20px">${fmtM(t.spend)}</div></div>
                     <div class="scard clickable" data-metric="revenue" data-tip="Receita gerada"><div class="sl">Receita</div><div class="sv" style="font-size:20px">${fmtM(t.revenue)}</div></div>
                     <div class="scard clickable" data-metric="roas" data-tip="${roasTip(t.roas)}"><div class="sl">ROAS</div><div class="sv" style="font-size:20px;color:${roasC(t.roas)}">${fmtR(t.roas)}</div></div>
-                    <div class="scard clickable" data-metric="purchases" data-tip="${isMeteoricos()?'Leads captados':'Compras atribu&iacute;das'}"><div class="sl">${isMeteoricos()?'Leads':'Compras'}</div><div class="sv" style="font-size:20px">${fmt(purch)}</div></div>
-                    <div class="scard clickable" data-metric="cpa" data-tip="${isMeteoricos()?'Custo por lead':'Custo por aquisi&ccedil;&atilde;o'}"><div class="sl">${isMeteoricos()?'CPL':'CPA'}</div><div class="sv" style="font-size:20px">${fmtM(t.cpa)}</div></div>
+                    <div class="scard clickable" data-metric="purchases" data-tip="${isLeadCapture()?'Leads captados':'Compras atribu&iacute;das'}"><div class="sl">${isLeadCapture()?'Leads':'Compras'}</div><div class="sv" style="font-size:20px">${fmt(purch)}</div></div>
+                    <div class="scard clickable" data-metric="cpa" data-tip="${isLeadCapture()?'Custo por lead':'Custo por aquisi&ccedil;&atilde;o'}"><div class="sl">${isLeadCapture()?'CPL':'CPA'}</div><div class="sv" style="font-size:20px">${fmtM(t.cpa)}</div></div>
                     <!-- Funil — volumes -->
                     <div class="scard clickable" data-metric="impressions" data-tip="Total de impress&otilde;es"><div class="sl">Impress&otilde;es</div><div class="sv" style="font-size:20px">${fmt(t.impressions)}</div></div>
                     <div class="scard clickable" data-metric="link_clicks" data-tip="Cliques no link"><div class="sl">Cliques</div><div class="sv" style="font-size:20px">${fmt(t.link_clicks)}</div></div>
@@ -3571,7 +3583,7 @@ async function openAdModal(adId,adName,thumbnailUrl){
                     <div class="scard clickable" data-metric="rate_lpv_ic" data-tip="LPV &rarr; Checkout"><div class="sl">LPV&rarr;Checkout</div><div class="sv" style="font-size:20px">${fmtP(t.lpv>0?(t.initiate_checkout/t.lpv*100):0)}</div></div>
                     <div class="scard clickable" data-metric="rate_ic_purchase" data-tip="Checkout &rarr; Compra"><div class="sl">Checkout&rarr;Compra</div><div class="sv" style="font-size:20px">${fmtP(t.initiate_checkout>0?(purch/t.initiate_checkout*100):0)}</div></div>
                     <!-- Taxa LPV->Lead so para meteoricos -->
-                    ${isMeteoricos()?`<div class="scard clickable" data-metric="rate_lpv_lead" data-tip="LPV &rarr; Lead: quantos dos que viram a pagina cadastraram"><div class="sl">LPV&rarr;Lead</div><div class="sv" style="font-size:20px">${fmtP(t.lpv>0?(purch/t.lpv*100):0)}</div></div>`:''}
+                    ${isLeadCapture()?`<div class="scard clickable" data-metric="rate_lpv_lead" data-tip="LPV &rarr; Lead: quantos dos que viram a pagina cadastraram"><div class="sl">LPV&rarr;Lead</div><div class="sv" style="font-size:20px">${fmtP(t.lpv>0?(purch/t.lpv*100):0)}</div></div>`:''}
                     <!-- Custos unitários -->
                     <div class="scard clickable" data-metric="cpm" data-tip="Custo por mil impress&otilde;es"><div class="sl">CPM</div><div class="sv" style="font-size:20px">${fmtM(t.cpm)}</div></div>
                     <div class="scard clickable" data-metric="cpc_link" data-tip="Custo por clique no link"><div class="sl">CPC Link</div><div class="sv" style="font-size:20px">${fmtM(t.cost_per_link_click)}</div></div>
@@ -3919,7 +3931,7 @@ function renderProjection(){
     const avgCpa=sumPurch>0?sumSpend/sumPurch:0;
 
     $('#proj-period-label').textContent=projDays;
-    const isMet = isMeteoricos();
+    const isMet = isLeadCapture();
     const convLabel = isMet ? 'Leads' : 'Compras';
     const cpaLabel = isMet ? 'CPL' : 'CPA';
     const dailyConvLabel = isMet ? 'Leads/Dia' : 'Vendas/Dia';
