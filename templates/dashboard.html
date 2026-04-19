@@ -1148,11 +1148,12 @@ function adaptStaticLabelsToType() {
     });
     if (!isMeteoricos()) return;
     // 2. Reescrita em bloco para meteoricos: so faz uma vez (marca via dataset)
-    // Labels/headers nas colunas "Compras" e "CPA"
-    document.querySelectorAll('th[data-key="purchases"], th[data-sort="cpa"]').forEach(function(th){
+    // Labels/headers nas colunas "Compras" e "CPA" (cobre data-key= e data-sort=)
+    document.querySelectorAll('th[data-key="purchases"], th[data-key="cpa"], th[data-sort="purchases"], th[data-sort="cpa"]').forEach(function(th){
         if (th.dataset.adapted) return;
-        if (th.getAttribute('data-key') === 'purchases') th.textContent = 'Leads';
-        else th.textContent = 'CPL';
+        var k = th.getAttribute('data-key') || th.getAttribute('data-sort');
+        if (k === 'purchases') th.textContent = 'Leads';
+        else if (k === 'cpa') th.textContent = 'CPL';
         th.dataset.adapted = '1';
     });
     // Options nos filtros/ordenacoes
