@@ -74,10 +74,10 @@
             display:flex;align-items:center;justify-content:space-between;
             position:sticky;top:0;z-index:100;
             box-shadow:0 1px 0 rgba(88,166,255,.08),0 8px 24px rgba(0,0,0,.3);
-            transition:top .15s;
         }
-        /* Quando o aviso de rate limit esta visivel, empurra o header pra baixo
-           pra nao cobrir o menu de navegacao / link de admin */
+        /* Quando o aviso de rate limit esta visivel, empurra TUDO pra baixo:
+           adiciona padding no body e faz o header sticky respeitar offset. */
+        body.has-rate-overlay{padding-top:42px}
         body.has-rate-overlay .header{top:42px}
         .header::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,var(--brd-glow),transparent)}
         .header-left{display:flex;align-items:center;gap:14px}
@@ -604,14 +604,14 @@
         <span style="color:var(--t3);font-size:13px" data-tip="Usu&aacute;rio logado">{{ username }}</span>
         <a href="/logout" class="btn-logout" data-tip="Sair do dashboard">Sair</a>
     </div>
-
-    <!-- Rate limit overlay: quando visivel, empurra o header pra baixo
-         via classe body.has-rate-overlay (definida no CSS) -->
-    <div id="rateOverlay" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:rgba(255,150,0,0.95);color:#000;padding:10px 40px 10px 20px;text-align:center;font-size:14px;font-weight:600;">
-        <span id="rateOverlayText">Desacelerando chamadas para proteger o limite da API Meta...</span>
-        <button onclick="document.getElementById('rateOverlay').style.display='none';document.body.classList.remove('has-rate-overlay');" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#000;font-size:18px;cursor:pointer;padding:4px 10px;line-height:1;" title="Ocultar aviso">&times;</button>
-    </div>
 </div>
+
+<!-- Rate limit overlay (fora do header pra nao interferir no sticky) -->
+<div id="rateOverlay" style="display:none;position:fixed;top:0;left:0;right:0;z-index:10000;background:rgba(255,150,0,0.95);color:#000;padding:10px 40px 10px 20px;text-align:center;font-size:14px;font-weight:600;">
+    <span id="rateOverlayText">Desacelerando chamadas para proteger o limite da API Meta...</span>
+    <button onclick="document.getElementById('rateOverlay').style.display='none';document.body.classList.remove('has-rate-overlay');" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:#000;font-size:18px;cursor:pointer;padding:4px 10px;line-height:1;" title="Ocultar aviso">&times;</button>
+</div>
+
 <div class="main">
     <div class="tabs">
         {% if role != 'viewer' %}
