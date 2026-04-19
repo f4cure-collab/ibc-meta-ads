@@ -758,7 +758,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('gender','gender')">Sexo</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','spend')">Gasto</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','conversions')">Conv.</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','cpa')">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('gender','gender')">Sexo</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','spend')">Gasto</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','conversions')">Conv.</th><th data-key="cpa" style="text-align:right;cursor:pointer" onclick="sortBd('gender','cpa')">CPA</th></tr></thead>
                             <tbody id="bd-gender"></tbody>
                         </table>
                     </div>
@@ -772,7 +772,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('age','age')">Faixa</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','spend')">Gasto</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','conversions')">Conv.</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','cpa')">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('age','age')">Faixa</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','spend')">Gasto</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','conversions')">Conv.</th><th data-key="cpa" style="text-align:right;cursor:pointer" onclick="sortBd('age','cpa')">CPA</th></tr></thead>
                             <tbody id="bd-age"></tbody>
                         </table>
                     </div>
@@ -786,7 +786,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th></tr></thead>
                             <tbody id="bd-weekday"></tbody>
                         </table>
                     </div>
@@ -4098,7 +4098,10 @@ function syncBreakdownsWithSelection() {
         var ids = Array.from(selectedCampIds);
         if (ids.length === 0) {
             _bdCampId = '';
-            $('#bd-filter-label').textContent = 'Todas as campanhas de vendas';
+            var lbl = isComercial() ? 'Todas as campanhas comerciais'
+                    : isMeteoricos() ? 'Todas as campanhas de meteoricos'
+                    : 'Todas as campanhas de vendas';
+            $('#bd-filter-label').textContent = lbl;
         } else if (ids.length === 1) {
             _bdCampId = ids[0];
             var campName = '';
@@ -4165,8 +4168,11 @@ function renderBdTables() {
         return '<tr><td style="color:var(--t1);font-weight:600;">' + w.day + '</td>' +
             '<td style="text-align:right;">' + fmtM(w.spend_avg) + '</td>' +
             '<td style="text-align:right;color:var(--accent2);">' + w.conv_avg + '</td>' +
-            '<td style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td></tr>';
+            '<td data-metric="roas" style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td></tr>';
     }).join('');
+
+    // Re-aplica labels (CPA -> CPL nos headers das tabelas)
+    if (typeof adaptStaticLabelsToType === 'function') adaptStaticLabelsToType();
 }
 
 async function loadBreakdowns() {
@@ -4208,10 +4214,12 @@ function renderBdCharts(d) {
     var weekdaySorted = sortArr(d.weekday, _bdSorts.weekday.key, _bdSorts.weekday.asc);
 
     // ── Sexo: Doughnut ──
+    var convWord = isLeadCapture() ? 'leads' : 'vendas';
+    var cpaLbl = isLeadCapture() ? 'CPL' : 'CPA';
     _bdCharts.gender = new Chart($('#chart-gender'), {
         type: 'doughnut',
         data: {
-            labels: genderSorted.map(function(g){ return g.gender + ' (' + g.conversions + ' vendas)'; }),
+            labels: genderSorted.map(function(g){ return g.gender + ' (' + g.conversions + ' ' + convWord + ')'; }),
             datasets: [{
                 data: genderSorted.map(function(g){ return g.conversions; }),
                 backgroundColor: ['rgba(88,166,255,.8)', 'rgba(255,107,107,.8)', 'rgba(108,92,231,.8)'],
@@ -4235,7 +4243,7 @@ function renderBdCharts(d) {
                     callbacks: {
                         afterLabel: function(ctx) {
                             var g = genderSorted[ctx.dataIndex];
-                            return 'Gasto: R$ ' + g.spend.toLocaleString('pt-BR') + '\nCPA: R$ ' + g.cpa.toLocaleString('pt-BR');
+                            return 'Gasto: R$ ' + g.spend.toLocaleString('pt-BR') + '\n' + cpaLbl + ': R$ ' + g.cpa.toLocaleString('pt-BR');
                         }
                     }
                 }
@@ -4260,7 +4268,7 @@ function renderBdCharts(d) {
                     borderSkipped: false
                 },
                 {
-                    label: 'CPA',
+                    label: cpaLbl,
                     data: ageSorted.map(function(a){ return a.cpa; }),
                     type: 'line',
                     borderColor: 'rgba(255,200,87,1)',
@@ -4290,36 +4298,54 @@ function renderBdCharts(d) {
         }
     });
 
-    // ── Dia da semana: Barras + Linha de ROAS ──
+    // ── Dia da semana: Barras + Linha de ROAS (ou CPL se lead capture) ──
+    var isLead = isLeadCapture();
+    // Para meteoricos/comercial: cor da barra fica por volume (verde maior). ROAS nao se aplica.
+    // Para vendas: mantem coloracao por ROAS e linha secundaria de ROAS.
+    var maxConv = weekdaySorted.reduce(function(m,w){ return Math.max(m, w.conv_avg||0); }, 0) || 1;
+    var weekdayDatasets = [
+        {
+            label: 'Conv/dia',
+            data: weekdaySorted.map(function(w){ return w.conv_avg; }),
+            backgroundColor: weekdaySorted.map(function(w){
+                if (isLead) {
+                    var pct = (w.conv_avg||0) / maxConv;
+                    return pct >= 0.85 ? 'rgba(63,223,133,.6)' : pct >= 0.65 ? 'rgba(255,200,87,.6)' : 'rgba(255,107,107,.6)';
+                }
+                return w.roas >= 1 ? 'rgba(63,223,133,.6)' : w.roas >= 0.7 ? 'rgba(255,200,87,.6)' : 'rgba(255,107,107,.6)';
+            }),
+            borderRadius: 8,
+            borderSkipped: false
+        }
+    ];
+    if (!isLead) {
+        weekdayDatasets.push({
+            label: 'ROAS',
+            data: weekdaySorted.map(function(w){ return w.roas; }),
+            type: 'line',
+            borderColor: 'rgba(88,166,255,1)',
+            backgroundColor: 'rgba(88,166,255,.1)',
+            pointBackgroundColor: 'rgba(88,166,255,1)',
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            borderWidth: 2,
+            fill: true,
+            tension: 0.3,
+            yAxisID: 'y1'
+        });
+    }
+    var weekdayScales = {
+        x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
+        y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.08)' } }
+    };
+    if (!isLead) {
+        weekdayScales.y1 = { position: 'right', ticks: { color: '#58a6ff', font: { size: 10 }, callback: function(v){ return v+'x'; } }, grid: { display: false } };
+    }
     _bdCharts.weekday = new Chart($('#chart-weekday'), {
         type: 'bar',
         data: {
             labels: weekdaySorted.map(function(w){ return w.day.substring(0,3); }),
-            datasets: [
-                {
-                    label: 'Conv/dia',
-                    data: weekdaySorted.map(function(w){ return w.conv_avg; }),
-                    backgroundColor: weekdaySorted.map(function(w){
-                        return w.roas >= 1 ? 'rgba(63,223,133,.6)' : w.roas >= 0.7 ? 'rgba(255,200,87,.6)' : 'rgba(255,107,107,.6)';
-                    }),
-                    borderRadius: 8,
-                    borderSkipped: false
-                },
-                {
-                    label: 'ROAS',
-                    data: weekdaySorted.map(function(w){ return w.roas; }),
-                    type: 'line',
-                    borderColor: 'rgba(88,166,255,1)',
-                    backgroundColor: 'rgba(88,166,255,.1)',
-                    pointBackgroundColor: 'rgba(88,166,255,1)',
-                    pointRadius: 5,
-                    pointHoverRadius: 7,
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.3,
-                    yAxisID: 'y1'
-                }
-            ]
+            datasets: weekdayDatasets
         },
         options: {
             responsive: true,
@@ -4328,11 +4354,7 @@ function renderBdCharts(d) {
                 legend: { display: true, position: 'top', labels: { color: '#6e7886', font: { size: 10 }, usePointStyle: true, padding: 12 } },
                 tooltip: { backgroundColor: 'rgba(14,19,32,.95)', borderColor: 'rgba(88,166,255,.3)', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#aab4c2' }
             },
-            scales: {
-                x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
-                y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.08)' } },
-                y1: { position: 'right', ticks: { color: '#58a6ff', font: { size: 10 }, callback: function(v){ return v+'x'; } }, grid: { display: false } }
-            }
+            scales: weekdayScales
         }
     });
 }
