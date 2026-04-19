@@ -1103,20 +1103,28 @@ def api_campaigns_multi_insights():
         if not target_ids:
             return jsonify({"ok": True, "campaigns": []})
 
-        # 1 chamada batch usando filtering por campaign.id IN
-        rows = meta_get_all_pages(
-            f"{ACCOUNT_ID}/insights",
-            {
+        # Monta lista de campanhas taggueadas para agrupar queries por conta
+        tagged_camps = []
+        for cid in target_ids:
+            c = sales_map.get(cid, {"id": cid})
+            # Garante que tem _account_id (fallback para conta principal se desconhecido)
+            if not c.get("_account_id"):
+                c = dict(c)
+                c["_account_id"] = ACCOUNT_ID
+            c.setdefault("id", cid)
+            tagged_camps.append(c)
+
+        # Insights diarios: agrupa por conta e faz 1 query por conta
+        rows = _fetch_insights_for_tagged_campaigns(
+            tagged_camps,
+            base_params={
                 "fields": INSIGHT_FIELDS_DAILY_CAMP,
                 "time_range": json.dumps({"since": date_from, "until": date_to}),
                 "time_increment": 1,
                 "level": "campaign",
-                "filtering": json.dumps([
-                    {"field": "campaign.id", "operator": "IN", "value": target_ids},
-                    {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
-                ]),
                 "limit": 500,
-            }
+            },
+            extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
         )
 
         # Agrupar por campaign_id
@@ -1142,16 +1150,21 @@ def api_campaigns_multi_insights():
             entry["daily"].sort(key=lambda x: x["date"])
             result.append(entry)
 
-        # Buscar reach/frequency agregados reais (1 chamada para todas as campanhas selecionadas)
+        # Reach/frequency agregados: precisam ser por conta (Meta API nao agrega entre contas).
+        # Se ha campanhas em multiplas contas, pega a conta com mais campanhas (aproximacao razoavel).
         agg_totals = {"reach": 0, "frequency": 0}
         try:
+            by_acc_ids = {}
+            for c in tagged_camps:
+                by_acc_ids.setdefault(c.get("_account_id") or ACCOUNT_ID, []).append(c["id"])
+            main_acc = max(by_acc_ids, key=lambda k: len(by_acc_ids[k]))
             agg_rows = meta_get_all_pages(
-                f"{ACCOUNT_ID}/insights",
+                f"{main_acc}/insights",
                 {
                     "fields": "reach,frequency,impressions",
                     "time_range": json.dumps({"since": date_from, "until": date_to}),
                     "level": "account",
-                    "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": target_ids}]),
+                    "filtering": json.dumps([{"field": "campaign.id", "operator": "IN", "value": by_acc_ids[main_acc]}]),
                 }
             )
             if agg_rows:
