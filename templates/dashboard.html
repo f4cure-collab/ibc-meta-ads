@@ -1351,6 +1351,25 @@ function adaptStaticLabelsToType() {
     document.querySelectorAll('.rank-sales-icon').forEach(function(el){
         el.innerHTML = isCrescimento() ? '&#128249;' : (isLeadCapture() ? '&#9733;' : '&#128722;');
     });
+
+    // Filtros de Desempenho (Otimo/Bom/Tendencia/Declinando/Baixo/Ruim) — reescreve
+    // os data-tip dos chips com texto apropriado pro tipo atual.
+    if (typeof perfTooltips === 'function') {
+        var PT = perfTooltips();
+        var perfMap = {
+            'alto': PT.alto,
+            'medio': PT.medio,
+            'tendencia': PT.tendencia,
+            'declinando': PT.declinando,
+            'baixo': PT.baixo,
+            'ruim': PT.ruim,
+        };
+        Object.keys(perfMap).forEach(function(key){
+            document.querySelectorAll('[data-perf="' + key + '"]').forEach(function(el){
+                el.setAttribute('data-tip', perfMap[key]);
+            });
+        });
+    }
 }
 
 // Monkey-patch fetch: anexa camp_type automaticamente em todas as chamadas /api/dashboard/*
@@ -3154,10 +3173,44 @@ function renderCards(data){
     });});
 }
 
+// Textos dos tooltips de Desempenho adaptados ao tipo — o criterio de "bom"
+// muda conforme o objetivo da campanha (compras vs leads vs visitas ao perfil).
+function perfTooltips() {
+    if (typeof isCrescimento === 'function' && isCrescimento()) {
+        return {
+            alto: '&Oacute;timo — top 1 participa&ccedil;&atilde;o total (se ainda top 1 em 7d) OU top 3 em 7d + Custo/Visita &lt;= 110% da campanha',
+            medio: 'Bom — Custo/Visita &lt;= 130% da campanha + 50+ visitas ao perfil',
+            tendencia: 'Tend&ecirc;ncia — j&aacute; gera visitas mas ainda n&atilde;o atinge &Oacute;timo ou Bom',
+            declinando: 'Declinando — perdendo participa&ccedil;&atilde;o (velocity &lt; -30%) ap&oacute;s 7+ dias',
+            ruim: 'Ruim — sem visitas ao perfil ap&oacute;s 7+ dias ou Custo/Visita muito acima da campanha',
+            baixo: 'Baixo — poucas visitas e menos de 7 dias',
+        };
+    }
+    if (typeof isLeadCapture === 'function' && isLeadCapture()) {
+        return {
+            alto: '&Oacute;timo — top 1 participa&ccedil;&atilde;o total (se ainda top 1 em 7d) OU top 3 em 7d + CPL &lt;= 110% da campanha',
+            medio: 'Bom — CPL &lt;= 130% da campanha + 3 ou mais leads',
+            tendencia: 'Tend&ecirc;ncia — tem leads mas ainda n&atilde;o atinge &Oacute;timo ou Bom',
+            declinando: 'Declinando — perdendo participa&ccedil;&atilde;o (velocity &lt; -30%) ap&oacute;s 7+ dias',
+            ruim: 'Ruim — sem leads ap&oacute;s 7+ dias ou CPL muito acima da campanha',
+            baixo: 'Baixo — sem leads e menos de 7 dias',
+        };
+    }
+    return {
+        alto: '&Oacute;timo — top 1 participa&ccedil;&atilde;o total (se ainda top 1 em 7d) OU top 3 participa&ccedil;&atilde;o 7d + ROAS &gt;= 90% da campanha',
+        medio: 'Bom — ROAS &gt;= 70% da campanha + 3 ou mais compras',
+        tendencia: 'Tend&ecirc;ncia — tem compras mas n&atilde;o atinge &Oacute;timo ou Bom',
+        declinando: 'Declinando — perdendo participa&ccedil;&atilde;o (velocity &lt; -30%) ap&oacute;s 7+ dias',
+        ruim: 'Ruim — sem compras ap&oacute;s 7+ dias ou ROAS &lt; 50% da campanha',
+        baixo: 'Baixo — sem compras e menos de 7 dias',
+    };
+}
+
 function cardH(c){
     const rc=roasC(c.roas),r3c=roasC(c.roas_3d),r7c=roasC(c.roas_7d);
     const trendUp=(c.share_3d||0)>(c.share_total||0);
     const isCompared=compareAdIds.has(c.ad_id);
+    const PT = perfTooltips();
     return`<div class="cr-card ${isCompared?'cr-compared':''}" data-ad-id="${c.ad_id}" data-ad-name="${(c.ad_name||'').replace(/"/g,'&quot;')}" data-thumb="${c.thumbnail_url||''}" data-camp-name="${(c.campaign_name||'').replace(/"/g,'&quot;')}">
         <div class="cr-select" data-tip="Clique para comparar este criativo com outros" data-compare-id="${c.ad_id}">${isCompared?'&#10003;':''}</div>
         <div class="cr-header">
@@ -3170,7 +3223,7 @@ function cardH(c){
                 <div class="cr-name" data-tip="Nome do an&uacute;ncio: ${c.ad_name}">${c.ad_name}</div>
                 <div class="cr-badges">
                     <span class="sb s-${c.ad_status}" data-tip="Veicula&ccedil;&atilde;o: ${c.ad_status==='ACTIVE'?'Ativo — an&uacute;ncio rodando na Meta':'Pausado — an&uacute;ncio pausado na Meta'}">${c.ad_status==='ACTIVE'?'ATIVO':'PAUSADO'}</span>
-                    ${confH(c.confidence,`Desempenho: ${c.confidence==='alto'?'&Oacute;timo — top 1 participa&ccedil;&atilde;o total (se ainda top 1 em 7d) OU top 3 participa&ccedil;&atilde;o 7d + ROAS &gt;= 90% da campanha':c.confidence==='medio'?'Bom — ROAS &gt;= 70% da campanha + 3+ compras':c.confidence==='tendencia'?'Tend&ecirc;ncia — tem compras mas n&atilde;o atinge &Oacute;timo ou Bom':c.confidence==='declinando'?'Declinando — perdendo participa&ccedil;&atilde;o (velocity &lt; -30%) ap&oacute;s 7+ dias':c.confidence==='ruim'?'Ruim — sem compras ap&oacute;s 7+ dias ou ROAS &lt; 50% da campanha':'Baixo — sem compras e menos de 7 dias'}`)}
+                    ${confH(c.confidence,`Desempenho: ${PT[c.confidence] || PT.baixo}`)}
                     ${trendH(c.trend,`Tend&ecirc;ncia: ${c.trend==='escalando'?'Escalando — participa&ccedil;&atilde;o no gasto crescendo (velocity &gt;= 30%)':c.trend==='caindo'?'Caindo — participa&ccedil;&atilde;o no gasto diminuindo (velocity &lt;= -30%)':'Est&aacute;vel — participa&ccedil;&atilde;o no gasto sem mudan&ccedil;a significativa'}`)}
                     ${confBadge(c.data_confidence,`Confian&ccedil;a: ${c.data_confidence==='alta'?'Alta — 14+ dias OU R$2.000+ investido':c.data_confidence==='media'?'M&eacute;dia — 7+ dias OU R$500+ investido':'Baixa — menos de 7 dias E menos de R$500'}`)}
                 </div>
