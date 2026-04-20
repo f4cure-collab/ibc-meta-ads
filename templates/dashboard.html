@@ -1249,13 +1249,15 @@ _wireInfoPopup('crescimento', 'crescimento-info-overlay', 'crescimento-info-clos
 // - Vendas: Compras / CPA
 function labelConversao() {
     if (isNutricao()) return 'ThruPlays';
-    if (isCrescimento()) return 'Seguidores';
+    // Crescimento: metrica principal e Visitas ao Perfil (nao seguidores).
+    // Seguidores e estimativa, visitas vem direto da API.
+    if (isCrescimento()) return 'Visitas Perfil';
     if (isMeteoricos() || isComercial()) return 'Leads';
     return 'Compras';
 }
 function labelCPA() {
     if (isNutricao()) return 'CPTP';
-    if (isCrescimento()) return 'CPS';
+    if (isCrescimento()) return 'Custo/Visita';
     if (isMeteoricos() || isComercial()) return 'CPL';
     return 'CPA';
 }
@@ -3359,19 +3361,25 @@ function renderCards(data){
 
     let h='';
     const isMet=isLeadCapture();
+    const nutri = isNutricao();
+    const cresc = isCrescimento();
     for(const[cid,g]of ordered){
         const ts=g.ads.reduce((s,a)=>s+(a.spend||0),0),tr=g.ads.reduce((s,a)=>s+(a.revenue||0),0),tp=g.ads.reduce((s,a)=>s+(a.purchases||0),0);
         const ti=g.ads.reduce((s,a)=>s+(a.impressions||0),0);
         const trc=g.ads.reduce((s,a)=>s+(a.reach||0),0);
         const ar=ts>0?tr/ts:0;
-        const acpa=tp>0?ts/tp:0;
+        // Primary metric adapta por tipo (Visitas pra Crescimento, ThruPlays pra Nutricao, purchases pros outros)
+        const tvisits = g.ads.reduce((s,a)=>s+(a.profile_visits||0),0);
+        const tthru = g.ads.reduce((s,a)=>s+(a.video_thruplay||0),0);
+        const tPrimary = nutri ? tthru : (cresc ? tvisits : tp);
+        const acpa = tPrimary > 0 ? ts/tPrimary : 0;
         const afreq=trc>0?(ti/trc):0;
         const lblConv = labelConversao();
         const lblCPA = labelCPA();
         const roasBlock = isMet ? '' : `<span data-tip="${roasTip(ar)}">ROAS: <span class="sv" style="color:${roasC(ar)}">${fmtR(ar)}</span></span>`;
         h+=`<div class="cg">
             <div class="cg-head closed" data-g="${cid}"><h3><span class="arrow">&#9660;</span>${g.name} <span style="font-size:12px;color:var(--t3);font-weight:400">(${g.ads.length})</span></h3>
-            <div class="cg-stats"><span data-tip="Gasto total da campanha no per&iacute;odo">Gasto: <span class="sv">${fmtM(ts)}</span></span>${roasBlock}<span data-tip="Total de ${lblConv.toLowerCase()} atribu&iacute;dos">${lblConv}: <span class="sv">${fmt(tp)}</span></span><span data-tip="Custo m&eacute;dio por ${isMet?'lead':'compra'} (gasto / ${lblConv.toLowerCase()})">${lblCPA}: <span class="sv">${fmtM(acpa)}</span></span></div></div>
+            <div class="cg-stats"><span data-tip="Gasto total da campanha no per&iacute;odo">Gasto: <span class="sv">${fmtM(ts)}</span></span>${roasBlock}<span data-tip="Total de ${lblConv.toLowerCase()}">${lblConv}: <span class="sv">${fmt(tPrimary)}</span></span><span data-tip="Custo medio por ${lblConv.toLowerCase()} (gasto / ${lblConv.toLowerCase()})">${lblCPA}: <span class="sv">${fmtM(acpa)}</span></span></div></div>
             <div class="cg-body closed" data-gb="${cid}"><div class="cr-grid">${g.ads.map(cardH).join('')}</div></div></div>`;
     }
     ct.innerHTML=h;
@@ -3471,16 +3479,29 @@ function cardH(c){
         </div>
         <div class="cr-stats-grid">
             ${(()=>{
-                // Nutricao: usa video_thruplay em vez de purchases (purchases nao se aplica)
+                // Metrica primaria adapta por tipo:
+                // - Nutricao: video_thruplay
+                // - Crescimento: profile_visits (visitas ao perfil — principal)
+                // - Outros: purchases (compras/leads nativos)
                 var nutri = isNutricao();
-                var primary = nutri ? (c.video_thruplay||0) : c.purchases;
-                var costPer = nutri ? ((c.video_thruplay||0)>0 ? c.spend/c.video_thruplay : 0) : c.cpa;
-                var primaryTip = nutri
-                    ? 'ThruPlays: visualizacoes completas (ou ate 15s) do video'
-                    : (isLeadCapture()?'Leads: total de cadastros atribu&iacute;dos a este criativo.':'Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.');
-                var costTip = nutri
-                    ? 'CPTP (Custo por ThruPlay): gasto / ThruPlays'
-                    : (isLeadCapture()?'CPL (Custo por Lead): gasto / leads.':'CPA: gasto / compras.');
+                var cresc = isCrescimento();
+                var primary, costPer, primaryTip, costTip;
+                if (nutri) {
+                    primary = c.video_thruplay || 0;
+                    costPer = primary > 0 ? c.spend/primary : 0;
+                    primaryTip = 'ThruPlays: visualizacoes completas (ou ate 15s) do video';
+                    costTip = 'CPTP (Custo por ThruPlay): gasto / ThruPlays';
+                } else if (cresc) {
+                    primary = c.profile_visits || 0;
+                    costPer = primary > 0 ? c.spend/primary : 0;
+                    primaryTip = 'Visitas ao Perfil: metrica principal da campanha (coluna Resultados do Meta)';
+                    costTip = 'Custo por Visita: gasto / visitas ao perfil';
+                } else {
+                    primary = c.purchases;
+                    costPer = c.cpa;
+                    primaryTip = isLeadCapture()?'Leads: total de cadastros atribu&iacute;dos a este criativo.':'Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.';
+                    costTip = isLeadCapture()?'CPL (Custo por Lead): gasto / leads.':'CPA: gasto / compras.';
+                }
                 return `
                 <div class="cr-st" data-tip="${primaryTip}">
                     <div class="lbl">${labelConversao()}</div>
@@ -3512,14 +3533,14 @@ function cardH(c){
             <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 7 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">7 Dias</div>
                 <div class="pblock-row" data-tip="Gasto investido nos &uacute;ltimos 7 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_7d)}</span></div>
-                <div class="pblock-row" data-tip="${isNutricao()?'ThruPlays nos ultimos 7 dias.':(isLeadCapture()?'Leads nos &uacute;ltimos 7 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 7 dias.')}"><span class="pl">${labelConversao()}</span><span class="pr">${isNutricao()?(c.video_thruplay_7d||0):(c.purchases_7d||0)}</span></div>
+                <div class="pblock-row" data-tip="${isNutricao()?'ThruPlays nos ultimos 7 dias.':(isCrescimento()?'Visitas ao perfil nos ultimos 7 dias.':(isLeadCapture()?'Leads nos &uacute;ltimos 7 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 7 dias.'))}"><span class="pl">${labelConversao()}</span><span class="pr">${isNutricao()?(c.video_thruplay_7d||0):(isCrescimento()?(c.profile_visits_7d||0):(c.purchases_7d||0))}</span></div>
                 <div class="pblock-row" data-metric="roas" data-tip="ROAS nos &uacute;ltimos 7 dias."><span class="pl">ROAS</span><span class="pr" style="color:${r7c}">${fmtR(c.roas_7d)}</span></div>
                 ${(()=>{const sh=shareCompare(c.share_7d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha nos &uacute;ltimos 7 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_7d||0}%</span></div>`;})()}
             </div>
             <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 3 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">3 Dias</div>
                 <div class="pblock-row" data-tip="Gasto investido nos &uacute;ltimos 3 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_3d)}</span></div>
-                <div class="pblock-row" data-tip="${isNutricao()?'ThruPlays nos ultimos 3 dias.':(isLeadCapture()?'Leads nos &uacute;ltimos 3 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 3 dias.')}"><span class="pl">${labelConversao()}</span><span class="pr">${isNutricao()?(c.video_thruplay_3d||0):(c.purchases_3d||0)}</span></div>
+                <div class="pblock-row" data-tip="${isNutricao()?'ThruPlays nos ultimos 3 dias.':(isCrescimento()?'Visitas ao perfil nos ultimos 3 dias.':(isLeadCapture()?'Leads nos &uacute;ltimos 3 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 3 dias.'))}"><span class="pl">${labelConversao()}</span><span class="pr">${isNutricao()?(c.video_thruplay_3d||0):(isCrescimento()?(c.profile_visits_3d||0):(c.purchases_3d||0))}</span></div>
                 <div class="pblock-row" data-metric="roas" data-tip="ROAS nos &uacute;ltimos 3 dias."><span class="pl">ROAS</span><span class="pr" style="color:${r3c}">${fmtR(c.roas_3d)}</span></div>
                 ${(()=>{const sh=shareCompare(c.share_3d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha nos &uacute;ltimos 3 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_3d||0}%</span></div>`;})()}
             </div>
@@ -3568,18 +3589,18 @@ function renderTbl(data){
         <td style="padding:4px 4px" data-tip="Desempenho: ${c.confidence==='alto'?'&Oacute;timo — top 1 participa&ccedil;&atilde;o total (se ainda top 1 em 7d) OU top 3 participa&ccedil;&atilde;o 7d + ROAS &gt;= 90% da campanha':c.confidence==='medio'?'Bom — ROAS &gt;= 70% da campanha + 3+ compras':c.confidence==='tendencia'?'Tend&ecirc;ncia — tem compras mas n&atilde;o atinge &Oacute;timo ou Bom':c.confidence==='declinando'?'Declinando — perdendo participa&ccedil;&atilde;o (velocity &lt; -30%) ap&oacute;s 7+ dias':c.confidence==='ruim'?'Ruim — sem compras ap&oacute;s 7+ dias ou ROAS &lt; 50% da campanha com R$200+ gasto':'Baixo — sem compras e menos de 7 dias'}">${confStatus(c)}</td>
         <td style="padding:4px 4px" data-tip="Confian&ccedil;a: ${c.data_confidence==='alta'?'Alta — 14+ dias OU R$2.000+ investido':c.data_confidence==='media'?'M&eacute;dia — 7+ dias OU R$500+ investido':'Baixa — menos de 7 dias E menos de R$500'}">${confBadge(c.data_confidence)}</td>
         <td class="tr" data-tip="Gasto: valor total investido neste criativo durante o per&iacute;odo selecionado.">${fmtM(c.spend)}</td>
-        <td class="tr" data-tip="${isNutricao()?'ThruPlays: visualizacoes completas do video':(isLeadCapture()?'Leads captados por este criativo':'Compras atribuidas a este criativo pelo pixel da Meta.')}" style="font-weight:600">${fmt(isNutricao()?(c.video_thruplay||0):c.purchases)}</td>
+        <td class="tr" data-tip="${isNutricao()?'ThruPlays: visualizacoes completas do video':(isCrescimento()?'Visitas ao Perfil do Instagram':(isLeadCapture()?'Leads captados por este criativo':'Compras atribuidas a este criativo pelo pixel da Meta.'))}" style="font-weight:600">${fmt(isNutricao()?(c.video_thruplay||0):(isCrescimento()?(c.profile_visits||0):c.purchases))}</td>
         <td class="tr" data-metric="roas" style="color:${rc};font-weight:700" data-tip="ROAS (Return on Ad Spend): quanto o criativo retornou em receita para cada R$ 1 investido.">${fmtR(c.roas)}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--t3)" data-tip="Campanha de origem: ${c.campaign_name||'--'}">${c.campaign_name||''}</td>
         <td class="tr" data-tip="Gasto 7d: valor investido neste criativo nos &uacute;ltimos 7 dias.">${fmtM(c.spend_7d)}</td>
-        <td class="tr" data-tip="${isNutricao()?'ThruPlays 7d: visualizacoes completas nos ultimos 7 dias.':(isLeadCapture()?'Leads nos ultimos 7 dias.':'Compras 7d: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 7 dias.')}">${fmt(isNutricao()?(c.video_thruplay_7d||0):c.purchases_7d)}</td>
+        <td class="tr" data-tip="${isNutricao()?'ThruPlays 7d: visualizacoes completas nos ultimos 7 dias.':(isCrescimento()?'Visitas ao perfil nos ultimos 7 dias.':(isLeadCapture()?'Leads nos ultimos 7 dias.':'Compras 7d: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 7 dias.'))}">${fmt(isNutricao()?(c.video_thruplay_7d||0):(isCrescimento()?(c.profile_visits_7d||0):c.purchases_7d))}</td>
         <td class="tr" data-metric="roas" style="color:${r7c};font-weight:600" data-tip="ROAS 7d: receita gerada para cada R$ 1 investido neste criativo nos &uacute;ltimos 7 dias.">${fmtR(c.roas_7d)}</td>
         <td class="tr" data-tip="Gasto 3d: valor investido neste criativo nos &uacute;ltimos 3 dias.">${fmtM(c.spend_3d)}</td>
-        <td class="tr" data-tip="${isNutricao()?'ThruPlays 3d: visualizacoes completas nos ultimos 3 dias.':(isLeadCapture()?'Leads nos ultimos 3 dias.':'Compras 3d: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 3 dias.')}">${fmt(isNutricao()?(c.video_thruplay_3d||0):c.purchases_3d)}</td>
+        <td class="tr" data-tip="${isNutricao()?'ThruPlays 3d: visualizacoes completas nos ultimos 3 dias.':(isCrescimento()?'Visitas ao perfil nos ultimos 3 dias.':(isLeadCapture()?'Leads nos ultimos 3 dias.':'Compras 3d: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 3 dias.'))}">${fmt(isNutricao()?(c.video_thruplay_3d||0):(isCrescimento()?(c.profile_visits_3d||0):c.purchases_3d))}</td>
         <td class="tr" data-metric="roas" style="color:${r3c};font-weight:600" data-tip="ROAS 3d: receita gerada para cada R$ 1 investido neste criativo nos &uacute;ltimos 3 dias.">${fmtR(c.roas_3d)}</td>
         <td data-tip="Tend&ecirc;ncia: dire&ccedil;&atilde;o recente do criativo com base na velocidade de escala (escalando, est&aacute;vel ou caindo).">${c.trend?trendH(c.trend):'--'}</td>
         <td class="tr" style="font-weight:600" data-tip="Score: nota geral calculada a partir de compras, ROAS, gasto e tend&ecirc;ncia. Serve pra comparar criativos rapidamente — quanto maior, melhor.">${fmt(c.score)}</td>
-        <td class="tr" data-tip="${isNutricao()?'CPTP: gasto / ThruPlays':(isLeadCapture()?'CPL: gasto / leads':'CPA: gasto / compras')}">${fmtM(isNutricao()?((c.video_thruplay||0)>0?c.spend/c.video_thruplay:0):c.cpa)}</td>
+        <td class="tr" data-tip="${isNutricao()?'CPTP: gasto / ThruPlays':(isCrescimento()?'Custo/Visita: gasto / visitas ao perfil':(isLeadCapture()?'CPL: gasto / leads':'CPA: gasto / compras'))}">${fmtM(isNutricao()?((c.video_thruplay||0)>0?c.spend/c.video_thruplay:0):(isCrescimento()?((c.profile_visits||0)>0?c.spend/c.profile_visits:0):c.cpa))}</td>
         <td class="tr" data-tip="CTR (Click Through Rate): percentual de pessoas que viram o an&uacute;ncio e clicaram. Mede a atratividade do criativo.">${fmtP(c.ctr)}</td>
         <td class="tr" data-tip="CPM (Custo por Mil impress&otilde;es): quanto custa em m&eacute;dia cada 1.000 exibi&ccedil;&otilde;es do criativo.">${fmtM(c.cpm)}</td>
         <td class="tr" data-metric="revenue" data-tip="Receita: valor total em reais gerado pelas compras atribu&iacute;das a este criativo.">${fmtM(c.revenue)}</td>

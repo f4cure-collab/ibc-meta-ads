@@ -2328,6 +2328,9 @@ def _compute_advanced_metrics_from_aggregates(ads_by_campaign, totals_by_ad, tot
             a["video_thruplay_7d"] = r_7d.get("video_thruplay", 0)
             a["video_plays_3d"] = r_3d.get("video_plays", 0)
             a["video_plays_7d"] = r_7d.get("video_plays", 0)
+            # Crescimento: Visitas ao Perfil por janela
+            a["profile_visits_3d"] = r_3d.get("profile_visits", 0)
+            a["profile_visits_7d"] = r_7d.get("profile_visits", 0)
 
             # Share (percentual do gasto da campanha)
             share_total = share_total_by_ad.get(aid, 0)
@@ -2356,8 +2359,23 @@ def _compute_advanced_metrics_from_aggregates(ads_by_campaign, totals_by_ad, tot
             else:
                 a["trend"] = "estavel"
 
-            # Confidence (desempenho relativo a campanha)
-            conv = (a.get("video_thruplay", 0) if is_nutricao_camp else a.get("purchases", 0))
+            # Confidence (desempenho relativo a campanha).
+            # - Nutricao: ThruPlays como volume
+            # - Crescimento: Visitas ao Perfil (nao seguidores — esses sao atribuicao)
+            # - Outros: purchases (compras/leads nativos)
+            is_crescimento_camp = False
+            try:
+                from flask import has_request_context as _hrc
+                if _hrc():
+                    is_crescimento_camp = getattr(g, "camp_type", None) == CAMP_TYPE_CRESCIMENTO
+            except Exception:
+                pass
+            if is_nutricao_camp:
+                conv = a.get("video_thruplay", 0)
+            elif is_crescimento_camp:
+                conv = a.get("profile_visits", 0)
+            else:
+                conv = a.get("purchases", 0)
             roas = a.get("roas", 0)
             spend = a.get("spend", 0)
             roas_ratio = roas / camp_roas if camp_roas > 0 else 0
@@ -2980,7 +2998,7 @@ def api_all_creatives():
         # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
         is_viewer = session.get("role") == "viewer"
 
-        cache_key = f"all_creatives_v6_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"all_creatives_v7_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -5027,7 +5045,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
             try:
                 k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                 k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
-                k_creat = f"all_creatives_v6_{ct}_active_{dt_from}_{dt_to}"
+                k_creat = f"all_creatives_v7_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
@@ -5099,7 +5117,7 @@ def _refresh_recent_loop():
                         try:
                             k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                             k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
-                            k_creat = f"all_creatives_v6_{ct}_active_{dt_from}_{dt_to}"
+                            k_creat = f"all_creatives_v7_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             hdr = {"X-Internal-Scheduler": "refresh_loop"}
