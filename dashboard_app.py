@@ -4519,19 +4519,19 @@ def _warmup_camp_type(ct, days_list, dt_to):
                 if should_refresh(k_camp):
                     print(f"[WARMUP-{ct}] campaigns {days}d")
                     client.get(f"/api/dashboard/campaigns?{base}&camp_status=all")
-                    time.sleep(2)
+                    time.sleep(4)
                 if should_refresh(k_daily):
                     print(f"[WARMUP-{ct}] daily_summary {days}d")
                     client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all")
-                    time.sleep(2)
+                    time.sleep(4)
                 if should_refresh(k_bd):
                     print(f"[WARMUP-{ct}] breakdowns {days}d")
                     client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true")
-                    time.sleep(2)
+                    time.sleep(4)
                 if should_refresh(k_creat):
                     print(f"[WARMUP-{ct}] all_creatives {days}d")
                     client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active")
-                    time.sleep(3)
+                    time.sleep(6)
             except Exception as e:
                 print(f"[WARMUP-{ct}] Erro {days}d: {e}")
 
@@ -4547,20 +4547,20 @@ def _refresh_recent_loop():
     sao maiores (3h/8h/20h)."""
     now_br = _now_br
     # Warmup paralelo logo apos boot (5s de buffer pro app acabar de subir)
-    time.sleep(5)
+    time.sleep(15)  # boot buffer maior pra evitar burst imediato
     try:
         refresh_scheduler_lock("refresh_recent")
         dt_to = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
-        print(f"[WARMUP] Iniciando warmup paralelo dos {len(VALID_CAMP_TYPES)} tipos — {datetime.now().strftime('%H:%M')}")
-        initial_ranges = [1, 7, 14, 30]
-        warmup_threads = []
+        # Warmup enxuto: so 30d (range mais usado). Outros ranges vem sob demanda
+        # ou nos ciclos de 30min. Tentar warmar tudo de cara causava burst que
+        # batia no rate limit do Meta ('There have been too many calls to this
+        # ad-account. Wait a bit and try again.') — erro #17 BUC.
+        print(f"[WARMUP] Iniciando warmup sequencial dos {len(VALID_CAMP_TYPES)} tipos — {datetime.now().strftime('%H:%M')}")
+        initial_ranges = [30]
         for ct in VALID_CAMP_TYPES:
-            t = threading.Thread(target=_warmup_camp_type, args=(ct, initial_ranges, dt_to), daemon=True)
-            t.start()
-            warmup_threads.append(t)
-        # Aguarda todos terminarem antes de entrar no ciclo normal
-        for t in warmup_threads:
-            t.join(timeout=180)  # 3min por tipo — evita travar eternamente
+            _warmup_camp_type(ct, initial_ranges, dt_to)
+            # pausa entre tipos pra distribuir carga no minuto-janela da Meta
+            time.sleep(5)
         print(f"[WARMUP] Concluido em {datetime.now().strftime('%H:%M')}")
     except Exception as e:
         print(f"[WARMUP] Erro inicial: {e}")
