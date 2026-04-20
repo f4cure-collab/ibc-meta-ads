@@ -663,14 +663,14 @@
             <div class="scard clickable" data-metric="spend" data-tip="Clique para gr&aacute;fico de gasto di&aacute;rio"><div class="sl">Gasto</div><div class="sv" id="s-spend">--</div></div>
             <div class="scard clickable" data-metric="revenue" data-tip="Clique para gr&aacute;fico de receita di&aacute;ria"><div class="sl">Receita</div><div class="sv" id="s-revenue">--</div></div>
             <div class="scard clickable" data-metric="roas" data-tip="Clique para evolu&ccedil;&atilde;o do ROAS"><div class="sl">ROAS</div><div class="sv" id="s-roas">--</div></div>
-            <div class="scard clickable" data-metric="purchases" data-tip="Clique para ver por dia"><div class="sl" data-label-vendas="Compras" data-label-meteoricos="Leads">Compras</div><div class="sv" id="s-purchases">--</div></div>
-            <div class="scard clickable" data-metric="cpa" data-tip="Clique para ver por dia"><div class="sl" data-label-vendas="CPA" data-label-meteoricos="CPL">CPA</div><div class="sv" id="s-cpa">--</div></div>
+            <div class="scard clickable" data-metric="purchases" data-tip="Clique para ver por dia"><div class="sl auto-label-conv">Compras</div><div class="sv" id="s-purchases">--</div></div>
+            <div class="scard clickable" data-metric="cpa" data-tip="Clique para ver por dia"><div class="sl auto-label-cpa">CPA</div><div class="sv" id="s-cpa">--</div></div>
             <!-- Funil — volumes -->
             <div class="scard clickable" data-metric="impressions" data-tip="Clique para impress&otilde;es por dia"><div class="sl">Impress&otilde;es</div><div class="sv" id="s-impressions">--</div></div>
             <div class="scard clickable" data-metric="clicks" data-tip="Clique para cliques por dia"><div class="sl">Cliques</div><div class="sv" id="s-clicks">--</div></div>
             <!-- Funil — taxas -->
             <div class="scard clickable" data-metric="ctr" data-tip="Impress&otilde;es &rarr; Cliques (CTR)"><div class="sl">CTR</div><div class="sv" id="s-ctr">--</div></div>
-            <div class="scard clickable" data-metric="rate_click_lpv" data-tip="Cliques &rarr; Visualiza&ccedil;&atilde;o de p&aacute;gina"><div class="sl">Click&rarr;LPV</div><div class="sv" id="s-rate-click-lpv">--</div></div>
+            <div class="scard clickable" data-metric="rate_click_lpv" data-tip="Cliques &rarr; Visualiza&ccedil;&atilde;o de p&aacute;gina/perfil"><div class="sl auto-label-rate-click">Click&rarr;LPV</div><div class="sv" id="s-rate-click-lpv">--</div></div>
             <div class="scard clickable" data-metric="rate_lpv_ic" data-tip="Visualiza&ccedil;&atilde;o &rarr; In&iacute;cio de checkout"><div class="sl">LPV&rarr;Checkout</div><div class="sv" id="s-rate-lpv-ic">--</div></div>
             <div class="scard clickable" data-metric="rate_ic_purchase" data-tip="Checkout &rarr; Compra finalizada"><div class="sl">Checkout&rarr;Compra</div><div class="sv" id="s-rate-ic-purchase">--</div></div>
             <!-- Extra -->
@@ -1164,14 +1164,20 @@ function applyCampTypeClass() {
 }
 
 // Percorre o DOM e adapta labels estaticos conforme o tipo selecionado.
-// Elementos marcam opcoes via data-label-vendas / data-label-meteoricos (leadcapture
-// reusa o sufixo 'meteoricos' porque a logica de UI e identica).
+// Usa labelConversao()/labelCPA() para cobrir Crescimento (Seguidores/CPS).
 function adaptStaticLabelsToType() {
-    var suffix = isLeadCapture() ? 'meteoricos' : 'vendas';
-    // 1. Elementos com data-label-*  — substitui diretamente
-    document.querySelectorAll('[data-label-vendas][data-label-meteoricos]').forEach(function(el){
-        var t = el.getAttribute('data-label-' + suffix);
-        if (t != null) el.textContent = t;
+    var conv0 = labelConversao();
+    var cpa0 = labelCPA();
+    // 1. Cards com auto-label-* aplicam labels dinamicos por tipo
+    document.querySelectorAll('.auto-label-conv').forEach(function(el){ el.textContent = conv0; });
+    document.querySelectorAll('.auto-label-cpa').forEach(function(el){ el.textContent = cpa0; });
+    // Click->LPV vira Click->Perfil em crescimento
+    document.querySelectorAll('.auto-label-rate-click').forEach(function(el){
+        el.innerHTML = isCrescimento() ? 'Click&rarr;Perfil' : 'Click&rarr;LPV';
+    });
+    // Card "LPV" sozinho
+    document.querySelectorAll('.auto-label-lpv').forEach(function(el){
+        el.textContent = isCrescimento() ? 'Visitas Perfil' : 'LPV';
     });
     // Titulo da tabela de campanhas
     document.querySelectorAll('.tbl-camps-label').forEach(function(el){
@@ -1181,9 +1187,9 @@ function adaptStaticLabelsToType() {
         else el.textContent = 'Campanhas de Vendas';
     });
     if (!isLeadCapture()) return;
-    // 2. Reescrita em bloco para meteoricos: so faz uma vez (marca via dataset)
-    var conv = labelConversao();
-    var cpa = labelCPA();
+    // 2. Reescrita em bloco para tipos nao-vendas (Leads/Seguidores/CPL/CPS)
+    var conv = conv0;
+    var cpa = cpa0;
     // Labels/headers nas colunas "Compras" e "CPA" (cobre data-key= e data-sort=)
     document.querySelectorAll('th[data-key="purchases"], th[data-key="cpa"], th[data-sort="purchases"], th[data-sort="cpa"]').forEach(function(th){
         var k = th.getAttribute('data-key') || th.getAttribute('data-sort');
@@ -1840,13 +1846,13 @@ function _renderRankings(evData){
     const maxSD=bySalesDay.reduce((m,c)=>Math.max(m,c.salesPerDay||0),0);
     const slt=$('#rank-sales-title');
     if(slt){
-        const conv = isLeadCapture() ? 'Leads' : 'Vendas';
-        const icon = isLeadCapture() ? '&#9733;' : '&#128722;';
+        const conv = isLeadCapture() ? labelConversao() : 'Vendas';
+        const icon = isCrescimento() ? '&#128241;' : (isLeadCapture() ? '&#9733;' : '&#128722;');
         slt.innerHTML=`${icon} <span class="rank-sales-label">${conv}</span>/Dia por Evento ${rankSortState.sales?'&#9660;':'&#9650;'}`;
     }
     renderList('ch-sales-day',bySalesDay,maxSD,c=>c.salesPerDay||0,
         (c,v)=>v.toFixed(2)+'/dia',
-        (c,v)=>{const lbl=isLeadCapture()?'leads':'vendas';return`${c.name}: ${v.toFixed(2)} ${lbl}/dia (${c.purchases||0} ${lbl}, ${c._count} campanhas)`;},salesGrad);
+        (c,v)=>{const lbl=isLeadCapture()?labelConversao().toLowerCase():'vendas';return`${c.name}: ${v.toFixed(2)} ${lbl}/dia (${c.purchases||0} ${lbl}, ${c._count} campanhas)`;},salesGrad);
 }
 
 // Click nos t&iacute;tulos dos rankings para inverter ordem
@@ -1876,18 +1882,28 @@ function buildFunnelHTML(t){
     const r2=clicks>0?(lpv/clicks*100):0;
 
     if (meteoricos) {
-        const rL=lpv>0?(purch/lpv*100):0;  // LPV -> Lead
+        const cresc = isCrescimento();
+        // Crescimento: visitas ao perfil Instagram -> Seguidores
+        // Lead capture (meteoricos/comercial): LPV -> Cadastro
+        const lpvLabel = cresc ? 'Visitas ao Perfil' : 'LPV (Visualiza&ccedil;&otilde;es da P&aacute;gina)';
+        const lpvTip = cresc ? 'Visitas ao perfil do Instagram' : 'P&aacute;gina de destino carregada';
+        const finalLabel = cresc ? 'Seguidores' : 'Leads (Cadastros)';
+        const finalIcon = cresc ? '&#128241;' : '&#9733;';
+        const finalTip = cresc ? 'Novos seguidores conquistados' : 'Cadastros registrados no formul&aacute;rio';
+        const rL=lpv>0?(purch/lpv*100):0;
         totalRate=clicks>0?(purch/clicks*100):0;
         steps=[
             {label:'Impress&otilde;es',value:impr,icon:'&#128065;',dark:'#0a2d6b',mid:'#1f6feb',light:'#6eb8ff',tip:'Total de vezes que o an&uacute;ncio foi exibido'},
             {label:'Cliques no Link',value:clicks,icon:'&#128279;',dark:'#0d4a6b',mid:'#2891d4',light:'#7dd3fc',tip:'Cliques no link de destino'},
-            {label:'LPV (Visualiza&ccedil;&otilde;es da P&aacute;gina)',value:lpv,icon:'&#128194;',dark:'#0e5a4a',mid:'#16a377',light:'#7ee6c5',tip:'P&aacute;gina de destino carregada'},
-            {label:'Leads (Cadastros)',value:purch,icon:'&#9733;',dark:'#5a3a0e',mid:'#d48f1a',light:'#fcd34d',tip:'Cadastros registrados no formul&aacute;rio'},
+            {label:lpvLabel,value:lpv,icon:'&#128194;',dark:'#0e5a4a',mid:'#16a377',light:'#7ee6c5',tip:lpvTip},
+            {label:finalLabel,value:purch,icon:finalIcon,dark:'#5a3a0e',mid:'#d48f1a',light:'#fcd34d',tip:finalTip},
         ];
+        const lpvShort = cresc ? 'Perfil' : 'LPV';
+        const finalShort = cresc ? 'Seguidor' : 'Lead';
         conversions=[
             {pct:r1,label:'CTR (impr &rarr; cliques)'},
-            {pct:r2,label:'cliques &rarr; LPV'},
-            {pct:rL,label:'LPV &rarr; Lead'},
+            {pct:r2,label:'cliques &rarr; '+lpvShort},
+            {pct:rL,label:lpvShort+' &rarr; '+finalShort},
         ];
     } else {
         const r3=lpv>0?(ic/lpv*100):0;
@@ -3605,15 +3621,20 @@ async function openAdModal(adId,adName,thumbnailUrl){
                     <!-- Funil — volumes -->
                     <div class="scard clickable" data-metric="impressions" data-tip="Total de impress&otilde;es"><div class="sl">Impress&otilde;es</div><div class="sv" style="font-size:20px">${fmt(t.impressions)}</div></div>
                     <div class="scard clickable" data-metric="link_clicks" data-tip="Cliques no link"><div class="sl">Cliques</div><div class="sv" style="font-size:20px">${fmt(t.link_clicks)}</div></div>
-                    <div class="scard clickable" data-metric="lpv" data-tip="Visualiza&ccedil;&otilde;es da p&aacute;gina"><div class="sl">LPV</div><div class="sv" style="font-size:20px">${fmt(t.lpv)}</div></div>
+                    <div class="scard clickable" data-metric="lpv" data-tip="${isCrescimento()?'Visitas ao perfil do Instagram':'Visualiza&ccedil;&otilde;es da p&aacute;gina'}"><div class="sl auto-label-lpv">LPV</div><div class="sv" style="font-size:20px">${fmt(t.lpv)}</div></div>
                     <div class="scard clickable" data-metric="initiate_checkout" data-tip="Checkouts iniciados"><div class="sl">Checkouts</div><div class="sv" style="font-size:20px">${fmt(t.initiate_checkout)}</div></div>
                     <!-- Funil — taxas -->
                     <div class="scard clickable" data-metric="ctr" data-tip="Impress&otilde;es &rarr; Cliques"><div class="sl">CTR</div><div class="sv" style="font-size:20px">${fmtP(t.ctr)}</div></div>
-                    <div class="scard clickable" data-metric="rate_click_lpv" data-tip="Cliques &rarr; LPV"><div class="sl">Click&rarr;LPV</div><div class="sv" style="font-size:20px">${fmtP(t.link_clicks>0?(t.lpv/t.link_clicks*100):0)}</div></div>
+                    <div class="scard clickable" data-metric="rate_click_lpv" data-tip="Cliques &rarr; LPV/Perfil"><div class="sl auto-label-rate-click">Click&rarr;LPV</div><div class="sv" style="font-size:20px">${fmtP(t.link_clicks>0?(t.lpv/t.link_clicks*100):0)}</div></div>
                     <div class="scard clickable" data-metric="rate_lpv_ic" data-tip="LPV &rarr; Checkout"><div class="sl">LPV&rarr;Checkout</div><div class="sv" style="font-size:20px">${fmtP(t.lpv>0?(t.initiate_checkout/t.lpv*100):0)}</div></div>
                     <div class="scard clickable" data-metric="rate_ic_purchase" data-tip="Checkout &rarr; Compra"><div class="sl">Checkout&rarr;Compra</div><div class="sv" style="font-size:20px">${fmtP(t.initiate_checkout>0?(purch/t.initiate_checkout*100):0)}</div></div>
                     <!-- Taxa LPV->Lead so para meteoricos -->
-                    ${isLeadCapture()?`<div class="scard clickable" data-metric="rate_lpv_lead" data-tip="LPV &rarr; Lead: quantos dos que viram a pagina cadastraram"><div class="sl">LPV&rarr;Lead</div><div class="sv" style="font-size:20px">${fmtP(t.lpv>0?(purch/t.lpv*100):0)}</div></div>`:''}
+                    ${isLeadCapture()?(function(){
+                        var cresc = isCrescimento();
+                        var lbl = cresc ? 'Perfil&rarr;Seguidor' : 'LPV&rarr;Lead';
+                        var tip = cresc ? 'Quantos dos que visitaram o perfil viraram seguidores' : 'Quantos dos que viram a pagina cadastraram';
+                        return '<div class="scard clickable" data-metric="rate_lpv_lead" data-tip="'+tip+'"><div class="sl">'+lbl+'</div><div class="sv" style="font-size:20px">'+fmtP(t.lpv>0?(purch/t.lpv*100):0)+'</div></div>';
+                    })():''}
                     <!-- Custos unitários -->
                     <div class="scard clickable" data-metric="cpm" data-tip="Custo por mil impress&otilde;es"><div class="sl">CPM</div><div class="sv" style="font-size:20px">${fmtM(t.cpm)}</div></div>
                     <div class="scard clickable" data-metric="cpc_link" data-tip="Custo por clique no link"><div class="sl">CPC Link</div><div class="sv" style="font-size:20px">${fmtM(t.cost_per_link_click)}</div></div>
@@ -3962,9 +3983,9 @@ function renderProjection(){
 
     $('#proj-period-label').textContent=projDays;
     const isMet = isLeadCapture();
-    const convLabel = isMet ? 'Leads' : 'Compras';
-    const cpaLabel = isMet ? 'CPL' : 'CPA';
-    const dailyConvLabel = isMet ? 'Leads/Dia' : 'Vendas/Dia';
+    const convLabel = labelConversao();
+    const cpaLabel = labelCPA();
+    const dailyConvLabel = isCrescimento() ? 'Seguidores/Dia' : (isMet ? 'Leads/Dia' : 'Vendas/Dia');
     const cardsHtml = [
         `<div class="scard"><div class="sl" data-tip="Gasto total projetado para os pr&oacute;ximos ${projDays} dias">Gasto Previsto</div><div class="sv" style="font-size:22px">${fmtM(sumSpend)}</div></div>`,
     ];
@@ -4253,8 +4274,8 @@ function renderBdCharts(d) {
     var weekdaySorted = sortArr(d.weekday, _bdSorts.weekday.key, _bdSorts.weekday.asc);
 
     // ── Sexo: Doughnut ──
-    var convWord = isLeadCapture() ? 'leads' : 'vendas';
-    var cpaLbl = isLeadCapture() ? 'CPL' : 'CPA';
+    var convWord = isLeadCapture() ? labelConversao().toLowerCase() : 'vendas';
+    var cpaLbl = labelCPA();
     _bdCharts.gender = new Chart($('#chart-gender'), {
         type: 'doughnut',
         data: {
@@ -4360,7 +4381,7 @@ function renderBdCharts(d) {
     ];
     if (isLead) {
         weekdayDatasets.push({
-            label: 'CPL',
+            label: labelCPA(),
             data: weekdayCpl,
             type: 'line',
             borderColor: 'rgba(126,231,135,1)',
