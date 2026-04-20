@@ -1142,45 +1142,32 @@
 
 <div id="tooltip-box"></div>
 
-<!-- Popup explicativo de Crescimento: sobre atribuicao de seguidores e meta principal -->
+<!-- Popup explicativo de Crescimento: aviso simples sobre a metrica principal -->
 <div id="crescimento-info-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:10000;align-items:center;justify-content:center;padding:20px;">
-    <div style="background:linear-gradient(160deg,#0f1623 0%,#0a1018 100%);border:1px solid rgba(126,231,135,0.25);border-radius:14px;max-width:640px;width:100%;padding:28px 30px;box-shadow:0 20px 60px rgba(0,0,0,0.6),0 0 40px rgba(126,231,135,0.08);">
-        <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:16px;">
-            <div style="font-size:32px;line-height:1;">&#128241;</div>
-            <div style="flex:1;">
-                <h3 style="color:#7ee6c5;font-size:18px;font-weight:700;margin:0 0 4px 0;">Entendendo os dados de Crescimento</h3>
-                <p style="color:#8a96a6;font-size:12px;margin:0;">Antes de analisar, leia rapidinho como interpretamos as metricas</p>
-            </div>
+    <div style="background:linear-gradient(160deg,#0f1623 0%,#0a1018 100%);border:1px solid rgba(126,231,135,0.25);border-radius:14px;max-width:480px;width:100%;padding:24px 26px;box-shadow:0 20px 60px rgba(0,0,0,0.6),0 0 40px rgba(126,231,135,0.08);">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+            <div style="font-size:28px;line-height:1;">&#128241;</div>
+            <h3 style="color:#7ee6c5;font-size:17px;font-weight:700;margin:0;">Olha s&oacute;, antes de come&ccedil;ar</h3>
         </div>
 
-        <div style="color:#c8d0db;font-size:13px;line-height:1.55;">
-            <p style="margin:0 0 14px 0;">
-                <strong style="color:#7ee6c5;">A meta principal dessas campanhas e Visitas ao Perfil do Instagram</strong> — e nao cliques em anuncio ou novos seguidores diretos. O Meta otimiza a entrega pra quem tem mais chance de abrir o perfil do JRM.
+        <div style="color:#c8d0db;font-size:13.5px;line-height:1.6;">
+            <p style="margin:0 0 12px 0;">
+                Aqui o que importa s&atilde;o as <strong style="color:#7ee6c5;">Visitas ao Perfil</strong>. &Eacute; o que as campanhas est&atilde;o otimizando e o n&uacute;mero mais certinho do painel.
             </p>
 
-            <div style="background:rgba(126,231,135,0.08);border-left:3px solid #7ee6c5;padding:12px 14px;border-radius:4px;margin:0 0 14px 0;">
-                <p style="margin:0 0 6px 0;color:#7ee6c5;font-weight:600;font-size:12px;">Use Visitas ao Perfil para otimizar</p>
-                <p style="margin:0;color:#aab4c2;font-size:12px;">
-                    E a metrica mais confiavel do painel — vem direto do campo <code style="background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:3px;">results</code> da API Meta (mesma coluna "Resultados" do Gerenciador).
+            <p style="margin:0 0 12px 0;">
+                J&aacute; o n&uacute;mero de <strong style="color:#ffc857;">Seguidores</strong> pode ficar um pouco diferente do que voc&ecirc; v&ecirc; no Gerenciador. Isso acontece porque o Meta n&atilde;o nos diz exatamente quantos seguidores vieram de cada campanha — a gente estima com base nas visitas.
+            </p>
+
+            <div style="background:rgba(126,231,135,0.08);border-left:3px solid #7ee6c5;padding:10px 12px;border-radius:4px;margin:0;">
+                <p style="margin:0;color:#aab4c2;font-size:12.5px;">
+                    <strong style="color:#7ee6c5;">Dica:</strong> pra decidir o que escalar ou pausar, olha <strong>Visitas</strong> e <strong>Custo por Visita</strong>. &Eacute; onde a informa&ccedil;&atilde;o &eacute; mais confi&aacute;vel.
                 </p>
             </div>
-
-            <p style="margin:0 0 10px 0;">
-                <strong style="color:#ffc857;">Por que o numero de Seguidores pode divergir do Gerenciador?</strong>
-            </p>
-            <ul style="margin:0 0 14px 0;padding-left:18px;color:#aab4c2;">
-                <li style="margin-bottom:6px;">A API do Meta <strong>nao expoe</strong> quantos seguidores foram ganhos por campanha (sem breakdown por campanha/idade/sexo).</li>
-                <li style="margin-bottom:6px;">O dashboard pega o <strong>ganho liquido real</strong> do perfil via Instagram Graph API (seguiu - deixou de seguir) e <strong>distribui</strong> proporcional as visitas ao perfil de cada campanha.</li>
-                <li>Por isso o numero por campanha e uma <strong>estimativa de atribuicao</strong> — o total tende a bater com o Gerenciador, mas a distribuicao por campanha pode variar.</li>
-            </ul>
-
-            <p style="margin:0;color:#8a96a6;font-size:12px;">
-                <strong>Resumo pratico:</strong> tome decisao olhando Visitas e Custo/Visita por campanha/criativo. Use Seguidores apenas como referencia de resultado agregado do perfil.
-            </p>
         </div>
 
-        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:22px;">
-            <button id="crescimento-info-close" style="background:#7ee6c5;border:none;color:#0a1018;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;">Entendi, vamos la</button>
+        <div style="display:flex;justify-content:flex-end;margin-top:20px;">
+            <button id="crescimento-info-close" style="background:#7ee6c5;border:none;color:#0a1018;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;">Entendi</button>
         </div>
     </div>
 </div>
