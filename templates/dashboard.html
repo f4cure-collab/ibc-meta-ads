@@ -576,6 +576,8 @@
         body.type-crescimento .show-crescimento { display: block !important; }
         body.type-crescimento th.show-crescimento,
         body.type-crescimento td.show-crescimento { display: table-cell !important; }
+        /* Elementos que NAO devem aparecer em Crescimento (meta = visitas, nao seguidores) */
+        body.type-crescimento .hide-crescimento { display: none !important; }
     </style>
 </head>
 <body>
@@ -696,9 +698,9 @@
             <div class="ccard ccard-rank show-crescimento"><h3 id="rank-visits-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128241; Visitas Perfil por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-visits"></canvas></div></div>
             <div class="ccard ccard-rank show-crescimento"><h3 id="rank-cpv-title" style="cursor:pointer" data-tip="Custo por Visita (menor &harr; maior)">&#128184; Custo/Visita por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpv"></div></div></div>
             <div class="ccard ccard-rank hide-meteoricos"><h3 id="rank-roas-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (melhor &harr; pior)">&#127942; ROAS por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-roas"></canvas></div></div>
-            <div class="ccard ccard-rank show-meteoricos"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpl"></div></div></div>
+            <div class="ccard ccard-rank show-meteoricos hide-crescimento"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpl"></div></div></div>
             <div class="ccard ccard-rank"><h3 id="rank-spend-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128176; Gasto/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-spend"></canvas></div></div>
-            <div class="ccard ccard-rank"><h3 id="rank-sales-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)"><span class="rank-sales-icon">&#128722;</span> <span class="rank-sales-label">Vendas</span>/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-sales-day"></canvas></div></div>
+            <div class="ccard ccard-rank hide-crescimento"><h3 id="rank-sales-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)"><span class="rank-sales-icon">&#128722;</span> <span class="rank-sales-label">Vendas</span>/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-sales-day"></canvas></div></div>
         </div>
         <div class="tbl-wrap">
             <div class="tbl-head">
