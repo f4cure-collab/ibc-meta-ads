@@ -737,7 +737,7 @@
             <div class="ccard ccard-rank show-nutricao"><h3 id="rank-ctp-title" style="cursor:pointer" data-tip="Custo por ThruPlay (menor &harr; maior)">&#128184; Custo/ThruPlay por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-ctp"></div></div></div>
             <div class="ccard ccard-rank hide-meteoricos"><h3 id="rank-roas-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (melhor &harr; pior)">&#127942; ROAS por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-roas"></canvas></div></div>
             <div class="ccard ccard-rank show-meteoricos hide-crescimento hide-nutricao"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpl"></div></div></div>
-            <div class="ccard ccard-rank hide-nutricao"><h3 id="rank-spend-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128176; Gasto/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-spend"></canvas></div></div>
+            <div class="ccard ccard-rank"><h3 id="rank-spend-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128176; Gasto/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-spend"></canvas></div></div>
             <div class="ccard ccard-rank hide-crescimento hide-nutricao"><h3 id="rank-sales-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)"><span class="rank-sales-icon">&#128722;</span> <span class="rank-sales-label">Vendas</span>/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-sales-day"></canvas></div></div>
         </div>
         <div class="tbl-wrap">
@@ -2396,7 +2396,21 @@ function buildFunnelHTML(t){
         }
     });
     html+='</div></div>';
-    html+=`<div class="rf-total" data-tip="Taxa total de convers&atilde;o do clique &agrave; compra finalizada">Taxa de convers&atilde;o click &rarr; compra: <strong>${totalRate.toFixed(2)}%</strong></div>`;
+    var _totalLbl, _totalTip;
+    if (nutri) {
+        _totalLbl = 'Taxa de retencao play &rarr; 100%';
+        _totalTip = 'Percentual dos plays que assistem o video inteiro';
+    } else if (isCrescimento()) {
+        _totalLbl = 'Taxa de convers&atilde;o click &rarr; seguidor';
+        _totalTip = 'Percentual dos cliques que viraram seguidores';
+    } else if (isLeadCapture()) {
+        _totalLbl = 'Taxa de convers&atilde;o click &rarr; lead';
+        _totalTip = 'Percentual dos cliques que viraram leads';
+    } else {
+        _totalLbl = 'Taxa de convers&atilde;o click &rarr; compra';
+        _totalTip = 'Taxa total de convers&atilde;o do clique &agrave; compra finalizada';
+    }
+    html+=`<div class="rf-total" data-tip="${_totalTip}">${_totalLbl}: <strong>${totalRate.toFixed(2)}%</strong></div>`;
     html+='</div>';
     return html;
 }
@@ -3456,14 +3470,27 @@ function cardH(c){
             </div>
         </div>
         <div class="cr-stats-grid">
-            <div class="cr-st" data-tip="${isLeadCapture()?'Leads: total de cadastros atribu&iacute;dos a este criativo.':'Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.'}">
-                <div class="lbl">${labelConversao()}</div>
-                <div class="val">${fmt(c.purchases)}</div>
-            </div>
-            <div class="cr-st" data-tip="${isLeadCapture()?'CPL (Custo por Lead): quanto custou em m&eacute;dia cada cadastro — gasto / leads.':'CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — gasto / compras.'}">
-                <div class="lbl">${labelCPA()}</div>
-                <div class="val">${fmtM(c.cpa)}</div>
-            </div>
+            ${(()=>{
+                // Nutricao: usa video_thruplay em vez de purchases (purchases nao se aplica)
+                var nutri = isNutricao();
+                var primary = nutri ? (c.video_thruplay||0) : c.purchases;
+                var costPer = nutri ? ((c.video_thruplay||0)>0 ? c.spend/c.video_thruplay : 0) : c.cpa;
+                var primaryTip = nutri
+                    ? 'ThruPlays: visualizacoes completas (ou ate 15s) do video'
+                    : (isLeadCapture()?'Leads: total de cadastros atribu&iacute;dos a este criativo.':'Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.');
+                var costTip = nutri
+                    ? 'CPTP (Custo por ThruPlay): gasto / ThruPlays'
+                    : (isLeadCapture()?'CPL (Custo por Lead): gasto / leads.':'CPA: gasto / compras.');
+                return `
+                <div class="cr-st" data-tip="${primaryTip}">
+                    <div class="lbl">${labelConversao()}</div>
+                    <div class="val">${fmt(primary)}</div>
+                </div>
+                <div class="cr-st" data-tip="${costTip}">
+                    <div class="lbl">${labelCPA()}</div>
+                    <div class="val">${fmtM(costPer)}</div>
+                </div>`;
+            })()}
             <div class="cr-st" data-tip="CTR (Click Through Rate): percentual de pessoas que viram o an&uacute;ncio e clicaram. Mede o quanto a arte/copy atrai cliques.">
                 <div class="lbl">CTR</div>
                 <div class="val">${fmtP(c.ctr)}</div>

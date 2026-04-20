@@ -2453,7 +2453,7 @@ def api_daily_summary():
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_v4_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_v5_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -2506,6 +2506,8 @@ def api_daily_summary():
                     "date": d, "spend": 0, "revenue": 0, "purchases": 0,
                     "impressions": 0, "clicks": 0, "link_clicks": 0,
                     "lpv": 0, "profile_visits": 0, "initiate_checkout": 0,
+                    "video_plays": 0, "video_p25": 0, "video_p50": 0, "video_p75": 0,
+                    "video_p95": 0, "video_p100": 0, "video_thruplay": 0,
                 }
             by_date[d]["spend"] += parsed.get("spend", 0)
             by_date[d]["revenue"] += parsed.get("revenue", 0)
@@ -2516,6 +2518,13 @@ def api_daily_summary():
             by_date[d]["lpv"] += parsed.get("lpv", 0)
             by_date[d]["profile_visits"] += parsed.get("profile_visits", 0)
             by_date[d]["initiate_checkout"] += parsed.get("initiate_checkout", 0)
+            by_date[d]["video_plays"] += parsed.get("video_plays", 0)
+            by_date[d]["video_p25"] += parsed.get("video_p25", 0)
+            by_date[d]["video_p50"] += parsed.get("video_p50", 0)
+            by_date[d]["video_p75"] += parsed.get("video_p75", 0)
+            by_date[d]["video_p95"] += parsed.get("video_p95", 0)
+            by_date[d]["video_p100"] += parsed.get("video_p100", 0)
+            by_date[d]["video_thruplay"] += parsed.get("video_thruplay", 0)
 
         # Crescimento: distribui total_net * share entre dias proporcional ao spend
         if camp_type == CAMP_TYPE_CRESCIMENTO and ig_net_total > 0 and cresc_spend_total > 0:
@@ -2540,6 +2549,11 @@ def api_daily_summary():
             row["cost_per_ic"] = round(row["spend"] / row["initiate_checkout"], 2) if row["initiate_checkout"] > 0 else 0
             pv = row.get("profile_visits", 0)
             row["cost_per_profile_visit"] = round(row["spend"] / pv, 2) if pv > 0 else 0
+            tp = row.get("video_thruplay", 0)
+            row["cost_per_thruplay"] = round(row["spend"] / tp, 2) if tp > 0 else 0
+            vplays = row.get("video_plays", 0)
+            row["cost_per_video_play"] = round(row["spend"] / vplays, 2) if vplays > 0 else 0
+            row["rate_play_thruplay"] = round((tp / vplays) * 100, 2) if vplays > 0 else 0
             lc = row["link_clicks"]
             row["rate_click_lpv"] = round((row["lpv"] / lc) * 100, 2) if lc > 0 else 0
             row["rate_lpv_ic"] = round((row["initiate_checkout"] / row["lpv"]) * 100, 2) if row["lpv"] > 0 else 0
@@ -2791,7 +2805,7 @@ def api_all_creatives():
         # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
         is_viewer = session.get("role") == "viewer"
 
-        cache_key = f"all_creatives_v2_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"all_creatives_v3_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3025,7 +3039,7 @@ def api_breakdowns():
             return blocked
         campaign_id = request.args.get("campaign_id", "")
 
-        cache_key = f"breakdowns_v6_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"breakdowns_v7_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3062,7 +3076,10 @@ def api_breakdowns():
             else:
                 base_params["filtering"] = json.dumps([{"field": "campaign.objective", "operator": "IN", "value": ["OUTCOME_SALES"]}])
 
-        ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas,results"
+        ins_fields = (
+            "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas,results,"
+            + VIDEO_METRIC_FIELDS
+        )
 
         def extract_purchase(row):
             conv = 0
@@ -3196,7 +3213,7 @@ def api_breakdowns():
         _enforce_rate_limit()
         daily_data = meta_get_all_pages(endpoint, {
             **base_params,
-            "fields": "spend,impressions,clicks,actions,action_values,purchase_roas",
+            "fields": "spend,impressions,clicks,actions,action_values,purchase_roas," + VIDEO_METRIC_FIELDS,
             "time_increment": 1,
         })
 
@@ -3220,6 +3237,10 @@ def api_breakdowns():
             roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
             pv_raw = _extract_profile_visits_from_row(row)
             conv, pv = _attrib_crescimento(spend, conv, pv_raw, _extract_proxy(row), age_proxy_total)
+            # Nutricao: metricas de video vem direto no breakdown
+            tp = _extract_video_metric(row, "video_thruplay_watched_actions")
+            vplays = _extract_video_metric(row, "video_play_actions")
+            vp100 = _extract_video_metric(row, "video_p100_watched_actions")
             age_result.append({
                 "age": row.get("age", "?"),
                 "spend": round(spend, 2),
@@ -3231,6 +3252,10 @@ def api_breakdowns():
                 "cpa": round(spend / conv, 2) if conv > 0 else 0,
                 "profile_visits": pv,
                 "cost_per_profile_visit": round(spend / pv, 2) if pv > 0 else 0,
+                "video_thruplay": tp,
+                "video_plays": vplays,
+                "video_p100": vp100,
+                "cost_per_thruplay": round(spend / tp, 2) if tp > 0 else 0,
             })
 
         # Processar sexo
@@ -3243,6 +3268,9 @@ def api_breakdowns():
             roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
             pv_raw = _extract_profile_visits_from_row(row)
             conv, pv = _attrib_crescimento(spend, conv, pv_raw, _extract_proxy(row), gender_proxy_total)
+            tp = _extract_video_metric(row, "video_thruplay_watched_actions")
+            vplays = _extract_video_metric(row, "video_play_actions")
+            vp100 = _extract_video_metric(row, "video_p100_watched_actions")
             gender_result.append({
                 "gender": gender_labels.get(row.get("gender", ""), row.get("gender", "?")),
                 "spend": round(spend, 2),
@@ -3254,11 +3282,15 @@ def api_breakdowns():
                 "cpa": round(spend / conv, 2) if conv > 0 else 0,
                 "profile_visits": pv,
                 "cost_per_profile_visit": round(spend / pv, 2) if pv > 0 else 0,
+                "video_thruplay": tp,
+                "video_plays": vplays,
+                "video_p100": vp100,
+                "cost_per_thruplay": round(spend / tp, 2) if tp > 0 else 0,
             })
 
         # Processar dia da semana
         weekdays = {0: "Segunda", 1: "Terca", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sabado", 6: "Domingo"}
-        weekday_totals = {i: {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0, "profile_visits": 0, "proxy": 0, "days": 0} for i in range(7)}
+        weekday_totals = {i: {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0, "profile_visits": 0, "proxy": 0, "video_thruplay": 0, "video_plays": 0, "video_p100": 0, "days": 0} for i in range(7)}
 
         for row in daily_data:
             date_str = row.get("date_start", "")
@@ -3278,6 +3310,9 @@ def api_breakdowns():
             weekday_totals[wd]["revenue"] += revenue
             weekday_totals[wd]["profile_visits"] += _extract_profile_visits_from_row(row)
             weekday_totals[wd]["proxy"] += _extract_proxy(row)
+            weekday_totals[wd]["video_thruplay"] += _extract_video_metric(row, "video_thruplay_watched_actions")
+            weekday_totals[wd]["video_plays"] += _extract_video_metric(row, "video_play_actions")
+            weekday_totals[wd]["video_p100"] += _extract_video_metric(row, "video_p100_watched_actions")
             weekday_totals[wd]["days"] += 1
 
         weekday_proxy_total = sum(weekday_totals[i]["proxy"] for i in range(7)) if camp_type == CAMP_TYPE_CRESCIMENTO else 0
@@ -3290,6 +3325,7 @@ def api_breakdowns():
             if rev == 0 and t["conversions"] > 0:
                 rev = t["conversions"] * ticket_medio
             conv, pv = _attrib_crescimento(t["spend"], t["conversions"], t["profile_visits"], t.get("proxy", 0), weekday_proxy_total)
+            tp = t["video_thruplay"]
             weekday_result.append({
                 "day": weekdays[i],
                 "day_num": i,
@@ -3304,6 +3340,11 @@ def api_breakdowns():
                 "profile_visits": pv,
                 "profile_visits_avg": round(pv / days_count, 1),
                 "cost_per_profile_visit": round(t["spend"] / pv, 2) if pv > 0 else 0,
+                "video_thruplay": tp,
+                "video_thruplay_avg": round(tp / days_count, 1),
+                "video_plays": t["video_plays"],
+                "video_p100": t["video_p100"],
+                "cost_per_thruplay": round(t["spend"] / tp, 2) if tp > 0 else 0,
             })
 
         response = {
@@ -4796,8 +4837,8 @@ def _warmup_camp_type(ct, days_list, dt_to):
             dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
             try:
                 k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
-                k_daily = f"daily_summary_v4_{ct}_all_{dt_from}_{dt_to}"
-                k_creat = f"all_creatives_v2_{ct}_active_{dt_from}_{dt_to}"
+                k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
+                k_creat = f"all_creatives_v3_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
@@ -4869,8 +4910,8 @@ def _refresh_recent_loop():
                     for ct in VALID_CAMP_TYPES:
                         try:
                             k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
-                            k_daily = f"daily_summary_v4_{ct}_all_{dt_from}_{dt_to}"
-                            k_creat = f"all_creatives_v2_{ct}_active_{dt_from}_{dt_to}"
+                            k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
+                            k_creat = f"all_creatives_v3_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             hdr = {"X-Internal-Scheduler": "refresh_loop"}
