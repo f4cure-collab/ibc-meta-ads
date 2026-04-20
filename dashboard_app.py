@@ -4880,18 +4880,21 @@ def admin_update_token():
 # ── Scheduled refresh ──────────────────────────────────────────────────
 
 def _scheduled_refresh():
-    """Pre-carrega campanhas e criativos em etapas com intervalos para não sobrecarregar a API.
+    """Pre-carrega campanhas e criativos em etapas uma vez por dia (2am).
 
-    Cobre os ranges mais usados (7d, 14d, 30d, 60d) para que o cache sirva
-    qualquer seleção de periodo no dashboard sem precisar bater na API.
+    Escopo enxuto pra nao sobrecarregar BUC da Meta:
+      - Apenas 30d e 7d (ranges mais usados no dashboard)
+      - Ranges extras (1d/14d/60d/90d) vem sob demanda ou pelo refresh loop
+    Antes rodava 5 ranges × 5 tipos × 5 endpoints (>125 dashboard-calls ≈
+    800+ Meta calls) o que era inaceitavel pra conta ja carregada.
     """
     from datetime import datetime, timedelta
 
     refresh_scheduler_lock("daily_scheduler")
     now_br = _now_br()
     dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
-    # Ranges pre-carregados: (dias, label). 30d e o range principal usado no /criativos
-    preload_ranges = [1, 7, 14, 30, 60]
+    # Ranges prioritarios: 30d (default do dashboard) + 7d (secundario mais comum)
+    preload_ranges = [30, 7]
     ranges = [(d, (now_br - timedelta(days=d)).strftime("%Y-%m-%d")) for d in preload_ranges]
 
     print(f"[SCHEDULER] Iniciando atualizacao automatica — ranges: {preload_ranges} dias, ate {dt_to}")
@@ -5046,48 +5049,50 @@ def _warmup_camp_type(ct, days_list, dt_to):
 
 
 def _refresh_recent_loop():
-    """Thread que revalida o cache dos ranges recentes ao longo do dia.
+    """Thread leve que revalida o cache so quando necessario.
 
-    Primeira execucao: warmup PARALELO (1 thread por camp_type) pra encher
-    o cache rapido apos boot — evita primeira carga lenta do dia em qualquer
-    tipo. Depois, ciclos de 30min sequenciais pra manter o 1d fresco.
+    Historico: antes rodava ciclos de 30min, mesmo com cache fresco, e a
+    cada 4 ciclos (2h) refazia TODOS os ranges de TODOS os tipos — causava
+    BUC alto sem ganho. Agora:
 
-    Ranges maiores (7d/14d/30d) refresh a cada 4 ciclos (~2h) pois TTLs
-    sao maiores (3h/8h/20h)."""
+    - Warmup inicial so 30d de 1 tipo na primeira iteracao (nao 5 tipos)
+    - Ciclo principal de 2h (antes 30min)
+    - Cada ciclo refresca APENAS caches que estao prestes a expirar
+      (should_refresh retorna True se TTL < 40%)
+    - Ranges cobertos: 30d (principal) e 7d (secundario); outros sob demanda
+    """
     now_br = _now_br
-    # Warmup paralelo logo apos boot (5s de buffer pro app acabar de subir)
-    time.sleep(15)  # boot buffer maior pra evitar burst imediato
+    # Warmup apos boot — aguarda 30s pra garantir que o app estabilizou
+    time.sleep(30)
     try:
         refresh_scheduler_lock("refresh_recent")
         dt_to = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
-        # Warmup enxuto: so 30d (range mais usado). Outros ranges vem sob demanda
-        # ou nos ciclos de 30min. Tentar warmar tudo de cara causava burst que
-        # batia no rate limit do Meta ('There have been too many calls to this
-        # ad-account. Wait a bit and try again.') — erro #17 BUC.
-        print(f"[WARMUP] Iniciando warmup sequencial dos {len(VALID_CAMP_TYPES)} tipos — {datetime.now().strftime('%H:%M')}")
+        print(f"[WARMUP] Checando cache dos {len(VALID_CAMP_TYPES)} tipos (30d) — {datetime.now().strftime('%H:%M')}")
+        # Warmup so se o cache nao estiver populado (nao forca refresh desnecessario)
         initial_ranges = [30]
         for ct in VALID_CAMP_TYPES:
             _warmup_camp_type(ct, initial_ranges, dt_to)
-            # pausa entre tipos pra distribuir carga no minuto-janela da Meta
-            time.sleep(5)
+            time.sleep(8)  # pausa maior pra distribuir carga
         print(f"[WARMUP] Concluido em {datetime.now().strftime('%H:%M')}")
     except Exception as e:
         print(f"[WARMUP] Erro inicial: {e}")
 
-    iteration = 1  # ja fizemos o warmup inicial (= iteration 0)
+    iteration = 1
+    # Ranges cobertos pelo loop (30d e 7d apenas — os mais usados).
+    LOOP_RANGES = [30, 7]
+    CYCLE_SECONDS = 2 * 3600  # 2h por ciclo (antes 30min)
     while True:
         try:
             refresh_scheduler_lock("refresh_recent")
             dt_to = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
-            # 1d em todo ciclo; 7d/14d/30d a cada 4 ciclos (~2h)
-            days_to_refresh = [1] if iteration % 4 != 0 else [1, 7, 14, 30]
-            print(f"[REFRESH] Ciclo {iteration}: ranges {days_to_refresh}d — {datetime.now().strftime('%H:%M')}")
+            print(f"[REFRESH] Ciclo {iteration}: checando cache — {datetime.now().strftime('%H:%M')}")
+            refreshed_count = 0
             with app.test_client() as client:
                 with client.session_transaction() as sess:
                     sess["logged_in"] = True
                     sess["username"] = SUPER_ADMIN_EMAIL
                     sess["role"] = "super_admin"
-                for days in days_to_refresh:
+                for days in LOOP_RANGES:
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
@@ -5097,27 +5102,29 @@ def _refresh_recent_loop():
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             hdr = {"X-Internal-Scheduler": "refresh_loop"}
-                            refreshed_any = False
+                            # So refresca se cache realmente precisa (should_refresh verifica TTL)
                             if should_refresh(k_camp):
                                 client.get(f"/api/dashboard/campaigns?{base}&camp_status=all", headers=hdr)
-                                refreshed_any = True; time.sleep(3)
+                                refreshed_count += 1; time.sleep(5)
                             if should_refresh(k_daily):
                                 client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all", headers=hdr)
-                                refreshed_any = True; time.sleep(3)
+                                refreshed_count += 1; time.sleep(5)
                             if should_refresh(k_creat):
                                 client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active", headers=hdr)
-                                refreshed_any = True; time.sleep(5)
-                            if refreshed_any:
+                                refreshed_count += 1; time.sleep(8)
+                            if refreshed_count > 0:
                                 refresh_scheduler_lock("refresh_recent")
                         except Exception as e:
                             print(f"[REFRESH] Erro {days}d/{ct}: {e}")
-            print(f"[REFRESH] Cache atualizado em {datetime.now().strftime('%H:%M')}")
+            print(f"[REFRESH] Ciclo {iteration}: {refreshed_count} caches atualizados — {datetime.now().strftime('%H:%M')}")
         except Exception as e:
             print(f"[REFRESH] Erro no loop: {e}")
         iteration += 1
-        # Aguarda 30min, com heartbeat a cada 5min para manter o lock
-        for _ in range(6):  # 6 * 5min = 30min
+        # Aguarda CYCLE_SECONDS, com heartbeat a cada 5min para manter o lock
+        slept = 0
+        while slept < CYCLE_SECONDS:
             time.sleep(300)
+            slept += 300
             try: refresh_scheduler_lock("refresh_recent")
             except Exception: pass
 
