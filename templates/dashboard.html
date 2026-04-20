@@ -4556,11 +4556,11 @@ function updateRateBadge() {
                 }
             });
             lines.push('');
-            lines.push('>50% desacelera +3s/call. >75% pausa 30s automaticamente.');
+            lines.push('>80% desacelera +2s/call. >90% pausa 30s automaticamente.');
         }
         badge.title = lines.join('\n');
 
-        if (pct > 75) {
+        if (pct > 90) {
             badge.style.background = 'rgba(255,107,107,0.2)';
             badge.style.color = '#ff6b6b';
             badge.style.border = '1px solid rgba(255,107,107,0.4)';
@@ -4568,7 +4568,7 @@ function updateRateBadge() {
             overlay.style.background = 'rgba(255,80,80,0.95)';
             document.body.classList.add('has-rate-overlay');
             document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% (' + worst + ') — Sistema pausado para proteger sua conta. Aguarde...';
-        } else if (pct > 50) {
+        } else if (pct > 80) {
             badge.style.background = 'rgba(255,200,87,0.2)';
             badge.style.color = '#ffc857';
             badge.style.border = '1px solid rgba(255,200,87,0.4)';

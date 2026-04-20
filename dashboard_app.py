@@ -604,17 +604,25 @@ _last_call_time = 0
 
 def _decay_usage(u):
     """Estima uso atual aplicando decay linear desde o ultimo check.
-    Meta usa janela rolante de ~1h (3600s) para call/cpu/time. Se ja passou
-    X segundos sem novas chamadas, o contador real da Meta caiu por X/3600.
-    Essa aproximacao evita mostrar 71% quando nada bate na API ha 10min."""
+
+    A janela efetiva da Meta para BUC (ads_insights) e bem mais curta que 1h na
+    pratica — no portal dev a utilizacao cai em poucos minutos apos um burst.
+    Usamos 10min linear como compromisso: nao supoe reset instantaneo mas tambem
+    nao trava em valores altos por 1h inteira quando nao ha mais chamadas.
+    Tambem respeita estimated_time_to_regain_access: se regain_seconds=0, Meta
+    sinaliza que nao estamos sendo bloqueados, entao derrubamos mais agressivo."""
     last = u.get("last_check", 0)
     if not last:
         return 0, 0, 0
     elapsed = time.time() - last
-    # Janela Meta ~1h; decay linear. Ignora se muito antigo.
-    if elapsed > 3600:
+    DECAY_WINDOW = 600  # 10min
+    if elapsed > DECAY_WINDOW:
         return 0, 0, 0
-    factor = max(0.0, 1.0 - (elapsed / 3600.0))
+    factor = max(0.0, 1.0 - (elapsed / DECAY_WINDOW))
+    # Se Meta diz que nao ha bloqueio (regain=0) e ja passou >60s, reduz mais
+    # agressivo — evita banner "64% (stale)" quando Meta ja esta em 3%.
+    if u.get("regain_seconds", 0) == 0 and elapsed > 60:
+        factor *= 0.5
     return (
         int(u.get("call", 0) * factor),
         int(u.get("cpu", 0) * factor),
@@ -646,13 +654,16 @@ def _enforce_rate_limit():
         time.sleep(_MIN_DELAY - elapsed)
 
     pct, acc = _worst_usage_pct()  # ja aplica decay temporal
-    if pct > 75:
+    # Thresholds ajustados: Meta so bloqueia em 100%. Ate 80% trabalhamos normal,
+    # 80-90% desacelera leve, >90% pausa. O portal dev da Meta mostrava ~3% de
+    # uso real enquanto dashboard exibia 64% — banner era pessimista demais.
+    if pct > 90:
         wait = 30
         print(f"[RATE LIMIT] {acc}: {pct}% (decayed) — pausando {wait}s")
         time.sleep(wait)
-    elif pct > 50:
+    elif pct > 80:
         print(f"[RATE LIMIT] {acc}: {pct}% (decayed) — desacelerando")
-        time.sleep(3)
+        time.sleep(2)
 
     _last_call_time = time.time()
 
