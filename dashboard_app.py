@@ -3458,6 +3458,93 @@ def api_ad_accounts_delete(acc_id):
 
 # ── Campanhas nao identificadas: lista campanhas de TODAS contas/tipos ──
 # ── Diagnostico Crescimento: identifica action_type correto p/ seguidores ──
+@app.route("/api/admin/ig-test")
+def api_ig_test():
+    """Testa a integracao com Instagram Graph API usando o token atual do .env.
+    Retorna se o token tem as permissoes necessarias e se a IG API esta respondendo."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        now_br = _now_br()
+        dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
+        dt_from = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        # 1. Checa permissoes do token via /debug_token
+        token_info = {}
+        try:
+            debug_resp = requests.get(
+                f"{BASE_URL}/debug_token",
+                params={"input_token": TOKEN, "access_token": TOKEN},
+                timeout=10
+            ).json()
+            token_info = debug_resp.get("data", {})
+        except Exception as e:
+            token_info = {"error": str(e)}
+
+        scopes = token_info.get("scopes", [])
+        has_ig_basic = "instagram_basic" in scopes
+        has_ig_insights = "instagram_manage_insights" in scopes
+
+        # 2. Tenta listar perfis IG conectados
+        profiles_result = None
+        profiles_error = None
+        try:
+            resp = meta_get("me/accounts", {
+                "fields": "name,instagram_business_account{id,username,name}"
+            })
+            profiles_result = resp.get("data", [])
+        except Exception as e:
+            profiles_error = str(e)
+
+        # 3. Tenta puxar ganho de seguidores do perfil JRM
+        follower_follower = follower_non = 0
+        follower_error = None
+        try:
+            follower_follower, follower_non = fetch_ig_follower_gain_total(
+                IG_PROFILE_ID_JRM, dt_from, dt_to
+            )
+        except Exception as e:
+            follower_error = str(e)
+
+        # 4. Tenta puxar breakdown diario
+        daily_gains = {}
+        daily_error = None
+        try:
+            daily_gains = fetch_ig_follower_gain_by_day(IG_PROFILE_ID_JRM, dt_from, dt_to)
+        except Exception as e:
+            daily_error = str(e)
+
+        return jsonify({
+            "ok": True,
+            "token_info": {
+                "scopes": scopes,
+                "has_instagram_basic": has_ig_basic,
+                "has_instagram_manage_insights": has_ig_insights,
+                "expires_at": token_info.get("expires_at", 0),
+                "is_valid": token_info.get("is_valid", False),
+            },
+            "profiles": profiles_result,
+            "profiles_error": profiles_error,
+            "follower_gain_30d": {
+                "follower": follower_follower,
+                "non_follower": follower_non,
+                "net_gain": follower_follower - follower_non,
+                "error": follower_error,
+            },
+            "daily_gains": {
+                "total_days": len(daily_gains),
+                "total_net_gain": sum(daily_gains.values()) if daily_gains else 0,
+                "sample": dict(list(daily_gains.items())[:7]) if daily_gains else {},
+                "error": daily_error,
+            },
+            "ig_profile_id_used": IG_PROFILE_ID_JRM,
+            "period": f"{dt_from} -> {dt_to}",
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
 @app.route("/api/admin/crescimento-preview")
 def api_crescimento_preview():
     """Retorna rankings de actions/unique_actions/cost_per_action_type nas
@@ -3860,6 +3947,63 @@ def admin_get_config():
         "account_id": ACCOUNT_ID,
         "app_id": os.getenv("META_APP_ID", ""),
     })
+
+@app.route("/api/admin/update-app-config", methods=["POST"])
+def admin_update_app_config():
+    """Atualiza META_APP_ID e META_APP_SECRET no .env. Super admin apenas."""
+    if not session.get("logged_in"):
+        return jsonify({"ok": False, "error": "Nao autorizado"}), 401
+    if not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Apenas o administrador principal"}), 403
+
+    data = request.get_json() or {}
+    admin_pass = data.get("admin_password", "")
+    new_app_id = (data.get("app_id") or "").strip()
+    new_app_secret = (data.get("app_secret") or "").strip()
+
+    if admin_pass != ADMIN_PASSWORD:
+        return jsonify({"ok": False, "error": "Senha admin incorreta"}), 403
+    if not new_app_id or not new_app_secret:
+        return jsonify({"ok": False, "error": "Informe App ID e App Secret"}), 400
+    if not new_app_id.isdigit():
+        return jsonify({"ok": False, "error": "App ID deve ser numerico"}), 400
+    if len(new_app_secret) < 20:
+        return jsonify({"ok": False, "error": "App Secret parece invalido (muito curto)"}), 400
+
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
+    try:
+        lines = []
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                lines = f.readlines()
+
+        new_lines = []
+        found_id = found_secret = False
+        for line in lines:
+            if line.startswith("META_APP_ID="):
+                new_lines.append(f"META_APP_ID={new_app_id}\n")
+                found_id = True
+            elif line.startswith("META_APP_SECRET="):
+                new_lines.append(f"META_APP_SECRET={new_app_secret}\n")
+                found_secret = True
+            else:
+                new_lines.append(line)
+        if not found_id:
+            new_lines.append(f"META_APP_ID={new_app_id}\n")
+        if not found_secret:
+            new_lines.append(f"META_APP_SECRET={new_app_secret}\n")
+
+        with open(env_path, "w") as f:
+            f.writelines(new_lines)
+
+        # Atualizar variaveis de ambiente (codigo le via os.getenv)
+        os.environ["META_APP_ID"] = new_app_id
+        os.environ["META_APP_SECRET"] = new_app_secret
+
+        return jsonify({"ok": True, "message": "App ID e Secret atualizados. Agora atualize o token."})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 
 @app.route("/api/admin/update-token", methods=["POST"])
 def admin_update_token():

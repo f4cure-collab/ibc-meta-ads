@@ -122,6 +122,31 @@
         </div>
     </div>
 
+    <!-- Atualizar App ID/Secret (só super admin) -->
+    <div class="card" id="appConfigCard" data-adm-section="system" style="display:none;">
+        <h2>Atualizar App ID / App Secret</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:12px;">
+            Mude o app do Facebook usado pelo dashboard. Pegue estes valores em
+            <a href="https://developers.facebook.com/apps/" target="_blank" style="color:#4f8cff;">Facebook Developers</a>
+            → seu app → Configuracoes → Basico. Apos atualizar, gere um novo token e cole abaixo.
+        </p>
+        <label>Senha Admin</label>
+        <input type="password" id="adminPassApp" placeholder="Sua senha de admin">
+        <div class="row" style="gap:10px;">
+            <div style="flex:1;">
+                <label>App ID</label>
+                <input type="text" id="newAppId" placeholder="ex: 958774273317896">
+            </div>
+            <div style="flex:2;">
+                <label>App Secret</label>
+                <input type="text" id="newAppSecret" placeholder="Chave Secreta do App">
+            </div>
+        </div>
+        <button class="btn btn-primary" onclick="updateAppConfig()" style="margin-top:12px;">Atualizar App</button>
+        <div class="alert alert-success" id="appCfgOk"></div>
+        <div class="alert alert-error" id="appCfgErr"></div>
+    </div>
+
     <!-- Atualizar Token (só super admin) -->
     <div class="card" id="tokenCard" data-adm-section="system" style="display:none;">
         <h2>Atualizar Token da Meta API</h2>
@@ -428,6 +453,25 @@ async function updateToken() {
     } catch(e) { show('tokenErr', e.message); }
 }
 
+async function updateAppConfig() {
+    var pass = document.getElementById('adminPassApp').value;
+    var appId = document.getElementById('newAppId').value;
+    var appSecret = document.getElementById('newAppSecret').value;
+    hide('appCfgOk'); hide('appCfgErr');
+    if (!pass || !appId || !appSecret) { show('appCfgErr', 'Preencha todos os campos'); return; }
+    try {
+        var r = await fetch('/api/admin/update-app-config', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({admin_password: pass, app_id: appId, app_secret: appSecret})
+        });
+        var d = await r.json();
+        if (d.ok) {
+            show('appCfgOk', d.message);
+            document.getElementById('newAppSecret').value = '';
+        } else { show('appCfgErr', d.error); }
+    } catch(e) { show('appCfgErr', e.message); }
+}
+
 // ── Users management ──
 var _allUsers = [];
 var _userPage = 1;
@@ -457,6 +501,8 @@ async function loadUsers() {
         // Mostrar cards só para super admin
         document.getElementById('tokenCard').style.display = _isSuper ? 'block' : 'none';
         document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
+        var apcfg = document.getElementById('appConfigCard');
+        if (apcfg) apcfg.style.display = _isSuper ? 'block' : 'none';
         var uc = document.getElementById('unidentifiedCard');
         if (uc) uc.style.display = _isSuper ? 'block' : 'none';
         var cc = document.getElementById('crescimentoCard');
