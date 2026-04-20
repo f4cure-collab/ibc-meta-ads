@@ -1172,32 +1172,6 @@
 
 <div id="tooltip-box"></div>
 
-<!-- Popup explicativo de Nutricao: campanha de video com funil de retencao -->
-<div id="nutricao-info-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:10000;align-items:center;justify-content:center;padding:20px;">
-    <div style="background:linear-gradient(160deg,#0f1623 0%,#0a1018 100%);border:1px solid rgba(155,94,232,0.3);border-radius:14px;max-width:480px;width:100%;padding:24px 26px;box-shadow:0 20px 60px rgba(0,0,0,0.6),0 0 40px rgba(155,94,232,0.1);">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
-            <div style="font-size:28px;line-height:1;">&#127909;</div>
-            <h3 style="color:#d2a8ff;font-size:17px;font-weight:700;margin:0;">Campanhas de Nutricao</h3>
-        </div>
-        <div style="color:#c8d0db;font-size:13.5px;line-height:1.6;">
-            <p style="margin:0 0 12px 0;">
-                Sao campanhas de <strong>video</strong> (DSP ou SPK). A meta aqui nao e gerar lead nem venda direta — e <strong style="color:#d2a8ff;">manter o publico assistindo o video ate o fim</strong>.
-            </p>
-            <p style="margin:0 0 12px 0;">
-                A metrica principal e <strong>ThruPlay</strong> (visualizacao completa). Mas o que conta mesmo e o funil de retencao: quantos chegam a 25%, 50%, 75%, 95% e 100% do video.
-            </p>
-            <div style="background:rgba(155,94,232,0.08);border-left:3px solid #9b5ee8;padding:10px 12px;border-radius:4px;margin:0;">
-                <p style="margin:0;color:#aab4c2;font-size:12.5px;">
-                    <strong style="color:#d2a8ff;">Dica:</strong> olhe a <strong>taxa de retencao</strong> em cada marco. Queda grande entre 25% e 50% sugere que o gancho do video nao esta prendendo.
-                </p>
-            </div>
-        </div>
-        <div style="display:flex;justify-content:flex-end;margin-top:20px;">
-            <button id="nutricao-info-close" style="background:#9b5ee8;border:none;color:#fff;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;">Entendi</button>
-        </div>
-    </div>
-</div>
-
 <!-- Popup explicativo de Crescimento: aviso simples sobre a metrica principal -->
 <div id="crescimento-info-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:10000;align-items:center;justify-content:center;padding:20px;">
     <div style="background:linear-gradient(160deg,#0f1623 0%,#0a1018 100%);border:1px solid rgba(126,231,135,0.25);border-radius:14px;max-width:480px;width:100%;padding:24px 26px;box-shadow:0 20px 60px rgba(0,0,0,0.6),0 0 40px rgba(126,231,135,0.08);">
@@ -1261,7 +1235,6 @@ function _wireInfoPopup(typeName, overlayId, closeId, flagKey) {
     else show();
 }
 _wireInfoPopup('crescimento', 'crescimento-info-overlay', 'crescimento-info-close', 'crescimento_info_shown');
-_wireInfoPopup('nutricao', 'nutricao-info-overlay', 'nutricao-info-close', 'nutricao_info_shown');
 // Rotulos adaptativos por tipo:
 // - Nutricao: ThruPlay (visualizacao completa do video) / CPTP
 // - Crescimento: Seguidores / CPS
@@ -1575,10 +1548,9 @@ applyCampTypeClass();
             if (newType === CURRENT_CAMP_TYPE) { menu.style.display = 'none'; return; }
             CURRENT_CAMP_TYPE = newType;
             localStorage.setItem('camp_type', newType);
-            // Ao trocar pra Crescimento ou Nutricao, limpa o flag do popup
-            // pra o usuario ver a explicacao na nova aba apos o reload.
+            // Ao trocar pra Crescimento, limpa o flag do popup explicativo
+            // (Nutricao nao tem popup — funil de video e autoexplicativo).
             if (newType === 'crescimento') sessionStorage.removeItem('crescimento_info_shown');
-            if (newType === 'nutricao') sessionStorage.removeItem('nutricao_info_shown');
             // Recarrega a pagina para garantir estado limpo — caches, chips, seleções, etc.
             window.location.reload();
         });
