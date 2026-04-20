@@ -571,6 +571,11 @@
         /* Mostra somente para captura de lead (CPL ranking substitui ROAS) */
         .show-meteoricos { display: none; }
         body.type-leadcapture .show-meteoricos { display: block !important; }
+        /* Elementos so pra Crescimento (visitas ao perfil) */
+        .show-crescimento { display: none; }
+        body.type-crescimento .show-crescimento { display: block !important; }
+        body.type-crescimento th.show-crescimento,
+        body.type-crescimento td.show-crescimento { display: table-cell !important; }
     </style>
 </head>
 <body>
@@ -668,6 +673,7 @@
             <!-- Funil — volumes -->
             <div class="scard clickable" data-metric="impressions" data-tip="Clique para impress&otilde;es por dia"><div class="sl">Impress&otilde;es</div><div class="sv" id="s-impressions">--</div></div>
             <div class="scard clickable" data-metric="clicks" data-tip="Clique para cliques por dia"><div class="sl">Cliques</div><div class="sv" id="s-clicks">--</div></div>
+            <div class="scard clickable show-crescimento" data-metric="profile_visits" data-tip="Visitas ao perfil do Instagram (coluna Resultados do Meta)"><div class="sl">Visitas Perfil</div><div class="sv" id="s-profile-visits">--</div></div>
             <!-- Funil — taxas -->
             <div class="scard clickable" data-metric="ctr" data-tip="Impress&otilde;es &rarr; Cliques (CTR)"><div class="sl">CTR</div><div class="sv" id="s-ctr">--</div></div>
             <div class="scard clickable" data-metric="rate_click_lpv" data-tip="Cliques &rarr; Visualiza&ccedil;&atilde;o de p&aacute;gina/perfil"><div class="sl auto-label-rate-click">Click&rarr;LPV</div><div class="sv" id="s-rate-click-lpv">--</div></div>
@@ -714,6 +720,7 @@
                     <th data-key="cpm" class="tr" data-tip="Custo por mil impress&otilde;es">CPM</th>
                     <th data-key="impressions" class="tr" data-tip="Total de exibi&ccedil;&otilde;es">Impress&otilde;es</th>
                     <th data-key="link_clicks" class="tr" data-tip="Cliques no link de destino">Cliques Link</th>
+                    <th data-key="profile_visits" class="tr show-crescimento" data-tip="Visitas ao perfil do Instagram (Resultados)">Visitas Perfil</th>
                 </tr></thead><tbody id="camp-tbody"></tbody></table>
             </div>
         </div>
@@ -1480,6 +1487,7 @@ async function loadCamp(force){
         $('#s-purchases').textContent=fmt(s.total_purchases);
         $('#s-campaigns').textContent=fmt(s.total_campaigns);$('#s-impressions').textContent=fmt(s.total_impressions);
         $('#s-clicks').textContent=fmt(s.total_clicks);
+        if($('#s-profile-visits')) $('#s-profile-visits').textContent=fmt(s.total_profile_visits||0);
         renderCampTbl(campData);renderCampCharts(campData);
 
         showCampLoading(true,'Carregando gráficos...','Etapa 2/3 — Dados diários e frequência');
@@ -1495,7 +1503,7 @@ async function loadCamp(force){
         showCampLoading(false);
     }catch(e){
         showCampLoading(false);
-        $('#camp-tbody').innerHTML=`<tr><td colspan="12" style="text-align:center;padding:32px;color:var(--red)">Erro: ${e.message}</td></tr>`;
+        $('#camp-tbody').innerHTML=`<tr><td colspan="13" style="text-align:center;padding:32px;color:var(--red)">Erro: ${e.message}</td></tr>`;
     }
     btn.disabled=false;btn.textContent='Carregar';
     // Carregar breakdowns automaticamente
@@ -1516,7 +1524,7 @@ function renderCampTbl(data){
         return campName.includes(q)||evName.includes(q)||evShort.includes(q);
     });
     $('#camp-cnt').textContent=`${f.length} de ${data.length}`;
-    if(!f.length){tb.innerHTML='<tr><td colspan="12"><div class="empty"><p>Nenhuma campanha</p></div></td></tr>';return;}
+    if(!f.length){tb.innerHTML='<tr><td colspan="13"><div class="empty"><p>Nenhuma campanha</p></div></td></tr>';return;}
 
     // Agrupar por evento
     const eventMap={};
@@ -1557,6 +1565,7 @@ function renderCampTbl(data){
         const evPurch=ev.camps.reduce((s,c)=>s+(c.purchases||0),0);
         const evImpr=ev.camps.reduce((s,c)=>s+(c.impressions||0),0);
         const evClicks=ev.camps.reduce((s,c)=>s+(c.link_clicks||0),0);
+        const evProfVisits=ev.camps.reduce((s,c)=>s+(c.profile_visits||0),0);
         const evRoas=evSpend>0?evRev/evSpend:0;
         const evCpa=evPurch>0?evSpend/evPurch:0;
         const evCtr=evImpr>0?(evClicks/evImpr*100):0;
@@ -1585,6 +1594,7 @@ function renderCampTbl(data){
             <td class="tr">${fmtM(evCpm)}</td>
             <td class="tr">${fmt(evImpr)}</td>
             <td class="tr">${fmt(evClicks)}</td>
+            <td class="tr show-crescimento" style="font-weight:700">${fmt(evProfVisits)}</td>
         </tr>`;
 
         // Campanhas: SEMPRE escondidas (expandir ao clicar se multi)
@@ -1604,6 +1614,7 @@ function renderCampTbl(data){
                     <td class="tr">${fmtM(c.cpm)}</td>
                     <td class="tr">${fmt(c.impressions)}</td>
                     <td class="tr">${fmt(c.link_clicks)}</td>
+                    <td class="tr show-crescimento">${fmt(c.profile_visits||0)}</td>
                 </tr>`;
             });
         }
@@ -2169,6 +2180,7 @@ const DETAIL_METRICS={
     // Funil — volumes (ordem do funil)
     impressions:{label:'Impressões',color:'#1f6feb',fmt:fmt,calc:d=>d.impressions||0,axis:'big'},
     clicks:{label:'Cliques',color:'#a5d6ff',fmt:fmt,calc:d=>d.link_clicks||d.clicks||0,axis:'count'},
+    profile_visits:{label:'Visitas Perfil',color:'#7ee6c5',fmt:fmt,calc:d=>d.profile_visits||0,axis:'count'},
     lpv:{label:'LPV',color:'#d2a8ff',fmt:fmt,calc:d=>d.lpv||0,axis:'count'},
     initiate_checkout:{label:'Checkouts',color:'#f0883e',fmt:fmt,calc:d=>d.initiate_checkout||0,axis:'count'},
     // Funil — taxas de conversão
@@ -2201,6 +2213,7 @@ function _syncTopCards(){
     $('#s-ctr').textContent=fmtP(ctr);
     $('#s-impressions').textContent=fmt(t.impressions);
     $('#s-clicks').textContent=fmt(t.link_clicks||t.clicks||0);
+    if($('#s-profile-visits')) $('#s-profile-visits').textContent=fmt(t.profile_visits||0);
     $('#s-rate-click-lpv').textContent=fmtP(t.rate_click_lpv||0);
     $('#s-rate-lpv-ic').textContent=fmtP(t.rate_lpv_ic||0);
     $('#s-rate-ic-purchase').textContent=fmtP(t.rate_ic_purchase||0);
@@ -2224,6 +2237,7 @@ function renderDetailMetricCards(totals){
         purchases:totals.purchases,cpa:totals.cpa,cpm:avgCpm,ctr:avgCtr,
         impressions:totals.impressions,reach:totals.reach||0,frequency:totals.frequency||0,
         clicks:totals.link_clicks||totals.clicks||0,
+        profile_visits:totals.profile_visits||0,
         lpv:totals.lpv,initiate_checkout:totals.initiate_checkout,
         rate_click_lpv:totals.rate_click_lpv||0,
         rate_lpv_ic:totals.rate_lpv_ic||0,

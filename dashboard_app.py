@@ -1416,6 +1416,7 @@ def api_campaigns():
         total_purchases = 0
         total_impressions = 0
         total_clicks = 0
+        total_profile_visits = 0
 
         # Calcular dias ativos dentro do per&iacute;odo: max(start_time, date_from) at&eacute; date_to
         try:
@@ -1463,6 +1464,7 @@ def api_campaigns():
             total_purchases += metrics.get("purchases", 0)
             total_impressions += metrics.get("impressions", 0)
             total_clicks += metrics.get("clicks", 0)
+            total_profile_visits += metrics.get("profile_visits", 0)
 
         # Ordenar por gasto (maior primeiro)
         result.sort(key=lambda x: x.get("spend", 0), reverse=True)
@@ -1478,6 +1480,7 @@ def api_campaigns():
             "avg_ctr": round((total_clicks / total_impressions) * 100, 2) if total_impressions > 0 else 0,
             "total_impressions": total_impressions,
             "total_clicks": total_clicks,
+            "total_profile_visits": total_profile_visits,
         }
 
         # Agrupar por evento
