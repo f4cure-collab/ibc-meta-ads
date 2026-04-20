@@ -1975,6 +1975,7 @@ def _aggregate_daily_total(daily_rows):
     freq_weighted_sum = 0.0  # Frequency: média ponderada por impressões
     link_clicks = 0
     lpv = 0
+    profile_visits = 0
     view_content = 0
     add_to_cart = 0
     initiate_checkout = 0
@@ -1994,6 +1995,7 @@ def _aggregate_daily_total(daily_rows):
             freq_weighted_sum += day_freq * day_impr
         link_clicks += m.get("link_clicks", 0)
         lpv += m.get("lpv", 0)
+        profile_visits += m.get("profile_visits", 0)
         view_content += m.get("view_content", 0)
         add_to_cart += m.get("add_to_cart", 0)
         initiate_checkout += m.get("initiate_checkout", 0)
@@ -2010,6 +2012,7 @@ def _aggregate_daily_total(daily_rows):
     rate_click_purchase = (purchases / link_clicks * 100) if link_clicks > 0 else 0
     cost_per_ic = spend / initiate_checkout if initiate_checkout > 0 else 0
     cost_per_lpv = spend / lpv if lpv > 0 else 0
+    cost_per_profile_visit = spend / profile_visits if profile_visits > 0 else 0
 
     return {
         "spend": round(spend, 2), "impressions": impressions, "clicks": clicks,
@@ -2019,6 +2022,8 @@ def _aggregate_daily_total(daily_rows):
         "link_clicks": link_clicks, "cost_per_link_click": round(cost_per_link_click, 2),
         "lpv": lpv, "view_content": view_content, "add_to_cart": add_to_cart,
         "initiate_checkout": initiate_checkout,
+        "profile_visits": profile_visits,
+        "cost_per_profile_visit": round(cost_per_profile_visit, 2),
         "rate_click_lpv": round(rate_click_lpv, 2),
         "rate_lpv_ic": round(rate_lpv_ic, 2),
         "rate_ic_purchase": round(rate_ic_purchase, 2),
@@ -2040,28 +2045,36 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
     ads_by_campaign = {}
     daily_by_ad = {}
 
-    # Pré-filtrar: buscar quais campanhas têm impressões no período (1 call batch)
+    # Pré-filtrar: buscar quais campanhas têm impressões no período.
+    # Campanhas podem estar em contas diferentes (ex: comercial em act_2148686818481082)
+    # — agrupa por _account_id e faz 1 call por conta, senao o filtro exclui as
+    # campanhas que nao estao na conta principal e elas desaparecem da aba Criativos.
     camp_ids = [c["id"] for c in sales_campaigns]
+    by_account = {}
+    for c in sales_campaigns:
+        acc = c.get("_account_id") or ACCOUNT_ID
+        by_account.setdefault(acc, []).append(c["id"])
     camps_with_data = set()
-    try:
-        check_rows = meta_get_all_pages(
-            f"{ACCOUNT_ID}/insights",
-            {
-                "fields": "campaign_id,impressions",
-                "time_range": json.dumps({"since": date_from, "until": date_to}),
-                "level": "campaign",
-                "filtering": json.dumps([
-                    {"field": "campaign.id", "operator": "IN", "value": camp_ids},
-                    {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
-                ]),
-                "limit": 500,
-            }
-        )
-        camps_with_data = {r.get("campaign_id") for r in check_rows}
-        print(f"[OPT] {len(camps_with_data)}/{len(sales_campaigns)} campanhas com impressões no período")
-    except Exception as e:
-        print(f"[WARN] Pré-filtro falhou, buscando todas: {e}")
-        camps_with_data = set(camp_ids)
+    for acc_id, ids_in_acc in by_account.items():
+        try:
+            check_rows = meta_get_all_pages(
+                f"{acc_id}/insights",
+                {
+                    "fields": "campaign_id,impressions",
+                    "time_range": json.dumps({"since": date_from, "until": date_to}),
+                    "level": "campaign",
+                    "filtering": json.dumps([
+                        {"field": "campaign.id", "operator": "IN", "value": ids_in_acc},
+                        {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
+                    ]),
+                    "limit": 500,
+                }
+            )
+            camps_with_data.update(r.get("campaign_id") for r in check_rows)
+        except Exception as e:
+            print(f"[WARN] Pre-filtro falhou em {acc_id}, incluindo todas daquela conta: {e}")
+            camps_with_data.update(ids_in_acc)
+    print(f"[OPT] {len(camps_with_data)}/{len(sales_campaigns)} campanhas com impressoes no periodo ({len(by_account)} conta(s))")
 
     for camp in sales_campaigns:
         # Pular campanhas sem impressões
@@ -2557,7 +2570,7 @@ def api_all_creatives():
         # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
         is_viewer = session.get("role") == "viewer"
 
-        cache_key = f"all_creatives_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"all_creatives_v2_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -4439,7 +4452,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
             try:
                 k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                 k_daily = f"daily_summary_v4_{ct}_all_{dt_from}_{dt_to}"
-                k_creat = f"all_creatives_{ct}_active_{dt_from}_{dt_to}"
+                k_creat = f"all_creatives_v2_{ct}_active_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                 if should_refresh(k_camp):
@@ -4506,7 +4519,7 @@ def _refresh_recent_loop():
                         try:
                             k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                             k_daily = f"daily_summary_v4_{ct}_all_{dt_from}_{dt_to}"
-                            k_creat = f"all_creatives_{ct}_active_{dt_from}_{dt_to}"
+                            k_creat = f"all_creatives_v2_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             refreshed_any = False
