@@ -59,6 +59,8 @@ CITY_MAP = {
     "FOZ": "Foz do Iguaçu",
     "ORLANDO": "Orlando",
     "BOSTON": "Boston",
+    "FLORIDA": "Flórida",
+    "PORTUGAL": "Portugal",
     "EUA": "Estados Unidos",
     "USA": "Estados Unidos",
     "BELEM": "Belém",
@@ -154,7 +156,11 @@ def _parse_campaign_name(name):
     Retorna (event_type, city_key, city_name) ou None se não conseguir parsear.
     """
     name_upper = name.upper().replace("Á", "A").replace("É", "E").replace("Ú", "U").replace("Ã", "A").replace("Ó", "O")
-    tokens_split = set(name_upper.replace("-", "_").replace(".", "_").split("_"))
+    # Normaliza separadores comuns (hifen, ponto, espaco, brackets, parenteses)
+    _name_split = name_upper
+    for _sep in ["-", ".", " ", "[", "]", "(", ")", "/", "\\", ","]:
+        _name_split = _name_split.replace(_sep, "_")
+    tokens_split = set(t for t in _name_split.split("_") if t)
 
     # Comercial: agrupa por produto (MTR, PSC, OHIO, CSI, PNL) em vez de evento+cidade
     for prod_key, prod_name in COMERCIAL_PRODUCT_MAP.items():

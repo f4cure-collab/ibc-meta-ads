@@ -331,10 +331,13 @@ def _get_conversion_types(camp_type):
 
 
 def _name_tokens(name):
-    """Tokeniza nome de campanha normalizando acentos, pontos e hifens."""
+    """Tokeniza nome de campanha normalizando acentos, pontos, hifens, brackets e espacos."""
     if not name:
         return set()
-    u = name.upper().replace("-", "_").replace(".", "_")
+    u = name.upper()
+    # Trata como separadores: hifen, ponto, espaco, brackets, parenteses, barras, virgula
+    for sep in ["-", ".", " ", "[", "]", "(", ")", "/", "\\", ","]:
+        u = u.replace(sep, "_")
     u = (u.replace("Ç", "C").replace("Ã", "A").replace("Á", "A")
          .replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U"))
     return set(t for t in u.split("_") if t)
@@ -3255,12 +3258,12 @@ def api_crescimento_preview():
         insights_raw = _fetch_insights_for_tagged_campaigns(
             filtered,
             base_params={
-                # Busca actions, unique_actions e cost_per_action_type.
-                # Tambem tenta action_breakdowns por action_destination
-                # (distingue IG vs FB) e action_video_sound.
                 "fields": "campaign_id,campaign_name,spend,impressions,actions,unique_actions,cost_per_action_type,cost_per_unique_action_type",
                 "time_range": json.dumps({"since": dt_from, "until": dt_to}),
                 "level": "campaign",
+                # action_attribution_windows inclui todas as janelas (padrao 1d_view,7d_click)
+                "action_attribution_windows": json.dumps(["1d_view", "7d_click", "28d_click"]),
+                "use_unified_attribution_setting": "true",
                 "action_breakdowns": json.dumps(["action_destination", "action_type"]),
                 "limit": 500,
             }
