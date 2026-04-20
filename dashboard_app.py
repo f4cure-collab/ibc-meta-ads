@@ -4573,7 +4573,9 @@ def api_unidentified_campaigns():
 
             # Detecta tipo auto + tenta parsear
             auto_type = None
-            if _is_meteoricos_campaign(name):
+            if _is_nutricao_campaign(name):
+                auto_type = CAMP_TYPE_NUTRICAO
+            elif _is_meteoricos_campaign(name):
                 auto_type = CAMP_TYPE_METEORICOS
             elif _is_comercial_campaign(name):
                 auto_type = CAMP_TYPE_COMERCIAL

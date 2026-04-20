@@ -310,6 +310,7 @@
                     <button class="unid-fchip" data-value="meteoricos">Meteoricos</button>
                     <button class="unid-fchip" data-value="comercial">Comercial</button>
                     <button class="unid-fchip" data-value="crescimento">Crescimento</button>
+                    <button class="unid-fchip" data-value="nutricao">Nutricao</button>
                     <button class="unid-fchip" data-value="unassigned">Sem tipo</button>
                 </div>
             </div>
@@ -1162,7 +1163,7 @@ async function applyUpdate() {
 
 // ── Contas de anuncio (multi-account) ──
 var _validCampTypes = [];
-var _campTypeLabels = { vendas: 'Vendas', meteoricos: 'Meteoricos', comercial: 'Comercial', crescimento: 'Crescimento' };
+var _campTypeLabels = { vendas: 'Vendas', meteoricos: 'Meteoricos', comercial: 'Comercial', crescimento: 'Crescimento', nutricao: 'Nutricao' };
 
 function _statusDot(status) {
     var color = '#888', bg = 'rgba(136,136,136,0.12)';
@@ -1361,7 +1362,7 @@ async function loadUnidentified() {
 function _typeBadge(t) {
     var bg = {'vendas':'rgba(76,175,80,0.15)','meteoricos':'rgba(255,152,0,0.15)','comercial':'rgba(79,140,255,0.15)','crescimento':'rgba(236,72,153,0.15)'}[t] || 'rgba(136,136,136,0.15)';
     var col = {'vendas':'#4caf50','meteoricos':'#ff9800','comercial':'#4f8cff','crescimento':'#ec4899'}[t] || '#888';
-    var lbl = {'vendas':'Vendas','meteoricos':'Meteoricos','comercial':'Comercial','crescimento':'Crescimento'}[t] || t;
+    var lbl = {'vendas':'Vendas','meteoricos':'Meteoricos','comercial':'Comercial','crescimento':'Crescimento','nutricao':'Nutricao'}[t] || t;
     return '<span style="display:inline-block;padding:2px 8px;background:'+bg+';color:'+col+';border-radius:4px;font-size:10px;font-weight:600;">'+lbl+'</span>';
 }
 
