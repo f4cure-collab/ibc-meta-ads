@@ -1062,48 +1062,53 @@ async function loadCrescimentoPreview() {
         var html = '<div style="color:#ccc;font-size:12px;margin-bottom:10px;">'
             + '<strong style="color:#ec4899;">' + d.total + ' campanhas</strong> de Crescimento · '
             + 'Gasto 30d: <strong style="color:#fff;">R$ ' + (d.total_spend||0).toLocaleString('pt-BR') + '</strong>';
-        if (d.total_spend > 0) {
-            html += '<br><span style="color:#888;">No gerenciador Meta voce ve o total de seguidores. Divida: R$ ' + (d.total_spend||0).toFixed(2) + ' / seguidores = CPS real. Compare com o valor abaixo para achar o action_type correto.</span>';
-        }
+        html += '<br><span style="color:#888;">Voce busca: total de seguidores aprox. 104.894 e CPS aprox. R$ 1,86. Veja qual tabela abaixo tem esses valores.</span>';
         html += '</div>';
 
+        function renderActionsTable(title, items, valueCol, fallbackCpsFromTotal) {
+            if (!items || !items.length) return '<div style="color:#666;font-size:11px;margin:10px 0;"><strong>'+title+':</strong> vazio</div>';
+            var h = '<details open style="margin-bottom:14px;"><summary style="cursor:pointer;color:#4f8cff;font-size:12px;font-weight:600;padding:6px 0;">'+title+' ('+items.length+' entradas)</summary>';
+            h += '<table style="width:100%;font-size:11px;margin-top:6px;"><thead><tr>'
+                + '<th style="text-align:left;padding:4px;color:#888;">action_type</th>'
+                + (items[0] && items[0].action_destination !== undefined ? '<th style="text-align:left;padding:4px;color:#888;">destination</th>' : '')
+                + '<th style="text-align:right;padding:4px;color:#888;">'+valueCol+'</th>'
+                + (fallbackCpsFromTotal ? '<th style="text-align:right;padding:4px;color:#888;">CPS calc</th>' : '')
+                + '</tr></thead><tbody>';
+            items.forEach(function(a) {
+                var isFollow = /follow|seguir|ig_account/i.test(a.action_type);
+                var color = isFollow ? '#7ee787' : '#ccc';
+                var isDest = a.action_destination !== undefined;
+                var valText = a.total_value != null ? a.total_value.toLocaleString('pt-BR') : ('R$ ' + (a.avg_cost||0).toFixed(2));
+                var cps = fallbackCpsFromTotal && a.total_value > 0 ? (d.total_spend / a.total_value).toFixed(2) : null;
+                h += '<tr>'
+                    + '<td style="padding:4px;font-family:monospace;color:'+color+';'+(isFollow?'font-weight:700':'')+'">'+a.action_type+'</td>'
+                    + (isDest ? '<td style="padding:4px;color:#aaa;font-size:10px;">'+(a.action_destination||'')+'</td>' : '')
+                    + '<td style="padding:4px;text-align:right;color:#fff;">'+valText+'</td>'
+                    + (fallbackCpsFromTotal ? '<td style="padding:4px;text-align:right;color:#ffc857;font-weight:600;">R$ '+(cps||'-')+'</td>' : '')
+                    + '</tr>';
+            });
+            h += '</tbody></table></details>';
+            return h;
+        }
+
         html += '<div style="background:#0f0f23;padding:10px;border-radius:6px;margin-bottom:12px;">';
-        html += '<strong style="color:#4f8cff;font-size:12px;">FOLLOW_TYPES atualmente configurado:</strong><br>';
+        html += '<strong style="color:#4f8cff;font-size:12px;">FOLLOW_TYPES em uso:</strong> ';
         (d.current_follow_types || []).forEach(function(t){
-            html += '<span style="display:inline-block;margin-top:6px;padding:3px 8px;background:#1a1a3e;border-radius:4px;margin-right:6px;font-family:monospace;font-size:11px;color:#4caf50;">'+t+'</span>';
+            html += '<span style="padding:2px 8px;background:#1a1a3e;border-radius:4px;margin-right:6px;font-family:monospace;font-size:11px;color:#4caf50;">'+t+'</span>';
         });
         html += '</div>';
 
-        if (!d.action_types_seen.length) {
-            html += '<div style="color:#ff9800;padding:12px;">Nenhum action_type encontrado. As campanhas podem nao ter dados suficientes.</div>';
-        } else {
-            html += '<strong style="color:#4f8cff;font-size:12px;">ACTION_TYPES ranking (todos com valor > 0 nos ultimos 30d):</strong>';
-            html += '<table style="width:100%;font-size:11px;margin-top:8px;"><thead><tr>'
-                + '<th style="text-align:left;padding:4px;color:#888;">action_type</th>'
-                + '<th style="text-align:right;padding:4px;color:#888;">total_value</th>'
-                + '<th style="text-align:right;padding:4px;color:#888;">campanhas</th>'
-                + '<th style="text-align:right;padding:4px;color:#888;">CPS calculado</th>'
-                + '</tr></thead><tbody>';
-            d.action_types_seen.forEach(function(a) {
-                var isKnown = (d.current_follow_types || []).indexOf(a.action_type) >= 0;
-                var highlight = isKnown ? 'color:#4caf50;font-weight:700;' : 'color:#ccc;';
-                var cps = a.total_value > 0 ? (d.total_spend / a.total_value).toFixed(2) : '-';
-                // Hint: se action_type parece seguidor, marca em verde claro
-                if (/follow|seguir|ig_account/i.test(a.action_type)) highlight = 'color:#7ee787;font-weight:700;';
-                html += '<tr>'
-                    + '<td style="padding:4px;font-family:monospace;'+highlight+'">'+a.action_type+(isKnown?' <span style="color:#4caf50;">[em uso]</span>':'')+'</td>'
-                    + '<td style="padding:4px;text-align:right;color:#fff;">'+(a.total_value||0).toLocaleString('pt-BR')+'</td>'
-                    + '<td style="padding:4px;text-align:right;color:#aaa;">'+a.count_campaigns+'</td>'
-                    + '<td style="padding:4px;text-align:right;color:#ffc857;font-weight:600;">R$ '+cps+'</td>'
-                    + '</tr>';
-            });
-            html += '</tbody></table>';
-            html += '<div style="color:#666;font-size:11px;margin-top:8px;">'
-                + '<strong>Como usar:</strong> veja qual action_type tem o CPS calculado mais proximo do que voce ve no Gerenciador Meta. '
-                + 'Compare total_value com o total de "Seguidores no..." do Gerenciador. '
-                + 'Se o action_type correto nao esta em [em uso], me informe o nome e ajusto o FOLLOW_TYPES.'
-                + '</div>';
-        }
+        html += renderActionsTable('ACTIONS (padrao, com action_breakdowns)', d.actions || [], 'total_value', true);
+        html += renderActionsTable('UNIQUE_ACTIONS (pessoas unicas)', d.unique_actions || [], 'total_value', true);
+        html += renderActionsTable('COST_PER_ACTION_TYPE (Meta ja calculou)', d.cost_per_action_type || [], 'avg_cost', false);
+        html += renderActionsTable('COST_PER_UNIQUE_ACTION_TYPE', d.cost_per_unique_action_type || [], 'avg_cost', false);
+
+        html += '<div style="color:#666;font-size:11px;margin-top:10px;padding:10px;background:rgba(255,152,0,0.05);border-left:3px solid #ff9800;border-radius:4px;">'
+            + '<strong style="color:#ff9800;">Importante:</strong> se nenhum action_type bater com ~104.894 seguidores, a coluna "Seguidores no..." do Gerenciador pode ser uma coluna <em>customizada</em> que Meta construiu internamente. '
+            + 'Neste caso, pode ser preciso usar o valor do campo <code>cost_per_action_type</code> diretamente. '
+            + 'Me informe qual linha tem o CPS R$ 1,86 — ajusto o codigo pra usar.'
+            + '</div>';
+
         box.innerHTML = html;
     } catch(e) {
         box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + e.message + '</div>';

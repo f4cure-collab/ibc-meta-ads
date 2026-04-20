@@ -3236,9 +3236,9 @@ def api_ad_accounts_delete(acc_id):
 # ── Diagnostico Crescimento: identifica action_type correto p/ seguidores ──
 @app.route("/api/admin/crescimento-preview")
 def api_crescimento_preview():
-    """Retorna ranking de action_types em campanhas de CRESCIMENTO (ultimos 30d),
-    ordenados por total_value. Usa pra descobrir qual action_type representa
-    'seguidores' de verdade (ajustar FOLLOW_TYPES no backend)."""
+    """Retorna rankings de actions/unique_actions/cost_per_action_type nas
+    campanhas de CRESCIMENTO dos ultimos 30d. Usado para identificar qual
+    campo/action_type representa 'Seguidores' no Gerenciador Meta."""
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     try:
@@ -3255,30 +3255,50 @@ def api_crescimento_preview():
         insights_raw = _fetch_insights_for_tagged_campaigns(
             filtered,
             base_params={
-                "fields": "campaign_id,campaign_name,spend,impressions,actions",
+                # Busca actions, unique_actions e cost_per_action_type.
+                # Tambem tenta action_breakdowns por action_destination
+                # (distingue IG vs FB) e action_video_sound.
+                "fields": "campaign_id,campaign_name,spend,impressions,actions,unique_actions,cost_per_action_type,cost_per_unique_action_type",
                 "time_range": json.dumps({"since": dt_from, "until": dt_to}),
                 "level": "campaign",
+                "action_breakdowns": json.dumps(["action_destination", "action_type"]),
                 "limit": 500,
             }
         )
 
-        action_types_seen = {}
-        for row in insights_raw:
-            for act in (row.get("actions") or []):
-                at = act.get("action_type", "")
-                v = 0
-                try: v = int(float(act.get("value", 0)))
-                except Exception: pass
-                if at and v > 0:
-                    prev = action_types_seen.get(at, {"count_campaigns": 0, "total_value": 0})
-                    prev["count_campaigns"] += 1
-                    prev["total_value"] += v
-                    action_types_seen[at] = prev
+        def _aggregate(field_name):
+            agg = {}
+            for row in insights_raw:
+                for act in (row.get(field_name) or []):
+                    at = act.get("action_type", "")
+                    dest = act.get("action_destination", "")
+                    key = at + (" @ " + dest if dest else "")
+                    v = 0
+                    try: v = float(act.get("value", 0))
+                    except Exception: pass
+                    if at and v > 0:
+                        prev = agg.get(key, {"count_campaigns": 0, "total_value": 0, "action_type": at, "action_destination": dest})
+                        prev["count_campaigns"] += 1
+                        prev["total_value"] += v
+                        agg[key] = prev
+            return sorted(agg.values(), key=lambda x: x["total_value"], reverse=True)[:30]
 
-        ranked = sorted(
-            [{"action_type": k, **v} for k, v in action_types_seen.items()],
-            key=lambda x: x["total_value"], reverse=True
-        )[:30]
+        def _format_cost(field_name):
+            """cost_per_action_type vem ja como custo unitario. Pega o menor (mais barato)."""
+            agg = {}
+            for row in insights_raw:
+                for act in (row.get(field_name) or []):
+                    at = act.get("action_type", "")
+                    v = 0
+                    try: v = float(act.get("value", 0))
+                    except Exception: pass
+                    if at and v > 0:
+                        prev = agg.get(at, {"action_type": at, "sum": 0, "n": 0})
+                        prev["sum"] += v
+                        prev["n"] += 1
+                        agg[at] = prev
+            result = [{"action_type": k, "avg_cost": round(v["sum"]/v["n"], 2)} for k, v in agg.items()]
+            return sorted(result, key=lambda x: x["avg_cost"])[:30]
 
         total_spend = sum(float(r.get("spend", 0)) for r in insights_raw)
 
@@ -3288,7 +3308,10 @@ def api_crescimento_preview():
             "period": f"{dt_from} -> {dt_to}",
             "total_spend": round(total_spend, 2),
             "current_follow_types": FOLLOW_TYPES,
-            "action_types_seen": ranked,
+            "actions": _aggregate("actions"),
+            "unique_actions": _aggregate("unique_actions"),
+            "cost_per_action_type": _format_cost("cost_per_action_type"),
+            "cost_per_unique_action_type": _format_cost("cost_per_unique_action_type"),
         })
     except Exception as e:
         import traceback
