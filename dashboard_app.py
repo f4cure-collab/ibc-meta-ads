@@ -2906,6 +2906,222 @@ def api_daily_summary():
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
+@app.route("/api/dashboard/resumo")
+@not_viewer_required
+def api_resumo():
+    """Consolidado da conta toda: gasto + KPI principal de cada tipo +
+    comparacao vs periodo anterior + top campanhas + serie diaria por tipo.
+
+    Reusa shared_daily_v1 cache por tipo (4h). Adiciona 'Outros' = gasto
+    total da(s) conta(s) - soma dos tipos mapeados.
+    """
+    try:
+        date_from = request.args.get("date_from", _default_date_from())
+        date_to = request.args.get("date_to", _yesterday())
+        force = request.args.get("force", "false") == "true"
+
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
+
+        cache_key = f"resumo_v1_{date_from}_{date_to}"
+        if not force:
+            cached = get_cached(cache_key)
+            if cached:
+                return jsonify(cached)
+
+        dt_from = datetime.strptime(date_from, "%Y-%m-%d")
+        dt_to_obj = datetime.strptime(date_to, "%Y-%m-%d")
+        period_days = (dt_to_obj - dt_from).days + 1
+        prev_to = (dt_from - timedelta(days=1)).strftime("%Y-%m-%d")
+        prev_from = (dt_from - timedelta(days=period_days)).strftime("%Y-%m-%d")
+
+        # Metadados por tipo: label, icone, KPI principal e de custo.
+        # Crescimento aparece com Visitas no Perfil (nao Seguidores) porque
+        # a atribuicao de seguidores exige IG API + calculo caro que nao
+        # vale replicar no resumo — no detalhe da aba Crescimento continua.
+        type_meta = {
+            CAMP_TYPE_VENDAS: {
+                "label": "Vendas", "icon": "V",
+                "kpi": "revenue", "kpi_label": "Receita", "kpi_fmt": "currency",
+                "kpi_cost_label": "ROAS", "kpi_cost_fmt": "roas",
+            },
+            CAMP_TYPE_METEORICOS: {
+                "label": "Meteoricos", "icon": "M",
+                "kpi": "purchases", "kpi_label": "Leads", "kpi_fmt": "int",
+                "kpi_cost_label": "CPL", "kpi_cost_fmt": "currency",
+            },
+            CAMP_TYPE_COMERCIAL: {
+                "label": "Comercial", "icon": "C",
+                "kpi": "purchases", "kpi_label": "Leads", "kpi_fmt": "int",
+                "kpi_cost_label": "CPL", "kpi_cost_fmt": "currency",
+            },
+            CAMP_TYPE_CRESCIMENTO: {
+                "label": "Crescimento", "icon": "G",
+                "kpi": "profile_visits", "kpi_label": "Visitas Perfil", "kpi_fmt": "int",
+                "kpi_cost_label": "Custo/Visita", "kpi_cost_fmt": "currency",
+            },
+            CAMP_TYPE_NUTRICAO: {
+                "label": "Nutricao", "icon": "N",
+                "kpi": "video_thruplay", "kpi_label": "ThruPlays", "kpi_fmt": "int",
+                "kpi_cost_label": "CPTP", "kpi_cost_fmt": "currency",
+            },
+        }
+
+        def _aggregate_type(ct, d_from, d_to, want_detail=True):
+            """Agrega totais + serie diaria + top campanhas de 1 tipo."""
+            camps, rows = _get_shared_daily_insights(ct, d_from, d_to, "active")
+            kpi_field = type_meta[ct]["kpi"]
+            tot_spend = 0.0
+            tot_kpi = 0.0
+            tot_revenue = 0.0
+            tot_purchases = 0
+            by_date = {}
+            by_campaign = {}
+
+            for row in rows:
+                parsed = parse_insights(row)
+                sp = parsed.get("spend", 0)
+                kv = parsed.get(kpi_field, 0) or 0
+                tot_spend += sp
+                tot_kpi += kv
+                tot_revenue += parsed.get("revenue", 0)
+                tot_purchases += parsed.get("purchases", 0)
+                if want_detail:
+                    d = row.get("date_start", "")
+                    cid = row.get("campaign_id", "")
+                    if d:
+                        if d not in by_date:
+                            by_date[d] = {"date": d, "spend": 0.0, "kpi": 0.0}
+                        by_date[d]["spend"] += sp
+                        by_date[d]["kpi"] += kv
+                    if cid:
+                        if cid not in by_campaign:
+                            by_campaign[cid] = {
+                                "id": cid,
+                                "name": row.get("campaign_name", ""),
+                                "spend": 0.0,
+                                "kpi": 0.0,
+                            }
+                        by_campaign[cid]["spend"] += sp
+                        by_campaign[cid]["kpi"] += kv
+
+            # KPI de custo: ROAS (revenue/spend) para Vendas, spend/KPI para os demais
+            if ct == CAMP_TYPE_VENDAS:
+                kpi_cost = round(tot_revenue / tot_spend, 2) if tot_spend > 0 else 0
+            else:
+                kpi_cost = round(tot_spend / tot_kpi, 2) if tot_kpi > 0 else 0
+
+            active_count = len([c for c in by_campaign.values() if c["spend"] > 0])
+            daily_list = sorted(by_date.values(), key=lambda x: x["date"])
+            for r in daily_list:
+                r["spend"] = round(r["spend"], 2)
+                r["kpi"] = round(r["kpi"], 2)
+            top_camps = sorted(
+                [{**c, "spend": round(c["spend"], 2), "kpi": round(c["kpi"], 2)}
+                 for c in by_campaign.values()],
+                key=lambda x: x["spend"], reverse=True
+            )[:5]
+
+            return {
+                "type": ct,
+                "label": type_meta[ct]["label"],
+                "icon": type_meta[ct]["icon"],
+                "spend": round(tot_spend, 2),
+                "campaigns_active": active_count,
+                "kpi_label": type_meta[ct]["kpi_label"],
+                "kpi_value": round(tot_kpi, 2),
+                "kpi_fmt": type_meta[ct]["kpi_fmt"],
+                "kpi_cost_label": type_meta[ct]["kpi_cost_label"],
+                "kpi_cost_value": kpi_cost,
+                "kpi_cost_fmt": type_meta[ct]["kpi_cost_fmt"],
+                "revenue": round(tot_revenue, 2),
+                "purchases": tot_purchases,
+                "daily": daily_list,
+                "top_campaigns": top_camps,
+            }
+
+        per_type = [_aggregate_type(ct, date_from, date_to) for ct in VALID_CAMP_TYPES]
+        prev_by_type = {
+            ct: _aggregate_type(ct, prev_from, prev_to, want_detail=False)["spend"]
+            for ct in VALID_CAMP_TYPES
+        }
+
+        # Outros: gasto total das contas - soma dos tipos mapeados
+        all_accounts = set()
+        for ct in VALID_CAMP_TYPES:
+            for acc in _get_accounts_for_type(ct):
+                if acc:
+                    all_accounts.add(acc)
+        all_accounts = list(all_accounts)
+        total_acc_spend = _fetch_total_spend_all_accounts(all_accounts, date_from, date_to)
+        total_acc_spend_prev = _fetch_total_spend_all_accounts(all_accounts, prev_from, prev_to)
+        typed_spend = sum(t["spend"] for t in per_type)
+        prev_typed_spend = sum(prev_by_type.values())
+        outros_spend = max(0.0, round(total_acc_spend - typed_spend, 2))
+        outros_spend_prev = max(0.0, round(total_acc_spend_prev - prev_typed_spend, 2))
+
+        total_spend_curr = round(typed_spend + outros_spend, 2)
+        total_spend_prev = round(prev_typed_spend + outros_spend_prev, 2)
+
+        for t in per_type:
+            t["spend_prev"] = round(prev_by_type.get(t["type"], 0), 2)
+            t["spend_pct"] = round((t["spend"] / total_spend_curr) * 100, 1) if total_spend_curr > 0 else 0
+
+        per_type.append({
+            "type": "outros",
+            "label": "Outros",
+            "icon": "?",
+            "spend": outros_spend,
+            "spend_prev": outros_spend_prev,
+            "spend_pct": round((outros_spend / total_spend_curr) * 100, 1) if total_spend_curr > 0 else 0,
+            "campaigns_active": None,
+            "kpi_label": None, "kpi_value": None, "kpi_fmt": None,
+            "kpi_cost_label": None, "kpi_cost_value": None, "kpi_cost_fmt": None,
+            "revenue": 0, "purchases": 0,
+            "daily": [], "top_campaigns": [],
+        })
+
+        # Top 10 campanhas globais (so dos tipos mapeados — 'outros' nao tem breakdown)
+        all_top = []
+        for t in per_type:
+            if t["type"] == "outros":
+                continue
+            for c in t["top_campaigns"]:
+                all_top.append({
+                    "id": c["id"],
+                    "name": c["name"],
+                    "type": t["type"],
+                    "type_label": t["label"],
+                    "spend": c["spend"],
+                    "kpi_label": t["kpi_label"],
+                    "kpi_value": c["kpi"],
+                    "kpi_fmt": t["kpi_fmt"],
+                })
+        all_top.sort(key=lambda x: x["spend"], reverse=True)
+        all_top = all_top[:10]
+
+        total_active = sum((t["campaigns_active"] or 0) for t in per_type)
+
+        response = {
+            "ok": True,
+            "period": {"from": date_from, "to": date_to, "days": period_days},
+            "period_prev": {"from": prev_from, "to": prev_to, "days": period_days},
+            "totals": {
+                "spend": total_spend_curr,
+                "spend_prev": total_spend_prev,
+                "campaigns_active": total_active,
+            },
+            "per_type": per_type,
+            "top_campaigns": all_top,
+        }
+        set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
+        return jsonify(response)
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
 @app.route("/api/dashboard/cumulative-reach")
 @not_viewer_required
 def api_cumulative_reach():

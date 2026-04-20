@@ -653,6 +653,7 @@
         {% if role != 'viewer' %}
         <button class="tab-btn active" data-tab="campaigns" data-tip="Vis&atilde;o geral das campanhas com funil agregado e gr&aacute;ficos di&aacute;rios">Campanhas</button>
         <button class="tab-btn" data-tab="creatives" data-tip="An&aacute;lise individual de cada criativo (an&uacute;ncio) com m&eacute;tricas avan&ccedil;adas">Criativos</button>
+        <button class="tab-btn" data-tab="resumo" data-tip="Vis&atilde;o consolidada da conta inteira: investimento e KPIs por tipo de campanha">Resumo</button>
         {% else %}
         <button class="tab-btn active" data-tab="creatives" data-tip="An&aacute;lise individual de cada criativo (an&uacute;ncio) com m&eacute;tricas avan&ccedil;adas">Criativos</button>
         {% endif %}
@@ -1103,6 +1104,118 @@
     </div>
 
     <!-- Aba Projecao removida — baixo uso, alto ruido -->
+
+    <!-- ══════ TAB 3: RESUMO ══════ -->
+    <div id="tab-resumo" class="tab-content">
+        <div id="resumo-full-loading" style="display:none;position:sticky;top:62px;z-index:50;margin:-20px -28px 16px;padding:10px 20px;background:linear-gradient(90deg,rgba(31,111,235,.15),rgba(88,166,255,.08));border-bottom:1px solid rgba(88,166,255,.3);align-items:center;gap:12px">
+            <div class="spin" style="width:18px;height:18px;border-width:2px;flex-shrink:0"></div>
+            <span style="color:var(--accent);font-size:13px;font-weight:600">Carregando resumo...</span>
+            <span style="color:var(--t3);font-size:11px;flex:1">Consolidando dados de todos os tipos de campanha</span>
+        </div>
+
+        <div class="filters">
+            <div class="fg"><label data-tip="Periodo de analise do resumo consolidado">Periodo</label>
+                <div class="preset-btns">
+                    <button class="pbtn" data-days="7">7d</button>
+                    <button class="pbtn" data-days="14">14d</button>
+                    <button class="pbtn active" data-days="30">30d</button>
+                    <button class="pbtn" data-days="60">60d</button>
+                    {% if role in ('admin', 'super_admin') %}<button class="pbtn" data-days="90">90d</button>{% endif %}
+                </div>
+            </div>
+            <div class="fg"><label data-tip="Data inicial do periodo">De</label><input type="date" id="rs-df"></div>
+            <div class="fg"><label data-tip="Data final (geralmente ontem)">Ate</label><input type="date" id="rs-dt"></div>
+            <div class="fg">
+                <button id="rs-load-btn" class="btn-primary" style="background:#1f6feb;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Carregar Resumo</button>
+            </div>
+            <div class="fg">
+                <button id="rs-refresh-btn" class="btn" data-tip="Forcar recarga ignorando cache" style="background:#21262d;color:#ccc;border:1px solid rgba(255,255,255,.08);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px">&#8635;</button>
+            </div>
+        </div>
+
+        <!-- Cards de topo: totais -->
+        <div class="cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px;">
+            <div class="ccard" data-tip="Gasto total da conta no periodo somando todos os tipos de campanha">
+                <h3>Investimento Total</h3>
+                <div class="v" id="rs-total-spend">R$ 0,00</div>
+                <div class="sub" id="rs-total-spend-delta" style="font-size:11px;color:var(--t3);margin-top:4px">--</div>
+            </div>
+            <div class="ccard" data-tip="Campanhas ativas somando todos os tipos">
+                <h3>Campanhas Ativas</h3>
+                <div class="v" id="rs-total-camps">0</div>
+                <div class="sub" style="font-size:11px;color:var(--t3);margin-top:4px">em todos os tipos</div>
+            </div>
+            <div class="ccard" data-tip="Tipo de campanha com maior investimento">
+                <h3>Tipo Lider</h3>
+                <div class="v" id="rs-leader-type" style="font-size:16px">--</div>
+                <div class="sub" id="rs-leader-share" style="font-size:11px;color:var(--t3);margin-top:4px">--</div>
+            </div>
+            <div class="ccard" data-tip="Tipos de campanha com gasto no periodo (incluindo Outros nao mapeados)">
+                <h3>Tipos Ativos</h3>
+                <div class="v" id="rs-types-count">0</div>
+                <div class="sub" style="font-size:11px;color:var(--t3);margin-top:4px">com investimento</div>
+            </div>
+        </div>
+
+        <!-- Graficos -->
+        <div class="ccards" style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:16px;">
+            <div class="ccard" style="padding:16px;">
+                <h3 style="margin:0 0 12px 0;font-size:13px;color:var(--t2)" data-tip="Divisao do investimento total entre os tipos de campanha">Investimento por Tipo</h3>
+                <div style="position:relative;height:260px"><canvas id="rs-donut"></canvas></div>
+            </div>
+            <div class="ccard" style="padding:16px;">
+                <h3 style="margin:0 0 12px 0;font-size:13px;color:var(--t2)" data-tip="Gasto diario empilhado por tipo de campanha">Gasto Diario por Tipo</h3>
+                <div style="position:relative;height:260px"><canvas id="rs-stacked"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Grid por tipo -->
+        <div class="ccard" style="padding:16px;margin-bottom:16px;">
+            <h3 style="margin:0 0 12px 0;font-size:13px;color:var(--t2)">Detalhamento por Tipo</h3>
+            <div class="tbl-wrap">
+                <div class="tbl-scroll">
+                    <table id="rs-type-table" style="width:100%;font-size:12px;border-collapse:collapse">
+                        <thead>
+                            <tr style="border-bottom:1px solid rgba(255,255,255,.08);color:var(--t3);text-align:left;font-weight:600">
+                                <th style="padding:8px 6px">Tipo</th>
+                                <th style="padding:8px 6px;text-align:right">Gasto</th>
+                                <th style="padding:8px 6px;text-align:right">% Total</th>
+                                <th style="padding:8px 6px;text-align:right">vs Periodo Anterior</th>
+                                <th style="padding:8px 6px;text-align:right">Campanhas</th>
+                                <th style="padding:8px 6px">KPI</th>
+                                <th style="padding:8px 6px;text-align:right">Valor KPI</th>
+                                <th style="padding:8px 6px">Custo</th>
+                                <th style="padding:8px 6px;text-align:right">Valor Custo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rs-type-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top 10 campanhas -->
+        <div class="ccard" style="padding:16px;">
+            <h3 style="margin:0 0 12px 0;font-size:13px;color:var(--t2)" data-tip="Top 10 campanhas por investimento, considerando todos os tipos mapeados">Top 10 Campanhas (Geral)</h3>
+            <div class="tbl-wrap">
+                <div class="tbl-scroll">
+                    <table id="rs-top-table" style="width:100%;font-size:12px;border-collapse:collapse">
+                        <thead>
+                            <tr style="border-bottom:1px solid rgba(255,255,255,.08);color:var(--t3);text-align:left;font-weight:600">
+                                <th style="padding:8px 6px;width:30px">#</th>
+                                <th style="padding:8px 6px">Campanha</th>
+                                <th style="padding:8px 6px">Tipo</th>
+                                <th style="padding:8px 6px;text-align:right">Gasto</th>
+                                <th style="padding:8px 6px">KPI</th>
+                                <th style="padding:8px 6px;text-align:right">Valor</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rs-top-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 
 </div>
 
@@ -1572,6 +1685,7 @@ $$('.tab-btn').forEach(b=>{b.addEventListener('click',()=>{
     $(`#tab-${b.dataset.tab}`).classList.add('active');
     // Auto-load criativos na primeira vez que a aba &eacute; acessada
     if(b.dataset.tab==='creatives'&&crData.length===0){loadCr();}
+    if(b.dataset.tab==='resumo'&&!rsLoaded){loadResumo();}
 });});
 
 // Presets
@@ -5040,6 +5154,243 @@ window.exitPreview = async function(){
 // Viewer: carrega criativos automaticamente no primeiro acesso, ja que as outras tabs nao existem
 setTimeout(function(){ try{ if(typeof loadCr === 'function' && (typeof crData === 'undefined' || !crData.length)) loadCr(); }catch(e){ console.warn('viewer auto-load falhou:', e); } }, 400);
 {% endif %}
+
+// ══════════ RESUMO ══════════
+// Visao consolidada da conta inteira: investimento por tipo + KPIs principais
+// + graficos + top campanhas. Chama /api/dashboard/resumo (cache 4h server-side).
+var rsLoaded = false;
+var rsData = null;
+
+// Cor por tipo — usada em donut e stacked area
+var RS_TYPE_COLORS = {
+    vendas: '#4caf50',
+    meteoricos: '#ff9800',
+    comercial: '#58a6ff',
+    crescimento: '#ec4899',
+    nutricao: '#9b5ee8',
+    outros: '#6b7280'
+};
+
+// Inicializa datas default (30d terminando ontem) e wire-up dos presets
+(function initResumoFilters(){
+    var df = $('#rs-df'), dt = $('#rs-dt');
+    if (df && !df.value) df.value = dAgo(29);
+    if (dt && !dt.value) dt.value = yesterday();
+    var wrap = document.querySelector('#tab-resumo .preset-btns');
+    if (wrap) {
+        wrap.querySelectorAll('.pbtn').forEach(function(b){
+            b.addEventListener('click', function(){
+                wrap.querySelectorAll('.pbtn').forEach(function(x){ x.classList.remove('active'); });
+                b.classList.add('active');
+                var days = parseInt(b.dataset.days);
+                if (df) df.value = dAgo(days-1);
+                if (dt) dt.value = yesterday();
+            });
+        });
+    }
+    var btn = $('#rs-load-btn');
+    if (btn) btn.addEventListener('click', function(){ loadResumo(); });
+    var rfb = $('#rs-refresh-btn');
+    if (rfb) rfb.addEventListener('click', function(){ loadResumo(true); });
+})();
+
+async function loadResumo(force){
+    var loading = $('#resumo-full-loading');
+    if (loading) loading.style.display = 'flex';
+    try {
+        var df = $('#rs-df').value || dAgo(29);
+        var dt = $('#rs-dt').value || yesterday();
+        var url = '/api/dashboard/resumo?date_from=' + df + '&date_to=' + dt + (force ? '&force=true' : '');
+        var d = await api(url);
+        if (!d) return;
+        rsData = d;
+        rsLoaded = true;
+        renderResumo(d);
+    } catch(e) {
+        console.error('loadResumo:', e);
+        alert('Erro ao carregar resumo: ' + e.message);
+    } finally {
+        if (loading) loading.style.display = 'none';
+    }
+}
+
+function renderResumo(d){
+    // Cards de topo
+    var tot = d.totals || {};
+    $('#rs-total-spend').textContent = fmtM(tot.spend || 0);
+    var delta = (tot.spend || 0) - (tot.spend_prev || 0);
+    var pct = tot.spend_prev > 0 ? (delta / tot.spend_prev * 100) : 0;
+    var deltaColor = delta >= 0 ? '#7ee787' : '#f85149';
+    var arrow = delta >= 0 ? '&#9650;' : '&#9660;';
+    $('#rs-total-spend-delta').innerHTML = '<span style="color:' + deltaColor + ';font-weight:600">' + arrow + ' ' + Math.abs(pct).toFixed(1) + '%</span> vs ' + (d.period_prev && d.period_prev.days ? d.period_prev.days + 'd anteriores' : 'periodo anterior');
+    $('#rs-total-camps').textContent = tot.campaigns_active || 0;
+
+    // Lider
+    var types = (d.per_type || []).filter(function(t){ return t.spend > 0; });
+    types.sort(function(a,b){ return b.spend - a.spend; });
+    var leader = types[0];
+    if (leader) {
+        $('#rs-leader-type').textContent = leader.label;
+        $('#rs-leader-share').textContent = (leader.spend_pct || 0) + '% do total';
+    } else {
+        $('#rs-leader-type').textContent = '--';
+        $('#rs-leader-share').textContent = '--';
+    }
+    $('#rs-types-count').textContent = types.length;
+
+    renderResumoDonut(d.per_type || []);
+    renderResumoStacked(d.per_type || []);
+    renderResumoTypeTable(d.per_type || []);
+    renderResumoTopTable(d.top_campaigns || []);
+}
+
+function renderResumoDonut(perType){
+    var cv = document.getElementById('rs-donut');
+    if (!cv) return;
+    if (charts['rs-donut']) charts['rs-donut'].destroy();
+    var withSpend = perType.filter(function(t){ return (t.spend || 0) > 0; });
+    charts['rs-donut'] = new Chart(cv, {
+        type: 'doughnut',
+        data: {
+            labels: withSpend.map(function(t){ return t.label; }),
+            datasets: [{
+                data: withSpend.map(function(t){ return t.spend; }),
+                backgroundColor: withSpend.map(function(t){ return RS_TYPE_COLORS[t.type] || '#888'; }),
+                borderColor: 'rgba(14,19,32,0.9)',
+                borderWidth: 2,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { color: '#aaa', font: { size: 11 }, padding: 8 } },
+                tooltip: {
+                    callbacks: {
+                        label: function(ctx){
+                            var total = ctx.dataset.data.reduce(function(a,b){ return a+b; }, 0);
+                            var pct = total > 0 ? (ctx.parsed / total * 100).toFixed(1) : 0;
+                            return ctx.label + ': ' + fmtM(ctx.parsed) + ' (' + pct + '%)';
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function renderResumoStacked(perType){
+    var cv = document.getElementById('rs-stacked');
+    if (!cv) return;
+    if (charts['rs-stacked']) charts['rs-stacked'].destroy();
+
+    // Coleta todas as datas presentes em qualquer tipo
+    var allDates = new Set();
+    perType.forEach(function(t){
+        (t.daily || []).forEach(function(r){ allDates.add(r.date); });
+    });
+    var dates = Array.from(allDates).sort();
+
+    var datasets = perType.filter(function(t){ return (t.daily || []).length > 0; }).map(function(t){
+        var byDate = {};
+        (t.daily || []).forEach(function(r){ byDate[r.date] = r.spend || 0; });
+        return {
+            label: t.label,
+            data: dates.map(function(d){ return byDate[d] || 0; }),
+            backgroundColor: RS_TYPE_COLORS[t.type] || '#888',
+            borderColor: RS_TYPE_COLORS[t.type] || '#888',
+            borderWidth: 0,
+        };
+    });
+
+    charts['rs-stacked'] = new Chart(cv, {
+        type: 'bar',
+        data: { labels: dates, datasets: datasets },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'top', labels: { color: '#aaa', font: { size: 11 }, padding: 6, boxWidth: 10 } },
+                tooltip: {
+                    mode: 'index',
+                    callbacks: {
+                        label: function(ctx){ return ctx.dataset.label + ': ' + fmtM(ctx.parsed.y); },
+                        footer: function(items){
+                            var sum = items.reduce(function(a,i){ return a + (i.parsed.y || 0); }, 0);
+                            return 'Total: ' + fmtM(sum);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { stacked: true, ticks: { color: '#888', font: { size: 10 }, maxRotation: 45, minRotation: 0 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+                y: { stacked: true, ticks: { color: '#888', font: { size: 10 }, callback: function(v){ return 'R$ ' + (v >= 1000 ? (v/1000).toFixed(1)+'k' : v); } }, grid: { color: 'rgba(255,255,255,0.04)' } }
+            }
+        }
+    });
+}
+
+function renderResumoTypeTable(perType){
+    var tb = $('#rs-type-tbody');
+    if (!tb) return;
+    // Ordena por gasto desc, mas mantem 'Outros' no final
+    var rows = perType.slice();
+    rows.sort(function(a,b){
+        if (a.type === 'outros') return 1;
+        if (b.type === 'outros') return -1;
+        return (b.spend || 0) - (a.spend || 0);
+    });
+    tb.innerHTML = rows.map(function(t){
+        var color = RS_TYPE_COLORS[t.type] || '#888';
+        var prev = t.spend_prev || 0;
+        var delta = (t.spend || 0) - prev;
+        var pct = prev > 0 ? (delta / prev * 100) : (t.spend > 0 ? 100 : 0);
+        var deltaColor = delta >= 0 ? '#7ee787' : '#f85149';
+        var deltaArrow = delta >= 0 ? '&#9650;' : '&#9660;';
+        var kpiValue = t.kpi_value;
+        var kpiFmt = t.kpi_fmt;
+        var kpiDisplay = '--';
+        if (kpiValue != null) {
+            kpiDisplay = kpiFmt === 'currency' ? fmtM(kpiValue) : fmt(kpiValue);
+        }
+        var costValue = t.kpi_cost_value;
+        var costDisplay = '--';
+        if (costValue != null && t.kpi_cost_label) {
+            costDisplay = t.kpi_cost_fmt === 'currency' ? fmtM(costValue) : (t.kpi_cost_fmt === 'roas' ? fmtR(costValue) : fmt(costValue));
+        }
+        var campsCell = t.campaigns_active != null ? fmt(t.campaigns_active) : '--';
+        return '<tr style="border-bottom:1px solid rgba(255,255,255,.04)">'
+            + '<td style="padding:10px 6px"><span style="display:inline-block;width:10px;height:10px;background:' + color + ';border-radius:50%;margin-right:8px;vertical-align:middle"></span><strong style="color:var(--t1)">' + t.label + '</strong></td>'
+            + '<td style="padding:10px 6px;text-align:right;font-weight:600">' + fmtM(t.spend || 0) + '</td>'
+            + '<td style="padding:10px 6px;text-align:right">' + (t.spend_pct || 0) + '%</td>'
+            + '<td style="padding:10px 6px;text-align:right;color:' + deltaColor + '">' + deltaArrow + ' ' + Math.abs(pct).toFixed(1) + '%</td>'
+            + '<td style="padding:10px 6px;text-align:right">' + campsCell + '</td>'
+            + '<td style="padding:10px 6px;color:var(--t3)">' + (t.kpi_label || '--') + '</td>'
+            + '<td style="padding:10px 6px;text-align:right;font-weight:600">' + kpiDisplay + '</td>'
+            + '<td style="padding:10px 6px;color:var(--t3)">' + (t.kpi_cost_label || '--') + '</td>'
+            + '<td style="padding:10px 6px;text-align:right;font-weight:600">' + costDisplay + '</td>'
+            + '</tr>';
+    }).join('');
+}
+
+function renderResumoTopTable(topCamps){
+    var tb = $('#rs-top-tbody');
+    if (!tb) return;
+    if (!topCamps.length) {
+        tb.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--t3);font-style:italic">Sem campanhas com dados no periodo</td></tr>';
+        return;
+    }
+    tb.innerHTML = topCamps.map(function(c, i){
+        var color = RS_TYPE_COLORS[c.type] || '#888';
+        var kpi = c.kpi_fmt === 'currency' ? fmtM(c.kpi_value || 0) : fmt(c.kpi_value || 0);
+        return '<tr style="border-bottom:1px solid rgba(255,255,255,.04)">'
+            + '<td style="padding:8px 6px;color:var(--t3);font-weight:600">' + (i+1) + '</td>'
+            + '<td style="padding:8px 6px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (c.name || '').replace(/"/g,'&quot;') + '">' + (c.name || '--') + '</td>'
+            + '<td style="padding:8px 6px"><span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;background:' + color + '22;color:' + color + ';font-weight:600">' + c.type_label + '</span></td>'
+            + '<td style="padding:8px 6px;text-align:right;font-weight:600">' + fmtM(c.spend || 0) + '</td>'
+            + '<td style="padding:8px 6px;color:var(--t3)">' + c.kpi_label + '</td>'
+            + '<td style="padding:8px 6px;text-align:right">' + kpi + '</td>'
+            + '</tr>';
+    }).join('');
+}
 
 })();
 </script>
