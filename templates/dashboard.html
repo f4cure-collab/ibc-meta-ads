@@ -583,7 +583,7 @@
             display: none !important;
         }
         /* Nutricao: meta = visualizacoes de video (ThruPlay). Esconde metricas que
-           nao se aplicam a campanhas de video (LPV, checkout, ROAS, seguidores). */
+           nao se aplicam a campanhas de video (LPV, checkout, ROAS, seguidores, clicks/CTR). */
         .show-nutricao { display: none; }
         body.type-nutricao .show-nutricao { display: block !important; }
         body.type-nutricao th.show-nutricao,
@@ -592,7 +592,13 @@
         body.type-nutricao [data-metric="lpv"],
         body.type-nutricao [data-metric="cost_per_lpv"],
         body.type-nutricao [data-metric="profile_visits"],
-        body.type-nutricao [data-metric="cost_per_profile_visit"] {
+        body.type-nutricao [data-metric="cost_per_profile_visit"],
+        body.type-nutricao [data-metric="purchases"],
+        body.type-nutricao [data-metric="cpa"],
+        body.type-nutricao [data-metric="rate_click_lpv"],
+        body.type-nutricao [data-metric="rate_lpv_ic"],
+        body.type-nutricao [data-metric="clicks"],
+        body.type-nutricao [data-metric="ctr"] {
             display: none !important;
         }
     </style>
@@ -699,6 +705,7 @@
             <div class="scard clickable show-nutricao" data-metric="video_p75" data-tip="Assistiram ate 75% do video"><div class="sl">75%</div><div class="sv" id="s-video-p75">--</div></div>
             <div class="scard clickable show-nutricao" data-metric="video_p95" data-tip="Assistiram ate 95% do video"><div class="sl">95%</div><div class="sv" id="s-video-p95">--</div></div>
             <div class="scard clickable show-nutricao" data-metric="video_p100" data-tip="Assistiram ate 100% do video (video inteiro)"><div class="sl">100%</div><div class="sv" id="s-video-p100">--</div></div>
+            <div class="scard clickable show-nutricao" data-metric="avg_watched_pct" data-tip="% media assistida do video — media ponderada dos marcos de retencao (plays, 25/50/75/95/100%)"><div class="sl">% Media Assistida</div><div class="sv" id="s-avg-watched-pct">--</div></div>
             <div class="scard clickable" data-metric="revenue" data-tip="Clique para gr&aacute;fico de receita di&aacute;ria"><div class="sl">Receita</div><div class="sv" id="s-revenue">--</div></div>
             <div class="scard clickable" data-metric="roas" data-tip="Clique para evolu&ccedil;&atilde;o do ROAS"><div class="sl">ROAS</div><div class="sv" id="s-roas">--</div></div>
             <div class="scard clickable" data-metric="purchases" data-tip="Clique para ver por dia"><div class="sl auto-label-conv">Compras</div><div class="sv" id="s-purchases">--</div></div>
@@ -1682,6 +1689,16 @@ async function loadCamp(force){
         if($('#s-video-p75')) $('#s-video-p75').textContent=fmt(s.total_video_p75||0);
         if($('#s-video-p95')) $('#s-video-p95').textContent=fmt(s.total_video_p95||0);
         if($('#s-video-p100')) $('#s-video-p100').textContent=fmt(s.total_video_p100||0);
+        if($('#s-avg-watched-pct')) {
+            var _p=s.total_video_plays||0, _p25=s.total_video_p25||0, _p50=s.total_video_p50||0,
+                _p75=s.total_video_p75||0, _p95=s.total_video_p95||0, _p100=s.total_video_p100||0;
+            if (_p > 0) {
+                var _avg = (Math.max(0,_p-_p25)*12.5 + Math.max(0,_p25-_p50)*37.5 + Math.max(0,_p50-_p75)*62.5 + Math.max(0,_p75-_p95)*85 + Math.max(0,_p95-_p100)*97.5 + _p100*100) / _p;
+                $('#s-avg-watched-pct').textContent = _avg.toFixed(1) + '%';
+            } else {
+                $('#s-avg-watched-pct').textContent = '--';
+            }
+        }
         renderCampTbl(campData);renderCampCharts(campData);
 
         showCampLoading(true,'Carregando gráficos...','Etapa 2/3 — Dados diários e frequência');
@@ -2489,6 +2506,21 @@ function totalsFromDaily(daily){
     t.rate_p75_p95=t.video_p75>0?(t.video_p95/t.video_p75*100):0;
     t.rate_p95_p100=t.video_p95>0?(t.video_p100/t.video_p95*100):0;
     t.rate_play_thruplay=t.video_plays>0?(t.video_thruplay/t.video_plays*100):0;
+    // % media assistida: media ponderada dos buckets de retencao.
+    // Quem saiu antes de 25% assistiu em media ~12.5%, entre 25-50% ~37.5%, etc.
+    // Ultimo bucket (95-100%) fica com 97.5%; quem chegou a 100% marca 100%.
+    (function(){
+        var plays=t.video_plays||0, p25=t.video_p25||0, p50=t.video_p50||0,
+            p75=t.video_p75||0, p95=t.video_p95||0, p100=t.video_p100||0;
+        if (plays <= 0) { t.avg_watched_pct = 0; return; }
+        var dropped_before_25 = Math.max(0, plays - p25);
+        var b_25_50 = Math.max(0, p25 - p50);
+        var b_50_75 = Math.max(0, p50 - p75);
+        var b_75_95 = Math.max(0, p75 - p95);
+        var b_95_100 = Math.max(0, p95 - p100);
+        var sum_pct = dropped_before_25*12.5 + b_25_50*37.5 + b_50_75*62.5 + b_75_95*85 + b_95_100*97.5 + p100*100;
+        t.avg_watched_pct = plays>0 ? (sum_pct / plays) : 0;
+    })();
     // Frequency: média ponderada por impressões (mais preciso que média simples)
     t.frequency=freqDays>0?freqSum/freqDays:0;
     // Taxas do funil. Em Crescimento, o passo "intermediario" do funil e
@@ -2526,6 +2558,11 @@ const DETAIL_METRICS={
     video_p75:{label:'75%',color:'#22d3ee',fmt:fmt,calc:d=>d.video_p75||0,axis:'count'},
     video_p95:{label:'95%',color:'#818cf8',fmt:fmt,calc:d=>d.video_p95||0,axis:'count'},
     video_p100:{label:'100%',color:'#c084fc',fmt:fmt,calc:d=>d.video_p100||0,axis:'count'},
+    avg_watched_pct:{label:'% Media Assistida',color:'#f472b6',fmt:fmtP,calc:d=>{
+        var p=d.video_plays||0, p25=d.video_p25||0, p50=d.video_p50||0, p75=d.video_p75||0, p95=d.video_p95||0, p100=d.video_p100||0;
+        if (p<=0) return 0;
+        return (Math.max(0,p-p25)*12.5 + Math.max(0,p25-p50)*37.5 + Math.max(0,p50-p75)*62.5 + Math.max(0,p75-p95)*85 + Math.max(0,p95-p100)*97.5 + p100*100) / p;
+    },axis:'pct'},
     lpv:{label:'LPV',color:'#d2a8ff',fmt:fmt,calc:d=>d.lpv||0,axis:'count'},
     initiate_checkout:{label:'Checkouts',color:'#f0883e',fmt:fmt,calc:d=>d.initiate_checkout||0,axis:'count'},
     // Funil — taxas de conversão
@@ -2575,6 +2612,7 @@ function _syncTopCards(){
     if($('#s-video-p75')) $('#s-video-p75').textContent=fmt(t.video_p75||0);
     if($('#s-video-p95')) $('#s-video-p95').textContent=fmt(t.video_p95||0);
     if($('#s-video-p100')) $('#s-video-p100').textContent=fmt(t.video_p100||0);
+    if($('#s-avg-watched-pct')) $('#s-avg-watched-pct').textContent = (t.avg_watched_pct||0).toFixed(1) + '%';
     $('#s-rate-click-lpv').textContent=fmtP(t.rate_click_lpv||0);
     $('#s-rate-lpv-ic').textContent=fmtP(t.rate_lpv_ic||0);
     $('#s-rate-ic-purchase').textContent=fmtP(t.rate_ic_purchase||0);
