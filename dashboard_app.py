@@ -2813,7 +2813,7 @@ def api_breakdowns():
             return blocked
         campaign_id = request.args.get("campaign_id", "")
 
-        cache_key = f"breakdowns_v3_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"breakdowns_v4_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         cached = get_cached(cache_key)
         if cached:
             return jsonify(cached)
@@ -2880,11 +2880,14 @@ def api_breakdowns():
                         roas = round(revenue / s, 2)
             return conv, revenue, roas
 
-        # 0. Buscar totais gerais para calcular ticket médio
+        # 0. Buscar totais gerais para calcular ticket médio.
+        # 'results' e 'unique_actions' sao necessarios pra extrair profile_visits
+        # em Crescimento (coluna Resultados do Gerenciador). Sem esses campos
+        # o total de visitas sai zero e a atribuicao nao distribui nada.
         _enforce_rate_limit()
         totals_data = meta_get_all_pages(endpoint, {
             **base_params,
-            "fields": "spend,actions,action_values",
+            "fields": "spend,actions,action_values,results,unique_actions",
         })
         total_spend = sum(float(r.get("spend", 0)) for r in totals_data)
         total_conv = 0

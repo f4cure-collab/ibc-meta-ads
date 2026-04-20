@@ -812,7 +812,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','profile_visits_avg')">Visitas/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cost_per_profile_visit')">Custo/Visita</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th><th class="show-meteoricos" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cpl')">CPL</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','profile_visits_avg')">Visitas/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cost_per_profile_visit')">Custo/Visita</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th><th class="show-meteoricos hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cpl')">CPL</th></tr></thead>
                             <tbody id="bd-weekday"></tbody>
                         </table>
                     </div>
@@ -4494,11 +4494,12 @@ function renderBdTables() {
         var cpl = (w.conv_avg||0) > 0 ? (w.spend_avg||0) / w.conv_avg : 0;
         return Object.assign({}, w, {cpl: cpl});
     }), _bdSorts.weekday.key, _bdSorts.weekday.asc);
-    var showCpl = isLeadCapture();
+    // CPL so em meteoricos/comercial — Crescimento usa Custo/Visita (ja em coluna propria).
+    var showCpl = isLeadCapture() && !crescActive;
     $('#bd-weekday').innerHTML = ws.map(function(w){
         var cplCell = showCpl
-            ? '<td class="show-meteoricos" style="text-align:right;font-weight:700;color:#7ee787;">' + fmtM(w.cpl) + '</td>'
-            : '<td class="show-meteoricos" style="display:none;"></td>';
+            ? '<td class="show-meteoricos hide-crescimento" style="text-align:right;font-weight:700;color:#7ee787;">' + fmtM(w.cpl) + '</td>'
+            : '<td class="show-meteoricos hide-crescimento" style="display:none;"></td>';
         var pvAvg = w.profile_visits_avg || 0;
         var cpv = w.cost_per_profile_visit || 0;
         var pvCell = crescActive
