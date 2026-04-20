@@ -4978,14 +4978,16 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min...")
         time.sleep(1800)
 
-        # ── ETAPA 4 (3:30): Breakdowns demograficos (todos os ranges, ambos tipos) ──
+        # ── ETAPA 4 (3:30): Breakdowns SO no range principal (30d) ──
+        # Breakdowns faz 4+ queries Meta (totals/age/gender/weekday) — pesado.
+        # Antes rodava em 2 ranges x 5 tipos = 10 calls. Agora so 30d x 5 = 5.
         try:
-            print("[SCHEDULER] Etapa 4/5: Carregando breakdowns...")
-            for days, dt_from in ranges:
-                for ct in VALID_CAMP_TYPES:
-                    print(f"[SCHEDULER]   Breakdowns {ct} {days}d")
-                    client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}", headers={"X-Internal-Scheduler":"daily"})
-                    time.sleep(10)
+            print("[SCHEDULER] Etapa 4/5: Carregando breakdowns (30d apenas)...")
+            dt_from_30_bd = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
+            for ct in VALID_CAMP_TYPES:
+                print(f"[SCHEDULER]   Breakdowns {ct} 30d")
+                client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from_30_bd}&date_to={dt_to}", headers={"X-Internal-Scheduler":"daily"})
+                time.sleep(10)
             print("[SCHEDULER] Breakdowns OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro breakdowns: {e}")
@@ -4993,14 +4995,16 @@ def _scheduled_refresh():
         print("[SCHEDULER] Aguardando 30 min...")
         time.sleep(1800)
 
-        # ── ETAPA 5 (4:00): Todos criativos consolidado (todos os ranges, ambos tipos) ──
+        # ── ETAPA 5 (4:00): all-creatives SO no range principal (30d) e ativas ──
+        # Antes rodava em todos os ranges x todos os tipos (10 calls pesadas com
+        # pausas de 30s entre cada). Agora so 30d + status=active = 5 calls.
         try:
-            print("[SCHEDULER] Etapa 5/5: Carregando todos criativos consolidados...")
-            for days, dt_from in ranges:
-                for ct in VALID_CAMP_TYPES:
-                    print(f"[SCHEDULER]   All-creatives {ct} {days}d")
-                    client.get(f"/api/dashboard/all-creatives?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active", headers={"X-Internal-Scheduler":"daily"})
-                    time.sleep(30)
+            print("[SCHEDULER] Etapa 5/5: Carregando todos criativos (30d apenas)...")
+            dt_from_30_main = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
+            for ct in VALID_CAMP_TYPES:
+                print(f"[SCHEDULER]   All-creatives {ct} 30d")
+                client.get(f"/api/dashboard/all-creatives?camp_type={ct}&date_from={dt_from_30_main}&date_to={dt_to}&camp_status=active", headers={"X-Internal-Scheduler":"daily"})
+                time.sleep(30)
             print("[SCHEDULER] Todos criativos OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro todos criativos: {e}")
@@ -5028,21 +5032,18 @@ def _warmup_camp_type(ct, days_list, dt_to):
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                 hdr = {"X-Internal-Scheduler": "warmup"}
+                # Warmup ENXUTO: so campaigns + daily_summary (aba Campanhas).
+                # all-creatives e breakdowns sao pesados (all-creatives puxa todos
+                # os ads de todas campanhas; breakdowns faz 4+ queries Meta) e
+                # frequentemente batiam BUC em 90%+. Agora so buscam quando o
+                # usuario abre essas abas — e ficam cacheadas apos.
                 if should_refresh(k_camp):
                     print(f"[WARMUP-{ct}] campaigns {days}d")
                     client.get(f"/api/dashboard/campaigns?{base}&camp_status=all", headers=hdr)
-                    time.sleep(4)
+                    time.sleep(6)
                 if should_refresh(k_daily):
                     print(f"[WARMUP-{ct}] daily_summary {days}d")
                     client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all", headers=hdr)
-                    time.sleep(4)
-                if should_refresh(k_bd):
-                    print(f"[WARMUP-{ct}] breakdowns {days}d")
-                    client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true", headers=hdr)
-                    time.sleep(4)
-                if should_refresh(k_creat):
-                    print(f"[WARMUP-{ct}] all_creatives {days}d")
-                    client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active", headers=hdr)
                     time.sleep(6)
             except Exception as e:
                 print(f"[WARMUP-{ct}] Erro {days}d: {e}")
@@ -5102,16 +5103,15 @@ def _refresh_recent_loop():
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             hdr = {"X-Internal-Scheduler": "refresh_loop"}
-                            # So refresca se cache realmente precisa (should_refresh verifica TTL)
+                            # So refresca se cache realmente precisa (should_refresh verifica TTL).
+                            # all-creatives EXCLUIDO do loop — e o mais pesado e
+                            # trava BUC. So fetcha quando usuario abre a aba.
                             if should_refresh(k_camp):
                                 client.get(f"/api/dashboard/campaigns?{base}&camp_status=all", headers=hdr)
                                 refreshed_count += 1; time.sleep(5)
                             if should_refresh(k_daily):
                                 client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all", headers=hdr)
                                 refreshed_count += 1; time.sleep(5)
-                            if should_refresh(k_creat):
-                                client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active", headers=hdr)
-                                refreshed_count += 1; time.sleep(8)
                             if refreshed_count > 0:
                                 refresh_scheduler_lock("refresh_recent")
                         except Exception as e:
