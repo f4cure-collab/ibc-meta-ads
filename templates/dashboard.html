@@ -592,6 +592,9 @@
                 <button class="camp-type-opt" data-type="comercial" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
                     <span style="color:#58a6ff;margin-right:6px;">&#128188;</span>Comercial
                 </button>
+                <button class="camp-type-opt" data-type="crescimento" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
+                    <span style="color:#ec4899;margin-right:6px;">&#128241;</span>Crescimento
+                </button>
             </div>
         </div>
     </div>
@@ -1125,25 +1128,37 @@
 (function(){
 'use strict';
 
-// ── Tipo de campanha (vendas / meteoricos / comercial): persistido em localStorage ──
+// ── Tipo de campanha (vendas / meteoricos / comercial / crescimento) ──
 var CURRENT_CAMP_TYPE = localStorage.getItem('camp_type') || 'vendas';
 function isMeteoricos() { return CURRENT_CAMP_TYPE === 'meteoricos'; }
 function isComercial() { return CURRENT_CAMP_TYPE === 'comercial'; }
-// Captura de lead: meteoricos OU comercial — ambos usam mesma logica de UI.
-function isLeadCapture() { return isMeteoricos() || isComercial(); }
-// Rotulos adaptativos por tipo
-function labelConversao() { return isLeadCapture() ? 'Leads' : 'Compras'; }
-function labelCPA() { return isLeadCapture() ? 'CPL' : 'CPA'; }
+function isCrescimento() { return CURRENT_CAMP_TYPE === 'crescimento'; }
+// Captura/conversao nao-venda: todos escondem ROAS/Receita e seguem UI similar
+function isLeadCapture() { return isMeteoricos() || isComercial() || isCrescimento(); }
+// Rotulos adaptativos por tipo: crescimento mede seguidores, demais medem leads/compras
+function labelConversao() {
+    if (isCrescimento()) return 'Seguidores';
+    if (isMeteoricos() || isComercial()) return 'Leads';
+    return 'Compras';
+}
+function labelCPA() {
+    if (isCrescimento()) return 'CPS';
+    if (isMeteoricos() || isComercial()) return 'CPL';
+    return 'CPA';
+}
 
 // Aplica classe no body para CSS poder ocultar ROAS/Receita via regras
 function applyCampTypeClass() {
-    document.body.classList.remove('type-vendas', 'type-meteoricos', 'type-comercial', 'type-leadcapture');
+    document.body.classList.remove('type-vendas', 'type-meteoricos', 'type-comercial', 'type-crescimento', 'type-leadcapture');
     document.body.classList.add('type-' + CURRENT_CAMP_TYPE);
-    // Classe generica pra captura de leads (CSS pode usar uma so regra p/ ambos)
+    // type-leadcapture cobre meteoricos + comercial + crescimento (hide ROAS/Receita)
     if (isLeadCapture()) document.body.classList.add('type-leadcapture');
     var lbl = document.getElementById('campTypeLabel');
     if (lbl) {
-        lbl.textContent = isComercial() ? 'Comercial' : (isLeadCapture() ? 'Meteoricos' : 'Vendas');
+        lbl.textContent = isCrescimento() ? 'Crescimento'
+            : isComercial() ? 'Comercial'
+            : isMeteoricos() ? 'Meteoricos'
+            : 'Vendas';
     }
     adaptStaticLabelsToType();
 }
@@ -1160,39 +1175,43 @@ function adaptStaticLabelsToType() {
     });
     // Titulo da tabela de campanhas
     document.querySelectorAll('.tbl-camps-label').forEach(function(el){
-        if (isComercial()) el.textContent = 'Campanhas Comerciais';
-        else if (isLeadCapture()) el.textContent = 'Campanhas de Meteoricos';
+        if (isCrescimento()) el.textContent = 'Campanhas de Crescimento';
+        else if (isComercial()) el.textContent = 'Campanhas Comerciais';
+        else if (isMeteoricos()) el.textContent = 'Campanhas de Meteoricos';
         else el.textContent = 'Campanhas de Vendas';
     });
     if (!isLeadCapture()) return;
     // 2. Reescrita em bloco para meteoricos: so faz uma vez (marca via dataset)
+    var conv = labelConversao();
+    var cpa = labelCPA();
     // Labels/headers nas colunas "Compras" e "CPA" (cobre data-key= e data-sort=)
     document.querySelectorAll('th[data-key="purchases"], th[data-key="cpa"], th[data-sort="purchases"], th[data-sort="cpa"]').forEach(function(th){
-        if (th.dataset.adapted) return;
         var k = th.getAttribute('data-key') || th.getAttribute('data-sort');
-        if (k === 'purchases') th.textContent = 'Leads';
-        else if (k === 'cpa') th.textContent = 'CPL';
+        if (k === 'purchases') th.textContent = conv;
+        else if (k === 'cpa') th.textContent = cpa;
         th.dataset.adapted = '1';
     });
     // Options nos filtros/ordenacoes
     document.querySelectorAll('option[value="purchases"]').forEach(function(o){
-        if (o.textContent.indexOf('Compras') >= 0) o.textContent = o.textContent.replace('Compras', 'Leads');
+        if (o.textContent.indexOf('Compras') >= 0) o.textContent = o.textContent.replace('Compras', conv);
     });
     document.querySelectorAll('option[value="cpa_asc"]').forEach(function(o){
-        if (o.textContent.indexOf('CPA') >= 0) o.textContent = o.textContent.replace('CPA', 'CPL');
+        if (o.textContent.indexOf('CPA') >= 0) o.textContent = o.textContent.replace('CPA', cpa);
     });
-    // Labels soltos ("Compras"/"CPA") em spans/labels
+    // Labels soltos em spans/labels
     document.querySelectorAll('label, .lbl, .pl, span').forEach(function(el){
-        if (el.children.length) return;  // so elementos folha
+        if (el.children.length) return;
         var t = el.textContent;
         if (!t) return;
-        if (t === 'Compras' || t === 'Comp.') el.textContent = t.replace('Compras','Leads').replace('Comp.','Leads');
-        else if (t === 'CPA') el.textContent = 'CPL';
-        else if (t.indexOf('CPA m') === 0) el.textContent = t.replace('CPA', 'CPL');
+        if (t === 'Compras' || t === 'Comp.') el.textContent = conv;
+        else if (t === 'CPA') el.textContent = cpa;
+        else if (t.indexOf('CPA m') === 0) el.textContent = t.replace('CPA', cpa);
     });
     // Label dinamico do ranking "Vendas/Dia por Evento"
-    document.querySelectorAll('.rank-sales-label').forEach(function(el){ el.textContent = 'Leads'; });
-    document.querySelectorAll('.rank-sales-icon').forEach(function(el){ el.innerHTML = '&#9733;'; });
+    document.querySelectorAll('.rank-sales-label').forEach(function(el){ el.textContent = conv; });
+    document.querySelectorAll('.rank-sales-icon').forEach(function(el){
+        el.innerHTML = isCrescimento() ? '&#128249;' : (isLeadCapture() ? '&#9733;' : '&#128722;');
+    });
 }
 
 // Monkey-patch fetch: anexa camp_type automaticamente em todas as chamadas /api/dashboard/*
@@ -2115,8 +2134,8 @@ const DETAIL_METRICS={
     spend:{label:'Gasto Total',color:'#ff6b6b',fmt:fmtM,calc:d=>d.spend||0,axis:'money'},
     revenue:{label:'Receita Total',color:'#3fdf85',fmt:fmtM,calc:d=>d.revenue||0,axis:'money'},
     roas:{label:'ROAS',color:'#58a6ff',fmt:fmtR,calc:d=>d.roas||0,axis:'ratio'},
-    purchases:{label:isLeadCapture()?'Leads':'Compras',color:'#56d4dd',fmt:fmt,calc:d=>d.purchases||0,axis:'count'},
-    cpa:{label:isLeadCapture()?'CPL':'CPA',color:'#ffc857',fmt:fmtM,calc:d=>d.cpa||0,axis:'unit_cost'},
+    purchases:{label:labelConversao(),color:'#56d4dd',fmt:fmt,calc:d=>d.purchases||0,axis:'count'},
+    cpa:{label:labelCPA(),color:'#ffc857',fmt:fmtM,calc:d=>d.cpa||0,axis:'unit_cost'},
     cpm:{label:'CPM',color:'#bc8cff',fmt:fmtM,calc:d=>{const i=d.impressions||0;return i>0?(d.spend/i)*1000:0;},axis:'unit_cost'},
     // Funil — volumes (ordem do funil)
     impressions:{label:'Impressões',color:'#1f6feb',fmt:fmt,calc:d=>d.impressions||0,axis:'big'},
@@ -2484,10 +2503,10 @@ const CAMP_METRICS={
     spend:{label:'Gasto',color:'#f85149',fmt:fmtM,key:'spend',axis:'money'},
     revenue:{label:'Receita',color:'#3fb950',fmt:fmtM,key:'revenue',axis:'money'},
     roas:{label:'ROAS',color:'#58a6ff',fmt:fmtR,key:'roas',axis:'ratio'},
-    cpa:{label:isLeadCapture()?'CPL':'CPA',color:'#d29922',fmt:fmtM,key:'cpa',axis:'unit_cost'},
+    cpa:{label:labelCPA(),color:'#d29922',fmt:fmtM,key:'cpa',axis:'unit_cost'},
     cpm:{label:'CPM',color:'#bc8cff',fmt:fmtM,key:'cpm',axis:'unit_cost'},
     ctr:{label:'CTR',color:'#79c0ff',fmt:fmtP,key:'ctr',axis:'pct'},
-    purchases:{label:isLeadCapture()?'Leads':'Compras',color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
+    purchases:{label:labelConversao(),color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
     impressions:{label:'Impress\u00f5es',color:'#1f6feb',fmt:fmt,key:'impressions',axis:'big'},
     clicks:{label:'Cliques',color:'#a5d6ff',fmt:fmt,key:'clicks',axis:'count'},
     rate_click_lpv:{label:'Click\u2192LPV',color:'#56d4dd',fmt:fmtP,key:'rate_click_lpv',axis:'pct'},
@@ -2886,8 +2905,8 @@ function renderCards(data){
         const ar=ts>0?tr/ts:0;
         const acpa=tp>0?ts/tp:0;
         const afreq=trc>0?(ti/trc):0;
-        const lblConv = isMet ? 'Leads' : 'Compras';
-        const lblCPA = isMet ? 'CPL' : 'CPA';
+        const lblConv = labelConversao();
+        const lblCPA = labelCPA();
         const roasBlock = isMet ? '' : `<span data-tip="${roasTip(ar)}">ROAS: <span class="sv" style="color:${roasC(ar)}">${fmtR(ar)}</span></span>`;
         h+=`<div class="cg">
             <div class="cg-head closed" data-g="${cid}"><h3><span class="arrow">&#9660;</span>${g.name} <span style="font-size:12px;color:var(--t3);font-weight:400">(${g.ads.length})</span></h3>
@@ -2947,11 +2966,11 @@ function cardH(c){
         </div>
         <div class="cr-stats-grid">
             <div class="cr-st" data-tip="${isLeadCapture()?'Leads: total de cadastros atribu&iacute;dos a este criativo.':'Compras: n&uacute;mero total de vendas atribu&iacute;das a este criativo pelo pixel da Meta.'}">
-                <div class="lbl">${isLeadCapture()?'Leads':'Compras'}</div>
+                <div class="lbl">${labelConversao()}</div>
                 <div class="val">${fmt(c.purchases)}</div>
             </div>
             <div class="cr-st" data-tip="${isLeadCapture()?'CPL (Custo por Lead): quanto custou em m&eacute;dia cada cadastro — gasto / leads.':'CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — gasto / compras.'}">
-                <div class="lbl">${isLeadCapture()?'CPL':'CPA'}</div>
+                <div class="lbl">${labelCPA()}</div>
                 <div class="val">${fmtM(c.cpa)}</div>
             </div>
             <div class="cr-st" data-tip="CTR (Click Through Rate): percentual de pessoas que viram o an&uacute;ncio e clicaram. Mede o quanto a arte/copy atrai cliques.">
@@ -2975,14 +2994,14 @@ function cardH(c){
             <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 7 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">7 Dias</div>
                 <div class="pblock-row" data-tip="Gasto investido nos &uacute;ltimos 7 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_7d)}</span></div>
-                <div class="pblock-row" data-tip="${isLeadCapture()?'Leads nos &uacute;ltimos 7 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 7 dias.'}"><span class="pl">${isLeadCapture()?'Leads':'Comp.'}</span><span class="pr">${c.purchases_7d||0}</span></div>
+                <div class="pblock-row" data-tip="${isLeadCapture()?'Leads nos &uacute;ltimos 7 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 7 dias.'}"><span class="pl">${labelConversao()}</span><span class="pr">${c.purchases_7d||0}</span></div>
                 <div class="pblock-row" data-metric="roas" data-tip="ROAS nos &uacute;ltimos 7 dias."><span class="pl">ROAS</span><span class="pr" style="color:${r7c}">${fmtR(c.roas_7d)}</span></div>
                 ${(()=>{const sh=shareCompare(c.share_7d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha nos &uacute;ltimos 7 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_7d||0}%</span></div>`;})()}
             </div>
             <div class="cr-period-block" data-tip="Bloco com as principais m&eacute;tricas restritas aos &uacute;ltimos 3 dias completos (n&atilde;o inclui o dia atual).">
                 <div class="pblock-label">3 Dias</div>
                 <div class="pblock-row" data-tip="Gasto investido nos &uacute;ltimos 3 dias."><span class="pl">Gasto</span><span class="pr">${fmtM(c.spend_3d)}</span></div>
-                <div class="pblock-row" data-tip="${isLeadCapture()?'Leads nos &uacute;ltimos 3 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 3 dias.'}"><span class="pl">${isLeadCapture()?'Leads':'Comp.'}</span><span class="pr">${c.purchases_3d||0}</span></div>
+                <div class="pblock-row" data-tip="${isLeadCapture()?'Leads nos &uacute;ltimos 3 dias.':'Compras atribu&iacute;das nos &uacute;ltimos 3 dias.'}"><span class="pl">${labelConversao()}</span><span class="pr">${c.purchases_3d||0}</span></div>
                 <div class="pblock-row" data-metric="roas" data-tip="ROAS nos &uacute;ltimos 3 dias."><span class="pl">ROAS</span><span class="pr" style="color:${r3c}">${fmtR(c.roas_3d)}</span></div>
                 ${(()=>{const sh=shareCompare(c.share_3d,c.share_total);return`<div class="pblock-row" data-tip="Participa&ccedil;&atilde;o: percentual do gasto total da campanha nos &uacute;ltimos 3 dias."><span class="pl">Part.</span><span class="pr" style="color:${sh.color}">${sh.arrow} ${c.share_3d||0}%</span></div>`;})()}
             </div>
@@ -3581,8 +3600,8 @@ async function openAdModal(adId,adName,thumbnailUrl){
                     <div class="scard clickable" data-metric="spend" data-tip="Total investido"><div class="sl">Gasto</div><div class="sv" style="font-size:20px">${fmtM(t.spend)}</div></div>
                     <div class="scard clickable" data-metric="revenue" data-tip="Receita gerada"><div class="sl">Receita</div><div class="sv" style="font-size:20px">${fmtM(t.revenue)}</div></div>
                     <div class="scard clickable" data-metric="roas" data-tip="${roasTip(t.roas)}"><div class="sl">ROAS</div><div class="sv" style="font-size:20px;color:${roasC(t.roas)}">${fmtR(t.roas)}</div></div>
-                    <div class="scard clickable" data-metric="purchases" data-tip="${isLeadCapture()?'Leads captados':'Compras atribu&iacute;das'}"><div class="sl">${isLeadCapture()?'Leads':'Compras'}</div><div class="sv" style="font-size:20px">${fmt(purch)}</div></div>
-                    <div class="scard clickable" data-metric="cpa" data-tip="${isLeadCapture()?'Custo por lead':'Custo por aquisi&ccedil;&atilde;o'}"><div class="sl">${isLeadCapture()?'CPL':'CPA'}</div><div class="sv" style="font-size:20px">${fmtM(t.cpa)}</div></div>
+                    <div class="scard clickable" data-metric="purchases" data-tip="${isLeadCapture()?'Leads captados':'Compras atribu&iacute;das'}"><div class="sl">${labelConversao()}</div><div class="sv" style="font-size:20px">${fmt(purch)}</div></div>
+                    <div class="scard clickable" data-metric="cpa" data-tip="${isLeadCapture()?'Custo por lead':'Custo por aquisi&ccedil;&atilde;o'}"><div class="sl">${labelCPA()}</div><div class="sv" style="font-size:20px">${fmtM(t.cpa)}</div></div>
                     <!-- Funil — volumes -->
                     <div class="scard clickable" data-metric="impressions" data-tip="Total de impress&otilde;es"><div class="sl">Impress&otilde;es</div><div class="sv" style="font-size:20px">${fmt(t.impressions)}</div></div>
                     <div class="scard clickable" data-metric="link_clicks" data-tip="Cliques no link"><div class="sl">Cliques</div><div class="sv" style="font-size:20px">${fmt(t.link_clicks)}</div></div>
@@ -4109,7 +4128,8 @@ function syncBreakdownsWithSelection() {
         var ids = Array.from(selectedCampIds);
         if (ids.length === 0) {
             _bdCampId = '';
-            var lbl = isComercial() ? 'Todas as campanhas comerciais'
+            var lbl = isCrescimento() ? 'Todas as campanhas de crescimento'
+                    : isComercial() ? 'Todas as campanhas comerciais'
                     : isMeteoricos() ? 'Todas as campanhas de meteoricos'
                     : 'Todas as campanhas de vendas';
             $('#bd-filter-label').textContent = lbl;

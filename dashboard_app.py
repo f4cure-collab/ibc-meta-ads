@@ -282,10 +282,21 @@ LEAD_TYPES = [
     "offsite_conversion.fb_pixel_lead",
 ]
 
+# Action_types que representam "seguir" no Instagram/Facebook. Varios nomes
+# conforme o tipo de otimizacao da campanha — usa o primeiro com valor > 0.
+FOLLOW_TYPES = [
+    "onsite_conversion.follow",
+    "follow",
+    "onsite_conversion.ig_following",
+    "onsite_conversion.post_save",
+    "page_engagement",
+]
+
 CAMP_TYPE_VENDAS = "vendas"
 CAMP_TYPE_METEORICOS = "meteoricos"
 CAMP_TYPE_COMERCIAL = "comercial"
-VALID_CAMP_TYPES = (CAMP_TYPE_VENDAS, CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL)
+CAMP_TYPE_CRESCIMENTO = "crescimento"
+VALID_CAMP_TYPES = (CAMP_TYPE_VENDAS, CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL, CAMP_TYPE_CRESCIMENTO)
 
 # Produtos comerciais (highticket). Chave = token no nome da campanha.
 # CSI/PNL estao pausados atualmente mas aparecem quando o filtro de status inclui pausadas.
@@ -308,7 +319,9 @@ def _normalize_camp_type(ct):
 
 def _get_conversion_types(camp_type):
     """Retorna a lista de action_types da conversao primaria do tipo.
-    Vendas = purchase. Meteoricos e Comercial = lead (ambos captacao)."""
+    Vendas = purchase. Meteoricos/Comercial = lead. Crescimento = follow (Instagram)."""
+    if camp_type == CAMP_TYPE_CRESCIMENTO:
+        return FOLLOW_TYPES
     if camp_type in (CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL):
         return LEAD_TYPES
     return PURCHASE_TYPES
@@ -328,6 +341,12 @@ def _is_meteoricos_campaign(name):
     """True se o nome contem token METEORICO/METEORICOS em qualquer posicao."""
     tokens = _name_tokens(name)
     return "METEORICO" in tokens or "METEORICOS" in tokens
+
+
+def _is_crescimento_campaign(name):
+    """True se o nome contem token CRESCIMENTO em qualquer posicao."""
+    tokens = _name_tokens(name)
+    return "CRESCIMENTO" in tokens
 
 
 def _is_comercial_campaign(name):
@@ -368,6 +387,9 @@ def _filter_campaigns_by_type(campaigns, camp_type):
                 result.append(c)
         elif camp_type == CAMP_TYPE_COMERCIAL:
             if _is_comercial_campaign(name):
+                result.append(c)
+        elif camp_type == CAMP_TYPE_CRESCIMENTO:
+            if _is_crescimento_campaign(name):
                 result.append(c)
         else:
             if c.get("objective") == "OUTCOME_SALES":
@@ -879,8 +901,8 @@ def parse_insights(row, camp_type=None):
     conv_types = _get_conversion_types(camp_type)
     purchases = extract_purchase_count(actions, types=conv_types)
 
-    if camp_type == CAMP_TYPE_METEORICOS:
-        # Leads nao tem valor monetario direto
+    if camp_type in (CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL, CAMP_TYPE_CRESCIMENTO):
+        # Tipos de captacao (leads/seguidores): sem revenue/ROAS
         revenue = 0.0
         roas = 0.0
     else:
@@ -2387,7 +2409,7 @@ def api_breakdowns():
             base_params = {
                 "time_range": json.dumps({"since": date_from, "until": date_to}),
             }
-            if camp_type in (CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL):
+            if camp_type in (CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL, CAMP_TYPE_CRESCIMENTO):
                 # Filtrar pelos IDs das campanhas do tipo (multi-conta)
                 filtered = _fetch_type_campaigns(
                     camp_type, "id,name,objective", '["ACTIVE","PAUSED"]'
@@ -3300,6 +3322,8 @@ def api_unidentified_campaigns():
                 auto_type = CAMP_TYPE_METEORICOS
             elif _is_comercial_campaign(name):
                 auto_type = CAMP_TYPE_COMERCIAL
+            elif _is_crescimento_campaign(name):
+                auto_type = CAMP_TYPE_CRESCIMENTO
             elif c.get("objective") == "OUTCOME_SALES":
                 auto_type = CAMP_TYPE_VENDAS
 
