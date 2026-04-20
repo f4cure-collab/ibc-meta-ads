@@ -1534,6 +1534,48 @@ INSIGHT_FIELDS_DAILY_CAMP = (
 )
 
 
+def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all"):
+    """Daily insights compartilhado entre api_daily_summary e api_multi_insights.
+
+    Antes: cada endpoint fazia seu proprio fetch da Meta com fields parecidos.
+    Em Crescimento 30d, 2 chamadas pesadas duplicadas por usuario que abre a aba.
+
+    Agora: 1 fetch por (camp_type, camp_status, periodo). Cacheado 4h em SQLite.
+    Ambos endpoints leem deste cache, reduzindo ~50% das calls Meta na primeira
+    abertura do dia.
+
+    Retorna (sales_campaigns, daily_rows).
+    """
+    cache_key = f"shared_daily_v1_{camp_type}_{camp_status}_{date_from}_{date_to}"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached.get("campaigns", []), cached.get("rows", [])
+
+    sales_campaigns = _fetch_type_campaigns(
+        camp_type,
+        "id,name,objective,daily_budget,lifetime_budget,start_time,created_time,status",
+        _camp_status_filter(camp_status)
+    )
+    if not sales_campaigns:
+        set_cached(cache_key, {"campaigns": [], "rows": []}, ttl_hours=4)
+        return [], []
+
+    rows = _fetch_insights_for_tagged_campaigns(
+        sales_campaigns,
+        base_params={
+            "fields": INSIGHT_FIELDS_DAILY_CAMP,
+            "time_range": json.dumps({"since": date_from, "until": date_to}),
+            "time_increment": 1,
+            "level": "campaign",
+            "limit": 500,
+        },
+        extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
+    )
+
+    set_cached(cache_key, {"campaigns": sales_campaigns, "rows": rows}, ttl_hours=4)
+    return sales_campaigns, rows
+
+
 # ── API Endpoints ──────────────────────────────────────────────────────
 
 @app.route("/api/dashboard/campaigns")
@@ -1820,62 +1862,54 @@ def api_campaigns_multi_insights():
 
         # v5: filtra campanhas sem dados quando ids=all (nao polui o seletor
         # de Projecao com campanhas antigas arquivadas sem impressoes).
-        cache_key = f"multi_insights_v8_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"multi_insights_v9_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
                 return jsonify(cached)
 
+        # Usa daily insights compartilhado — mesma fonte que api_daily_summary,
+        # evitando duplicar fetch pesado com time_increment=1 quando o mesmo
+        # usuario abre a aba Campanhas (ambos sao chamados no load).
+        shared_camps, shared_rows = _get_shared_daily_insights(camp_type, date_from, date_to, camp_status)
+        sales_map = {c["id"]: c for c in shared_camps}
+
         if ids_param == "all":
-            # Buscar campanhas do tipo selecionado (multi-conta)
-            sales_camps = _fetch_type_campaigns(
-                camp_type, "id,name,objective", _camp_status_filter(camp_status)
-            )
-            sales_map = {c["id"]: c for c in sales_camps}
             target_ids = list(sales_map.keys())
+            rows = shared_rows
         else:
-            # IDs específicos: aceitar direto sem validar status
+            # IDs especificos: filtra rows do shared pra apenas esses ids
             target_ids = [i.strip() for i in ids_param.split(",") if i.strip()]
-            # Buscar nomes das campanhas de todas as contas relevantes
-            sales_map = {}
-            for acc in _get_accounts_for_type(camp_type):
-                try:
-                    rows = meta_get_all_pages(
-                        f"{acc}/campaigns",
-                        {"fields": "id,name,objective", "effective_status": '["ACTIVE","PAUSED"]'}
-                    )
-                    for c in rows:
-                        c["_account_id"] = acc
-                        sales_map[c["id"]] = c
-                except Exception as e:
-                    print(f"[MULTI-ACCT] Falha multi-insights {acc}: {e}")
+            # Completa sales_map com IDs que nao estejam no cache de tipo
+            # (campanhas que nao sao do tipo atual mas foram solicitadas)
+            missing = [cid for cid in target_ids if cid not in sales_map]
+            if missing:
+                for acc in _get_accounts_for_type(camp_type):
+                    try:
+                        extra = meta_get_all_pages(
+                            f"{acc}/campaigns",
+                            {"fields": "id,name,objective", "effective_status": '["ACTIVE","PAUSED"]'}
+                        )
+                        for c in extra:
+                            if c["id"] in missing and c["id"] not in sales_map:
+                                c["_account_id"] = acc
+                                sales_map[c["id"]] = c
+                    except Exception as e:
+                        print(f"[MULTI-ACCT] Falha multi-insights {acc}: {e}")
+            rows = [r for r in shared_rows if r.get("campaign_id") in set(target_ids)]
 
         if not target_ids:
             return jsonify({"ok": True, "campaigns": []})
 
-        # Monta lista de campanhas taggueadas para agrupar queries por conta
+        # Monta lista de campanhas taggueadas (ainda util pra query auxiliar de video em Nutricao)
         tagged_camps = []
         for cid in target_ids:
             c = sales_map.get(cid, {"id": cid})
-            # Garante que tem _account_id (fallback para conta principal se desconhecido)
             if not c.get("_account_id"):
                 c = dict(c)
                 c["_account_id"] = ACCOUNT_ID
             c.setdefault("id", cid)
             tagged_camps.append(c)
-
-        # Insights diarios: agrupa por conta e faz 1 query por conta
-        rows = _fetch_insights_for_tagged_campaigns(
-            tagged_camps,
-            base_params={
-                "fields": INSIGHT_FIELDS_DAILY_CAMP,
-                "time_range": json.dumps({"since": date_from, "until": date_to}),
-                "time_increment": 1,
-                "level": "campaign",
-                "limit": 500,
-            },
-            extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
-        )
 
         # Video metrics (Nutricao): Meta NAO retorna video_* com time_increment=1
         # em level=campaign (campos ficam vazios nas rows diarias). Pra detail
@@ -2752,32 +2786,18 @@ def api_daily_summary():
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_v5_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_v6_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
                 return jsonify(cached)
 
-        # 1. Buscar campanhas do tipo selecionado (multi-conta)
-        sales_campaigns = _fetch_type_campaigns(
-            camp_type, "id,name,objective", _camp_status_filter(camp_status)
-        )
+        # 1+2. Usa daily insights compartilhado (mesma fonte que api_multi_insights)
+        # — evita duplicar fetch pesado com time_increment=1.
+        sales_campaigns, rows = _get_shared_daily_insights(camp_type, date_from, date_to, camp_status)
 
         if not sales_campaigns:
             return jsonify({"ok": True, "data": []})
-
-        # 2. Buscar insights diarios agrupados por conta
-        rows = _fetch_insights_for_tagged_campaigns(
-            sales_campaigns,
-            base_params={
-                "fields": INSIGHT_FIELDS_DAILY,
-                "time_range": json.dumps({"since": date_from, "until": date_to}),
-                "time_increment": 1,
-                "level": "campaign",
-                "limit": 500,
-            },
-            extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
-        )
 
         # Crescimento: sobrescreve purchases com atribuicao proporcional ao spend diario
         ig_net_total = 0
@@ -5152,7 +5172,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
             dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
             try:
                 k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
-                k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
+                k_daily = f"daily_summary_v6_{ct}_all_{dt_from}_{dt_to}"
                 k_creat = f"all_creatives_v7_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
@@ -5224,7 +5244,7 @@ def _refresh_recent_loop():
                     for ct in VALID_CAMP_TYPES:
                         try:
                             k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
-                            k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
+                            k_daily = f"daily_summary_v6_{ct}_all_{dt_from}_{dt_to}"
                             k_creat = f"all_creatives_v7_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
