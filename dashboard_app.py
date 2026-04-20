@@ -2272,8 +2272,10 @@ def _aggregate_daily_total(daily_rows):
 def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings=None):
     """Busca criativos de campanhas com métricas avançadas.
 
-    Otimização: primeiro verifica se a campanha tem impressões no período
-    antes de buscar ads e insights detalhados.
+    Otimizacao (pos-Nutricao): em vez de 2 calls por campanha (N~52 em Nutricao =
+    104 calls), agrupa por conta e faz 2 calls por CONTA — uma pro /ads com
+    filtering=campaign.id IN [...], outra pro /insights level=ad com mesmo filter.
+    Reduz de ~2N para ~2*contas (tipicamente 2-4 calls no total).
     """
     if warnings is None:
         warnings = []
@@ -2281,22 +2283,24 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
     ads_by_campaign = {}
     daily_by_ad = {}
 
-    # Pré-filtrar: buscar quais campanhas têm impressões no período.
-    # Campanhas podem estar em contas diferentes (ex: comercial em act_2148686818481082)
-    # — agrupa por _account_id e faz 1 call por conta, senao o filtro exclui as
-    # campanhas que nao estao na conta principal e elas desaparecem da aba Criativos.
-    camp_ids = [c["id"] for c in sales_campaigns]
+    # Mapa de campanha por id (pra associar ads depois)
+    camp_by_id = {c["id"]: c for c in sales_campaigns}
+
+    # Agrupa por conta (Meta nao suporta cross-account em 1 query)
     by_account = {}
     for c in sales_campaigns:
         acc = c.get("_account_id") or ACCOUNT_ID
         by_account.setdefault(acc, []).append(c["id"])
+
+    # Pre-filtro: campanhas com impressoes no periodo (1 call por conta)
     camps_with_data = set()
+    camp_spend = {}
     for acc_id, ids_in_acc in by_account.items():
         try:
             check_rows = meta_get_all_pages(
                 f"{acc_id}/insights",
                 {
-                    "fields": "campaign_id,impressions",
+                    "fields": "campaign_id,impressions,spend",
                     "time_range": json.dumps({"since": date_from, "until": date_to}),
                     "level": "campaign",
                     "filtering": json.dumps([
@@ -2306,75 +2310,75 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
                     "limit": 500,
                 }
             )
-            camps_with_data.update(r.get("campaign_id") for r in check_rows)
+            for r in check_rows:
+                cid = r.get("campaign_id")
+                if cid:
+                    camps_with_data.add(cid)
+                    camp_spend[cid] = float(r.get("spend", 0) or 0)
         except Exception as e:
             print(f"[WARN] Pre-filtro falhou em {acc_id}, incluindo todas daquela conta: {e}")
             camps_with_data.update(ids_in_acc)
     print(f"[OPT] {len(camps_with_data)}/{len(sales_campaigns)} campanhas com impressoes no periodo ({len(by_account)} conta(s))")
 
-    for camp in sales_campaigns:
-        # Pular campanhas sem impressões
-        if camp["id"] not in camps_with_data:
+    # Para cada conta: 1 call pros /ads e 1 call pros /insights (em batch)
+    dt_end = datetime.strptime(date_to, "%Y-%m-%d")
+    for acc_id, ids_in_acc in by_account.items():
+        # Filtra so campanhas da conta que tiveram impressoes
+        camp_ids_active = [cid for cid in ids_in_acc if cid in camps_with_data]
+        if not camp_ids_active:
             continue
 
-        # Call 1: ads da campanha
+        # Call 1: ads de todas as campanhas da conta em 1 query
         try:
-            ads = meta_get_all_pages(
-                f"{camp['id']}/ads",
+            acc_ads = meta_get_all_pages(
+                f"{acc_id}/ads",
                 {
-                    "fields": "id,name,status,created_time,creative{id,name,thumbnail_url}",
-                    "limit": 200,
+                    "fields": "id,name,status,created_time,campaign_id,creative{id,name,thumbnail_url}",
+                    "filtering": json.dumps([
+                        {"field": "campaign.id", "operator": "IN", "value": camp_ids_active}
+                    ]),
+                    "limit": 500,
                 }
             )
         except Exception as e:
-            warnings.append({
-                "campaign_id": camp["id"],
-                "campaign_name": camp.get("name", ""),
-                "step": "fetch_ads",
-                "error": str(e),
-            })
-            print(f"[ERROR] ads falhou para {camp.get('name')}: {e}")
-            continue
+            warnings.append({"step": "fetch_ads_batch", "account_id": acc_id, "error": str(e)})
+            print(f"[ERROR] batch ads falhou em {acc_id}: {e}")
+            acc_ads = []
 
-        if not ads:
-            continue
-
-        # Call 2: insights diários com filtro impressions > 0
+        # Call 2: insights diarios de todos os ads da conta em 1 query
         try:
-            daily_rows = meta_get_all_pages(
-                f"{camp['id']}/insights",
+            acc_insights = meta_get_all_pages(
+                f"{acc_id}/insights",
                 {
                     "fields": insight_fields,
                     "time_range": json.dumps({"since": date_from, "until": date_to}),
                     "level": "ad",
                     "time_increment": 1,
-                    "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
+                    "filtering": json.dumps([
+                        {"field": "campaign.id", "operator": "IN", "value": camp_ids_active},
+                        {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
+                    ]),
                     "limit": 500,
                 }
             )
         except Exception as e:
-            warnings.append({
-                "campaign_id": camp["id"],
-                "campaign_name": camp.get("name", ""),
-                "step": "fetch_insights",
-                "error": str(e),
-            })
-            print(f"[ERROR] insights falhou para {camp.get('name')}: {e}")
-            daily_rows = []
+            warnings.append({"step": "fetch_insights_batch", "account_id": acc_id, "error": str(e)})
+            print(f"[ERROR] batch insights falhou em {acc_id}: {e}")
+            acc_insights = []
 
-        # Agrupar daily rows por ad_id
-        insights_map = {}
-        for row in daily_rows:
+        # Agrupa insights por ad_id
+        for row in acc_insights:
             ad_id = row.get("ad_id")
-            if ad_id not in daily_by_ad:
-                daily_by_ad[ad_id] = []
-            daily_by_ad[ad_id].append(row)
+            if not ad_id:
+                continue
+            daily_by_ad.setdefault(ad_id, []).append(row)
 
-        # Agregar total por ad
-        for ad in ads:
-            ad_id = ad["id"]
-            if ad_id in daily_by_ad:
-                insights_map[ad_id] = _aggregate_daily_total(daily_by_ad[ad_id])
+        # Agrupa ads por campanha e processa
+        ads_by_camp_local = {}
+        for ad in acc_ads:
+            cid = ad.get("campaign_id")
+            if cid in camps_with_data:
+                ads_by_camp_local.setdefault(cid, []).append(ad)
 
         empty_metrics = {
             "spend": 0, "impressions": 0, "clicks": 0, "reach": 0,
@@ -2383,38 +2387,39 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
             "cost_per_link_click": 0,
         }
 
-        camp_ads = []
-        for ad in ads:
-            creative = ad.get("creative", {})
-            ad_metrics = insights_map.get(ad["id"])
-            if not ad_metrics or ad_metrics.get("impressions", 0) == 0:
-                continue  # Pular ads sem impressões no período
-            metrics = {**empty_metrics, **ad_metrics}
-
-            created = ad.get("created_time", "")
-            days_active = 0
-            dt_end = datetime.strptime(date_to, "%Y-%m-%d")
-            if created:
-                try:
-                    days_active = (dt_end - datetime.fromisoformat(created[:10])).days
-                except Exception:
-                    pass
-
-            entry = {
-                "campaign_id": camp["id"],
-                "campaign_name": camp.get("name", ""),
-                "ad_id": ad["id"],
-                "ad_name": ad.get("name", ""),
-                "ad_status": ad.get("status", ""),
-                "creative_id": creative.get("id", ""),
-                "creative_name": creative.get("name", ""),
-                "thumbnail_url": creative.get("thumbnail_url", ""),
-                "days_active": days_active,
-                **metrics,
-            }
-            camp_ads.append(entry)
-
-        ads_by_campaign[camp["id"]] = {"name": camp.get("name", ""), "ads": camp_ads}
+        for cid, ads in ads_by_camp_local.items():
+            camp = camp_by_id.get(cid, {"id": cid, "name": cid})
+            camp_ads = []
+            for ad in ads:
+                ad_id = ad["id"]
+                if ad_id not in daily_by_ad:
+                    continue
+                ad_metrics = _aggregate_daily_total(daily_by_ad[ad_id])
+                if not ad_metrics or ad_metrics.get("impressions", 0) == 0:
+                    continue
+                creative = ad.get("creative", {})
+                metrics = {**empty_metrics, **ad_metrics}
+                created = ad.get("created_time", "")
+                days_active = 0
+                if created:
+                    try:
+                        days_active = (dt_end - datetime.fromisoformat(created[:10])).days
+                    except Exception:
+                        pass
+                entry = {
+                    "campaign_id": cid,
+                    "campaign_name": camp.get("name", ""),
+                    "ad_id": ad_id,
+                    "ad_name": ad.get("name", ""),
+                    "ad_status": ad.get("status", ""),
+                    "creative_id": creative.get("id", ""),
+                    "creative_name": creative.get("name", ""),
+                    "thumbnail_url": creative.get("thumbnail_url", ""),
+                    "days_active": days_active,
+                    **metrics,
+                }
+                camp_ads.append(entry)
+            ads_by_campaign[cid] = {"name": camp.get("name", ""), "ads": camp_ads}
 
     # Calcular métricas avançadas (3d, 7d, velocity, trend, etc) usando dados diários já cacheados
     _compute_advanced_metrics(ads_by_campaign, daily_by_ad, date_from, date_to)
@@ -2820,7 +2825,7 @@ def api_all_creatives():
         # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
         is_viewer = session.get("role") == "viewer"
 
-        cache_key = f"all_creatives_v4_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"all_creatives_v5_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -4860,7 +4865,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
             try:
                 k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                 k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
-                k_creat = f"all_creatives_v4_{ct}_active_{dt_from}_{dt_to}"
+                k_creat = f"all_creatives_v5_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
@@ -4933,7 +4938,7 @@ def _refresh_recent_loop():
                         try:
                             k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                             k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
-                            k_creat = f"all_creatives_v4_{ct}_active_{dt_from}_{dt_to}"
+                            k_creat = f"all_creatives_v5_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             hdr = {"X-Internal-Scheduler": "refresh_loop"}
