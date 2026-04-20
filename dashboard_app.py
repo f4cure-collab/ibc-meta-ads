@@ -1771,7 +1771,7 @@ def api_campaigns_multi_insights():
 
         # v5: filtra campanhas sem dados quando ids=all (nao polui o seletor
         # de Projecao com campanhas antigas arquivadas sem impressoes).
-        cache_key = f"multi_insights_v5_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"multi_insights_v6_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
