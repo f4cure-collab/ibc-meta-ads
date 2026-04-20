@@ -295,6 +295,18 @@ FOLLOW_TYPES = [
     "ig_account_follow",
 ]
 
+# Action_types de "Visitas ao perfil do Instagram" — passo do funil DISTINTO
+# de link_click. link_click e clique em qualquer link do ad (landing page, etc);
+# profile_visit e especificamente quando o usuario abre o perfil do IG.
+# O funil correto e: impressoes -> cliques -> VISITAS NO PERFIL -> seguidores.
+PROFILE_VISIT_TYPES = [
+    "onsite_conversion.ig_profile_visit",
+    "ig_profile_visit",
+    "onsite_conversion.instagram_profile_visit",
+    "instagram_profile_visit",
+    "profile_visit",
+]
+
 CAMP_TYPE_VENDAS = "vendas"
 CAMP_TYPE_METEORICOS = "meteoricos"
 CAMP_TYPE_COMERCIAL = "comercial"
@@ -793,21 +805,45 @@ def _extract_link_clicks_from_row(row):
     return 0
 
 
-def _extract_results_from_row(row):
-    """Extrai o 'results' da campanha (Meta coluna 'Resultados' do Gerenciador).
-    Retorna a soma dos results de todos os action_types. Cai para link_click se
-    a campanha nao tem results (ex: campanhas antigas ou sem objetivo definido)."""
+def _extract_profile_visits_from_row(row):
+    """Extrai VISITAS AO PERFIL do Instagram de uma linha de insights.
+
+    Fontes (em ordem de confiabilidade):
+      1) actions[] com action_type em PROFILE_VISIT_TYPES — granular, mais confiavel
+      2) results[] da API — coluna 'Resultados' do Gerenciador; vem em formato
+         {indicator, values:[{value}]} ou {action_type, value} (API varia)
+
+    NAO cai em link_click. Click no anuncio != visita ao perfil. Se a API nao
+    expoe nenhum dos dois, retorna 0 — e melhor ver 0 e diagnosticar do que
+    mascarar com um numero errado."""
+    # Fonte 1: actions[] com action_types de profile_visit
+    actions = row.get("actions") or []
+    total_actions = 0
+    for a in actions:
+        if a.get("action_type") in PROFILE_VISIT_TYPES:
+            try:
+                total_actions += int(float(a.get("value", 0) or 0))
+            except Exception:
+                pass
+
+    # Fonte 2: results[] — formato pode variar entre {value} plano e {values:[{value}]}
     results = row.get("results") or []
-    total = 0
+    total_results = 0
     for r in results:
-        try:
-            total += int(float(r.get("value", 0) or 0))
-        except Exception:
-            pass
-    if total > 0:
-        return total
-    # Fallback: link_click como proxy de visitas ao perfil
-    return _extract_link_clicks_from_row(row)
+        v = r.get("value")
+        if v is not None:
+            try:
+                total_results += int(float(v))
+                continue
+            except Exception:
+                pass
+        for vv in (r.get("values") or []):
+            try:
+                total_results += int(float(vv.get("value", 0) or 0))
+            except Exception:
+                pass
+
+    return max(total_actions, total_results)
 
 
 # Peso relativo de campanhas NAO-Crescimento na atribuicao de seguidores.
@@ -862,48 +898,45 @@ def compute_crescimento_share(crescimento_spend, other_spend,
 
 
 def compute_crescimento_follower_attribution(daily_rows, ig_net_total, crescimento_share=1.0):
-    """Atribuicao de seguidores TOTAL proporcional aos 'results' (Visitas ao perfil) de cada campanha.
+    """Atribuicao de seguidores proporcional a VISITAS AO PERFIL de cada campanha.
 
-    Meta UI mostra coluna 'Resultados' com visitas ao perfil do Instagram. Esse numero
-    e mais preciso que link_click (que inclui cliques que vao pra landing pages, nao so
-    pro perfil). A API Meta expoe isso via campo 'results'. Fallback para link_click se
-    results estiver ausente.
+    Funil correto: impressoes -> cliques -> visitas no perfil -> seguidores.
+    Visitas ao perfil (profile_visit) e um passo DISTINTO de link_click e
+    muito mais correlacionado com novos seguidores.
 
     ig_net_total: ganho liquido TOTAL do periodo (FOLLOWER - NON_FOLLOWER) do perfil IG
     crescimento_share: fracao do NET atribuivel a Crescimento (0-1)
 
     Para cada campanha:
-      seguidores = ig_net_total * crescimento_share * (results_camp / total_results_cresc)
+      seguidores = ig_net_total * crescimento_share * (visitas_camp / total_visitas_cresc)
 
     Returns: dict {(campaign_id, date): seguidores_atribuidos_float}
     """
-    # Agrupa results (visitas ao perfil) por campanha
-    results_by_cid = {}
+    visits_by_cid = {}
     days_by_cid = {}
     for row in daily_rows:
         cid = row.get("campaign_id", "")
         d = row.get("date_start", "")
         if not cid or not d:
             continue
-        r = _extract_results_from_row(row)
-        results_by_cid[cid] = results_by_cid.get(cid, 0) + r
-        days_by_cid.setdefault(cid, []).append((d, r))
+        v = _extract_profile_visits_from_row(row)
+        visits_by_cid[cid] = visits_by_cid.get(cid, 0) + v
+        days_by_cid.setdefault(cid, []).append((d, v))
 
-    total_results = sum(results_by_cid.values())
-    if total_results <= 0 or ig_net_total <= 0:
+    total_visits = sum(visits_by_cid.values())
+    if total_visits <= 0 or ig_net_total <= 0:
         return {}
 
     gain_for_cresc = ig_net_total * crescimento_share
     attribution = {}
 
-    for cid, total_cid_results in results_by_cid.items():
-        if total_cid_results <= 0:
+    for cid, total_cid_visits in visits_by_cid.items():
+        if total_cid_visits <= 0:
             continue
-        cid_total_follows = gain_for_cresc * (total_cid_results / total_results)
-        # Dentro da campanha, distribui por dia proporcional aos results do dia
-        for (date, results_day) in days_by_cid[cid]:
-            if results_day > 0:
-                attribution[(cid, date)] = cid_total_follows * (results_day / total_cid_results)
+        cid_total_follows = gain_for_cresc * (total_cid_visits / total_visits)
+        for (date, visits_day) in days_by_cid[cid]:
+            if visits_day > 0:
+                attribution[(cid, date)] = cid_total_follows * (visits_day / total_cid_visits)
     return attribution
 
 
@@ -1168,6 +1201,11 @@ def parse_insights(row, camp_type=None):
     add_to_cart = extract_action_count(actions, ATC_TYPES)
     initiate_checkout = extract_action_count(actions, IC_TYPES)
 
+    # Visitas ao perfil do Instagram — passo do funil em Crescimento.
+    # Distinto de link_click (cliques em qualquer link do ad) e de LPV
+    # (view de landing page). NAO deve ser mapeado em nenhum deles.
+    profile_visits = _extract_profile_visits_from_row(row)
+
     # Taxas de conversão do funil
     rate_click_lpv = (lpv / link_clicks * 100) if link_clicks > 0 else 0
     rate_lpv_ic = (initiate_checkout / lpv * 100) if lpv > 0 else 0
@@ -1194,6 +1232,7 @@ def parse_insights(row, camp_type=None):
         "cpp": round(cpp, 2),
         "link_clicks": link_clicks,
         "cost_per_link_click": round(cost_per_link_click, 2),
+        "profile_visits": profile_visits,
         "lpv": lpv,
         "view_content": view_content,
         "add_to_cart": add_to_cart,
@@ -1246,15 +1285,15 @@ def _default_date_from():
 # Fields padrão para chamadas de /insights — inclui inline_link_clicks e cpc
 INSIGHT_FIELDS_CAMPAIGN = (
     "campaign_id,campaign_name,spend,impressions,clicks,inline_link_clicks,"
-    "reach,frequency,ctr,cpm,cpp,cpc,actions,action_values,purchase_roas"
+    "reach,frequency,ctr,cpm,cpp,cpc,actions,action_values,purchase_roas,results"
 )
 INSIGHT_FIELDS_AD = (
     "ad_id,ad_name,spend,impressions,clicks,inline_link_clicks,"
-    "reach,frequency,ctr,cpm,cpc,actions,action_values,purchase_roas,date_start"
+    "reach,frequency,ctr,cpm,cpc,actions,action_values,purchase_roas,results,date_start"
 )
 INSIGHT_FIELDS_DAILY = (
     "spend,impressions,clicks,inline_link_clicks,reach,frequency,"
-    "actions,action_values,purchase_roas,date_start"
+    "actions,action_values,purchase_roas,results,date_start"
 )
 INSIGHT_FIELDS_DAILY_CAMP = (
     "campaign_id,campaign_name,spend,impressions,clicks,inline_link_clicks,reach,frequency,"
@@ -1312,9 +1351,10 @@ def api_campaigns():
         for row in insights_data:
             insights_map[row.get("campaign_id")] = parse_insights(row, camp_type=camp_type)
 
-        # 2b. Crescimento: sobrescreve 'purchases' com seguidores atribuidos do IG
-        # (Meta Marketing API nao expoe follow por campanha — usamos IG Graph API
-        # com atribuicao proporcional por link_click, ponderada por gasto total)
+        # 2b. Crescimento: sobrescreve 'purchases' com seguidores atribuidos do IG.
+        # Meta Marketing API nao expoe follow por campanha — usamos IG Graph API
+        # e distribuimos o NET proporcional a VISITAS AO PERFIL (profile_visit)
+        # de cada campanha, ponderando pelo gasto total vs outros tipos de campanha.
         if camp_type == CAMP_TYPE_CRESCIMENTO:
             try:
                 # Usa TOTAL do periodo (daily breakdown nao funciona na IG API)
@@ -1324,8 +1364,8 @@ def api_campaigns():
                     daily_rows = _fetch_insights_for_tagged_campaigns(
                         sales_campaigns,
                         base_params={
-                            # 'results' = coluna 'Resultados' do Gerenciador = Visitas ao perfil
-                            "fields": "campaign_id,date_start,inline_link_clicks,actions,spend,results",
+                            # actions + results: ambos sao fontes de visitas ao perfil
+                            "fields": "campaign_id,date_start,actions,spend,results",
                             "time_range": json.dumps({"since": date_from, "until": date_to}),
                             "time_increment": 1,
                             "level": "campaign",

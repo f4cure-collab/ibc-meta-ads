@@ -1876,41 +1876,45 @@ function buildFunnelHTML(t){
     const impr=t.impressions||0;
     const clicks=t.link_clicks||t.clicks||0;
     const lpv=t.lpv||0;
+    const profileVisits=t.profile_visits||0;
     const ic=t.initiate_checkout||0;
     const purch=t.purchases||0;
 
     const meteoricos = isLeadCapture();
     // Funil de Meteoricos (captacao de lead): Impressoes -> Cliques -> LPV -> Cadastro (lead)
+    // Funil de Crescimento (seguidores): Impressoes -> Cliques -> Visitas no Perfil -> Seguidores
     // Funil de Vendas: Impressoes -> Cliques -> LPV -> Checkout -> Compra
     let steps, conversions, totalRate;
     const r1=impr>0?(clicks/impr*100):0;
-    const r2=clicks>0?(lpv/clicks*100):0;
 
     if (meteoricos) {
         const cresc = isCrescimento();
-        // Crescimento: visitas ao perfil Instagram -> Seguidores
-        // Lead capture (meteoricos/comercial): LPV -> Cadastro
-        const lpvLabel = cresc ? 'Visitas ao Perfil' : 'LPV (Visualiza&ccedil;&otilde;es da P&aacute;gina)';
-        const lpvTip = cresc ? 'Visitas ao perfil do Instagram' : 'P&aacute;gina de destino carregada';
+        // Em Crescimento o 3o passo NAO e LPV — e visita ao perfil do Instagram.
+        // Metricas distintas: LPV = view de landing page; profile_visit = abrir o perfil IG.
+        const midValue = cresc ? profileVisits : lpv;
+        const midLabel = cresc ? 'Visitas ao Perfil' : 'LPV (Visualiza&ccedil;&otilde;es da P&aacute;gina)';
+        const midTip = cresc ? 'Visitas ao perfil do Instagram (action_type profile_visit)' : 'P&aacute;gina de destino carregada';
         const finalLabel = cresc ? 'Seguidores' : 'Leads (Cadastros)';
         const finalIcon = cresc ? '&#128241;' : '&#9733;';
         const finalTip = cresc ? 'Novos seguidores conquistados' : 'Cadastros registrados no formul&aacute;rio';
-        const rL=lpv>0?(purch/lpv*100):0;
+        const r2 = clicks>0?(midValue/clicks*100):0;
+        const rL = midValue>0?(purch/midValue*100):0;
         totalRate=clicks>0?(purch/clicks*100):0;
         steps=[
             {label:'Impress&otilde;es',value:impr,icon:'&#128065;',dark:'#0a2d6b',mid:'#1f6feb',light:'#6eb8ff',tip:'Total de vezes que o an&uacute;ncio foi exibido'},
             {label:'Cliques no Link',value:clicks,icon:'&#128279;',dark:'#0d4a6b',mid:'#2891d4',light:'#7dd3fc',tip:'Cliques no link de destino'},
-            {label:lpvLabel,value:lpv,icon:'&#128194;',dark:'#0e5a4a',mid:'#16a377',light:'#7ee6c5',tip:lpvTip},
+            {label:midLabel,value:midValue,icon:'&#128194;',dark:'#0e5a4a',mid:'#16a377',light:'#7ee6c5',tip:midTip},
             {label:finalLabel,value:purch,icon:finalIcon,dark:'#5a3a0e',mid:'#d48f1a',light:'#fcd34d',tip:finalTip},
         ];
-        const lpvShort = cresc ? 'Perfil' : 'LPV';
+        const midShort = cresc ? 'Perfil' : 'LPV';
         const finalShort = cresc ? 'Seguidor' : 'Lead';
         conversions=[
             {pct:r1,label:'CTR (impr &rarr; cliques)'},
-            {pct:r2,label:'cliques &rarr; '+lpvShort},
-            {pct:rL,label:lpvShort+' &rarr; '+finalShort},
+            {pct:r2,label:'cliques &rarr; '+midShort},
+            {pct:rL,label:midShort+' &rarr; '+finalShort},
         ];
     } else {
+        const r2=clicks>0?(lpv/clicks*100):0;
         const r3=lpv>0?(ic/lpv*100):0;
         const r4=ic>0?(purch/ic*100):0;
         totalRate=clicks>0?(purch/clicks*100):0;
@@ -2096,12 +2100,12 @@ function aggregateDaily(camps){
     // Soma todos os daily de v&aacute;rias campanhas em um array de daily com m&eacute;tricas derivadas
     const byDate={};
     camps.forEach(c=>(c.daily||[]).forEach(d=>{
-        if(!byDate[d.date])byDate[d.date]={date:d.date,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,link_clicks:0,lpv:0,initiate_checkout:0,_maxReach:0,_freqWSum:0};
+        if(!byDate[d.date])byDate[d.date]={date:d.date,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,link_clicks:0,lpv:0,profile_visits:0,initiate_checkout:0,_maxReach:0,_freqWSum:0};
         const o=byDate[d.date];
         o.spend+=d.spend||0;o.revenue+=d.revenue||0;o.purchases+=d.purchases||0;
         const di=d.impressions||0;
         o.impressions+=di;o.clicks+=d.clicks||0;o.link_clicks+=d.link_clicks||0;
-        o.lpv+=d.lpv||0;o.initiate_checkout+=d.initiate_checkout||0;
+        o.lpv+=d.lpv||0;o.profile_visits+=d.profile_visits||0;o.initiate_checkout+=d.initiate_checkout||0;
         // Reach: guardar o maior (não somar — mesma pessoa conta múltiplas vezes entre campanhas)
         if((d.reach||0)>o._maxReach)o._maxReach=d.reach||0;
         // Frequency: média ponderada por impressões
@@ -2119,11 +2123,11 @@ function aggregateDaily(camps){
 }
 
 function totalsFromDaily(daily){
-    const t={impressions:0,clicks:0,link_clicks:0,lpv:0,initiate_checkout:0,purchases:0,spend:0,revenue:0,reach:0,frequency:0};
+    const t={impressions:0,clicks:0,link_clicks:0,lpv:0,profile_visits:0,initiate_checkout:0,purchases:0,spend:0,revenue:0,reach:0,frequency:0};
     let freqSum=0,freqDays=0;
     daily.forEach(x=>{
         t.impressions+=x.impressions||0;t.clicks+=x.clicks||0;t.link_clicks+=x.link_clicks||0;
-        t.lpv+=x.lpv||0;t.initiate_checkout+=x.initiate_checkout||0;t.purchases+=x.purchases||0;
+        t.lpv+=x.lpv||0;t.profile_visits+=x.profile_visits||0;t.initiate_checkout+=x.initiate_checkout||0;t.purchases+=x.purchases||0;
         t.spend+=x.spend||0;t.revenue+=x.revenue||0;
         // Reach e Frequency: usar valores da API (impressions-weighted average)
         if(x.frequency>0&&x.impressions>0){freqSum+=x.frequency*x.impressions;freqDays+=x.impressions;}
@@ -2140,9 +2144,13 @@ function totalsFromDaily(daily){
     t.cost_per_ic=t.initiate_checkout>0?t.spend/t.initiate_checkout:0;
     // Frequency: média ponderada por impressões (mais preciso que média simples)
     t.frequency=freqDays>0?freqSum/freqDays:0;
-    // Taxas do funil
-    t.rate_click_lpv=t.link_clicks>0?(t.lpv/t.link_clicks*100):0;
-    t.rate_lpv_ic=t.lpv>0?(t.initiate_checkout/t.lpv*100):0;
+    // Taxas do funil. Em Crescimento, o passo "intermediario" do funil e
+    // VISITAS AO PERFIL (profile_visits), nao LPV. LPV e landing page view,
+    // que e outra metrica. Por isso o rate_click_lpv aqui recebe profile_visits
+    // quando o tipo de campanha e Crescimento — pro card "Click->Perfil" bater.
+    var _midFunnel = (typeof isCrescimento === 'function' && isCrescimento()) ? (t.profile_visits||0) : t.lpv;
+    t.rate_click_lpv=t.link_clicks>0?(_midFunnel/t.link_clicks*100):0;
+    t.rate_lpv_ic=_midFunnel>0?(t.initiate_checkout/_midFunnel*100):0;
     t.rate_ic_purchase=t.initiate_checkout>0?(t.purchases/t.initiate_checkout*100):0;
     t.rate_click_purchase=t.link_clicks>0?(t.purchases/t.link_clicks*100):0;
     return t;
