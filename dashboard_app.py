@@ -720,19 +720,19 @@ IG_PROFILE_ID_JRM = "17841400833978215"
 
 
 def fetch_ig_follower_gain_by_day(ig_user_id, date_from, date_to):
-    """Consulta Instagram Graph API e retorna ganho liquido de seguidores por dia.
+    """Consulta Instagram Graph API dia a dia e retorna ganho liquido por dia.
 
-    Retorna dict {'YYYY-MM-DD': net_gain_int} onde net_gain = FOLLOWER - NON_FOLLOWER
-    (pessoas que seguiram menos que deixaram de seguir).
+    Retorna dict {'YYYY-MM-DD': net_gain_int}.
 
-    Cache em memoria + SQLite pra nao bater na API toda request."""
+    Nota: metric_type=time_series NAO funciona para follows_and_unfollows com
+    breakdown=follow_type (Meta aceita so total_value). Entao fazemos 1 query
+    por dia e agregamos. 30 chamadas cobre mes inteiro. Cache 6h."""
     cache_key = f"ig_follower_gain_{ig_user_id}_{date_from}_{date_to}"
     cached = get_cached(cache_key)
     if cached is not None:
         return cached
 
     result = {}
-    # Meta IG Insights exige janela <=30 dias, divide em chunks se preciso
     from datetime import datetime as _dt
     try:
         d_from = _dt.strptime(date_from, "%Y-%m-%d")
@@ -740,46 +740,34 @@ def fetch_ig_follower_gain_by_day(ig_user_id, date_from, date_to):
     except Exception:
         return {}
 
-    # IG API tem limite de 30d por query; loop em chunks
-    chunk_start = d_from
-    while chunk_start <= d_to:
-        chunk_end = min(chunk_start + timedelta(days=29), d_to)
+    current = d_from
+    while current <= d_to:
+        day_str = current.strftime("%Y-%m-%d")
+        next_day = (current + timedelta(days=1)).strftime("%Y-%m-%d")
         try:
-            # Buscamos dia a dia dentro do chunk consultando o periodo todo
-            # (a API retorna total_value por dia quando period=day com since/until)
             resp = meta_get(f"{ig_user_id}/insights", {
                 "metric": "follows_and_unfollows",
                 "breakdown": "follow_type",
                 "period": "day",
-                "metric_type": "time_series",
-                "since": chunk_start.strftime("%Y-%m-%d"),
-                "until": chunk_end.strftime("%Y-%m-%d"),
+                "metric_type": "total_value",
+                "since": day_str,
+                "until": next_day,
             })
-            # Response: {data:[{name,values:[{value,end_time},...]}]}
-            # Com breakdown, cada value tem breakdowns[{results:[{dimension_values:[FOLLOWER|NON_FOLLOWER],value}]}]
+            follower = non_follower = 0
             for entry in resp.get("data", []):
-                if entry.get("name") != "follows_and_unfollows":
-                    continue
-                for val in entry.get("values", []):
-                    end_time = val.get("end_time", "")  # ISO-8601
-                    date_iso = end_time[:10] if end_time else ""
-                    if not date_iso:
-                        continue
-                    follower = 0
-                    non_follower = 0
-                    breakdowns = (val.get("breakdowns") or [])
-                    for bd in breakdowns:
-                        for r in bd.get("results", []):
-                            dims = r.get("dimension_values") or []
-                            v = int(r.get("value", 0) or 0)
-                            if "FOLLOWER" in dims:
-                                follower = v
-                            elif "NON_FOLLOWER" in dims:
-                                non_follower = v
-                    result[date_iso] = follower - non_follower
+                tv = entry.get("total_value") or {}
+                for bd in tv.get("breakdowns", []):
+                    for r in bd.get("results", []):
+                        dims = r.get("dimension_values") or []
+                        v = int(r.get("value", 0) or 0)
+                        if "FOLLOWER" in dims:
+                            follower = v
+                        elif "NON_FOLLOWER" in dims:
+                            non_follower = v
+            result[day_str] = follower - non_follower
         except Exception as e:
-            print(f"[IG] Erro ganho seguidores {ig_user_id} {chunk_start.date()}-{chunk_end.date()}: {e}")
-        chunk_start = chunk_end + timedelta(days=1)
+            print(f"[IG] Erro dia {day_str}: {e}")
+        current += timedelta(days=1)
 
     # Cache 6h — IG API tem delay de 24-48h no backfill dos valores
     set_cached(cache_key, result, ttl_hours=6)
