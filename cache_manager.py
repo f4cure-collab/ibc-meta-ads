@@ -9,9 +9,23 @@ import json
 import sqlite3
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "cache.db")
+
+# Fuso BR pra timestamps de log. Servidor em producao roda em UTC mas
+# o usuario ve em Sao Paulo. Armazenamos ja convertido pra evitar offset
+# na UI (simples e consistente em toda a app).
+try:
+    from zoneinfo import ZoneInfo
+    _BR_TZ = ZoneInfo("America/Sao_Paulo")
+except Exception:
+    _BR_TZ = timezone(timedelta(hours=-3))  # fallback sem tzdata
+
+
+def _now_br_iso():
+    """ISO timestamp no fuso BR — usado em logs pra bater com horario local."""
+    return datetime.now(_BR_TZ).replace(tzinfo=None).isoformat(timespec="seconds")
 
 
 def _get_db():
@@ -53,12 +67,12 @@ def _get_db():
 
 
 def log_api_usage(endpoint, camp_type=None, meta_calls=0, cache_hit=False, duration_ms=None, user=None, worst_buc_pct=None):
-    """Registra uma chamada ao dashboard pra diagnostico."""
+    """Registra uma chamada ao dashboard pra diagnostico. Timestamp em fuso BR."""
     try:
         conn = _get_db()
         conn.execute(
             "INSERT INTO api_usage_log (ts, endpoint, camp_type, meta_calls, cache_hit, duration_ms, user, worst_buc_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (datetime.now().isoformat(), endpoint, camp_type, int(meta_calls), 1 if cache_hit else 0, duration_ms, user, worst_buc_pct)
+            (_now_br_iso(), endpoint, camp_type, int(meta_calls), 1 if cache_hit else 0, duration_ms, user, worst_buc_pct)
         )
         conn.commit()
         conn.close()
@@ -67,9 +81,9 @@ def log_api_usage(endpoint, camp_type=None, meta_calls=0, cache_hit=False, durat
 
 
 def clear_old_usage_logs(days=7):
-    """Apaga logs de uso com mais de N dias."""
+    """Apaga logs de uso com mais de N dias (comparacao em fuso BR)."""
     try:
-        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(_BR_TZ).replace(tzinfo=None) - timedelta(days=days)).isoformat()
         conn = _get_db()
         result = conn.execute("DELETE FROM api_usage_log WHERE ts < ?", (cutoff,))
         rows_deleted = result.rowcount
@@ -92,7 +106,7 @@ def get_usage_stats(days=7, source="all", user_filter=""):
         user_filter: substring pra filtrar por email do usuario
     """
     try:
-        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(_BR_TZ).replace(tzinfo=None) - timedelta(days=days)).isoformat()
         # Monta clausulas WHERE extras baseado nos filtros
         extra_where = []
         extra_params = []
