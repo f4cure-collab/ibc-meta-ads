@@ -784,7 +784,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('gender','gender')">Sexo</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','spend')">Gasto</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('gender','profile_visits')">Visitas</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('gender','cost_per_profile_visit')">Custo/Visita</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','conversions')">Conv.</th><th data-key="cpa" style="text-align:right;cursor:pointer" onclick="sortBd('gender','cpa')">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('gender','gender')">Sexo</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','spend')">Gasto</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('gender','profile_visits')">Visitas</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('gender','cost_per_profile_visit')">Custo/Visita</th><th class="hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('gender','conversions')">Conv.</th><th data-key="cpa" class="hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('gender','cpa')">CPA</th></tr></thead>
                             <tbody id="bd-gender"></tbody>
                         </table>
                     </div>
@@ -798,7 +798,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('age','age')">Faixa</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','spend')">Gasto</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('age','profile_visits')">Visitas</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('age','cost_per_profile_visit')">Custo/Visita</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','conversions')">Conv.</th><th data-key="cpa" style="text-align:right;cursor:pointer" onclick="sortBd('age','cpa')">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('age','age')">Faixa</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','spend')">Gasto</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('age','profile_visits')">Visitas</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('age','cost_per_profile_visit')">Custo/Visita</th><th class="hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('age','conversions')">Conv.</th><th data-key="cpa" class="hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('age','cpa')">CPA</th></tr></thead>
                             <tbody id="bd-age"></tbody>
                         </table>
                     </div>
@@ -812,7 +812,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','profile_visits_avg')">Visitas/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cost_per_profile_visit')">Custo/Visita</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th><th class="show-meteoricos hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cpl')">CPL</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','profile_visits_avg')">Visitas/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cost_per_profile_visit')">Custo/Visita</th><th class="hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" class="hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th><th class="show-meteoricos hide-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cpl')">CPL</th></tr></thead>
                             <tbody id="bd-weekday"></tbody>
                         </table>
                     </div>
@@ -4469,14 +4469,19 @@ function renderBdTables() {
             : '<td class="show-crescimento" style="display:none;"></td><td class="show-crescimento" style="display:none;"></td>';
     }
 
+    // Em Crescimento a metrica primaria e Visitas ao Perfil — nao poluimos com
+    // Conv./CPS (seguidores atribuidos tem confiabilidade menor que visitas).
+    function convCells(x) {
+        return '<td class="hide-crescimento" style="text-align:right;color:var(--accent2);">' + x.conversions + '</td>' +
+               '<td class="hide-crescimento" style="text-align:right;">' + fmtM(x.cpa) + '</td>';
+    }
+
     // Sexo
     var gs = sortArr(d.gender, _bdSorts.gender.key, _bdSorts.gender.asc);
     $('#bd-gender').innerHTML = gs.map(function(g){
         return '<tr><td style="color:var(--t1);font-weight:600;">' + g.gender + '</td>' +
             '<td style="text-align:right;">' + fmtM(g.spend) + '</td>' +
-            pvCells(g) +
-            '<td style="text-align:right;color:var(--accent2);">' + g.conversions + '</td>' +
-            '<td style="text-align:right;">' + fmtM(g.cpa) + '</td></tr>';
+            pvCells(g) + convCells(g) + '</tr>';
     }).join('');
 
     // Idade
@@ -4484,9 +4489,7 @@ function renderBdTables() {
     $('#bd-age').innerHTML = as.map(function(a){
         return '<tr><td style="color:var(--t1);font-weight:600;">' + a.age + '</td>' +
             '<td style="text-align:right;">' + fmtM(a.spend) + '</td>' +
-            pvCells(a) +
-            '<td style="text-align:right;color:var(--accent2);">' + a.conversions + '</td>' +
-            '<td style="text-align:right;">' + fmtM(a.cpa) + '</td></tr>';
+            pvCells(a) + convCells(a) + '</tr>';
     }).join('');
 
     // Dia da semana — inclui CPL calculado (gasto_avg / conv_avg) para leadcapture
@@ -4509,8 +4512,8 @@ function renderBdTables() {
         return '<tr><td style="color:var(--t1);font-weight:600;">' + w.day + '</td>' +
             '<td style="text-align:right;">' + fmtM(w.spend_avg) + '</td>' +
             pvCell +
-            '<td style="text-align:right;color:var(--accent2);">' + w.conv_avg + '</td>' +
-            '<td data-metric="roas" style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td>' +
+            '<td class="hide-crescimento" style="text-align:right;color:var(--accent2);">' + w.conv_avg + '</td>' +
+            '<td data-metric="roas" class="hide-crescimento" style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td>' +
             cplCell + '</tr>';
     }).join('');
 

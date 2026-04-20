@@ -2811,6 +2811,7 @@ def api_breakdowns():
     try:
         date_from = request.args.get("date_from", _default_date_from())
         date_to = request.args.get("date_to", _yesterday())
+        force = request.args.get("force", "false") == "true"
         camp_type = _camp_type_from_request()
         g.camp_type = camp_type
 
@@ -2820,9 +2821,10 @@ def api_breakdowns():
         campaign_id = request.args.get("campaign_id", "")
 
         cache_key = f"breakdowns_v6_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
-        cached = get_cached(cache_key)
-        if cached:
-            return jsonify(cached)
+        if not force:
+            cached = get_cached(cache_key)
+            if cached:
+                return jsonify(cached)
 
         conv_types = _get_conversion_types(camp_type)
 
@@ -4511,6 +4513,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
                 k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                 k_daily = f"daily_summary_v4_{ct}_all_{dt_from}_{dt_to}"
                 k_creat = f"all_creatives_v2_{ct}_active_{dt_from}_{dt_to}"
+                k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                 if should_refresh(k_camp):
@@ -4520,6 +4523,10 @@ def _warmup_camp_type(ct, days_list, dt_to):
                 if should_refresh(k_daily):
                     print(f"[WARMUP-{ct}] daily_summary {days}d")
                     client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all")
+                    time.sleep(2)
+                if should_refresh(k_bd):
+                    print(f"[WARMUP-{ct}] breakdowns {days}d")
+                    client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true")
                     time.sleep(2)
                 if should_refresh(k_creat):
                     print(f"[WARMUP-{ct}] all_creatives {days}d")
