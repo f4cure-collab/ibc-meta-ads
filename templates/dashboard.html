@@ -762,8 +762,8 @@
                     <th data-key="video_p100" class="tr show-nutricao" data-tip="Assistiram 100% do video">100%</th>
                     <th data-key="revenue" data-metric="revenue" class="tr" data-tip="Valor total das compras atribu&iacute;das">Receita</th>
                     <th data-key="roas" data-metric="roas" class="tr" data-tip="Return on Ad Spend (receita/gasto)">ROAS</th>
-                    <th data-key="purchases" class="tr" data-tip="N&uacute;mero de compras">Compras</th>
-                    <th data-key="cpa" class="tr" data-tip="Custo por aquisi&ccedil;&atilde;o (gasto/compras)">CPA</th>
+                    <th data-key="purchases" data-metric="purchases" class="tr hide-nutricao" data-tip="N&uacute;mero de compras">Compras</th>
+                    <th data-key="cpa" data-metric="cpa" class="tr hide-nutricao" data-tip="Custo por aquisi&ccedil;&atilde;o (gasto/compras)">CPA</th>
                     <th data-key="ctr" class="tr" data-tip="Taxa de cliques (cliques/impress&otilde;es %)">CTR</th>
                     <th data-key="cpm" class="tr" data-tip="Custo por mil impress&otilde;es">CPM</th>
                     <th data-key="impressions" class="tr" data-tip="Total de exibi&ccedil;&otilde;es">Impress&otilde;es</th>
@@ -1806,8 +1806,8 @@ function renderCampTbl(data){
             <td class="tr show-nutricao" style="font-weight:700">${fmt(ev.camps.reduce((s,c)=>s+(c.video_p100||0),0))}</td>
             <td class="tr" data-metric="revenue" style="font-weight:700">${fmtM(evRev)}</td>
             <td class="tr" data-metric="roas" style="font-weight:700;color:${roasC(evRoas)}">${fmtR(evRoas)}</td>
-            <td class="tr" style="font-weight:700">${fmt(evPurch)}</td>
-            <td class="tr" style="font-weight:700">${fmtM(evCpa)}</td>
+            <td class="tr hide-nutricao" data-metric="purchases" style="font-weight:700">${fmt(evPurch)}</td>
+            <td class="tr hide-nutricao" data-metric="cpa" style="font-weight:700">${fmtM(evCpa)}</td>
             <td class="tr">${fmtP(evCtr)}</td>
             <td class="tr">${fmtM(evCpm)}</td>
             <td class="tr">${fmt(evImpr)}</td>
@@ -1830,8 +1830,8 @@ function renderCampTbl(data){
                     <td class="tr show-nutricao">${fmt(c.video_p100||0)}</td>
                     <td class="tr" data-metric="revenue">${fmtM(c.revenue)}</td>
                     <td class="tr" data-metric="roas" style="color:${roasC(c.roas)};font-weight:600">${fmtR(c.roas)}</td>
-                    <td class="tr">${fmt(c.purchases)}</td>
-                    <td class="tr">${fmtM(c.cpa)}</td>
+                    <td class="tr hide-nutricao" data-metric="purchases">${fmt(c.purchases)}</td>
+                    <td class="tr hide-nutricao" data-metric="cpa">${fmtM(c.cpa)}</td>
                     <td class="tr">${fmtP(c.ctr)}</td>
                     <td class="tr">${fmtM(c.cpm)}</td>
                     <td class="tr">${fmt(c.impressions)}</td>
