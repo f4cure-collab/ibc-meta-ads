@@ -3546,7 +3546,6 @@ function renderTbl(data){
         const isCmp=compareAdIds.has(c.ad_id);
         return`<tr style="cursor:pointer" data-ad-id="${c.ad_id}" data-ad-name="${(c.ad_name||'').replace(/"/g,'&quot;')}" data-thumb="${c.thumbnail_url||''}" data-camp-name="${(c.campaign_name||'').replace(/"/g,'&quot;')}" class="${isCmp?'selected':''}">
         <td class="sticky-col"><div class="cr-tbl-name-cell">
-            <input type="checkbox" class="cr-row-checkbox" data-ad-id="${c.ad_id}" ${isCmp?'checked':''} style="cursor:pointer" data-tip="Selecionar criativo">
             <span class="row-dot" data-compare-row="${c.ad_id}"></span>
             ${c.thumbnail_url?`<img class="cr-tbl-thumb" src="${c.thumbnail_url}" loading="lazy" onerror="this.outerHTML='<div class=\\'cr-tbl-thumb-ph\\'>&#128247;</div>'">`:'<div class="cr-tbl-thumb-ph">&#128247;</div>'}
             <span class="cn" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" data-tip="${c.ad_name}">${c.ad_name}</span>
@@ -3583,15 +3582,8 @@ function renderTbl(data){
         const tr=dot.closest('tr');
         toggleCompareAd(tr.dataset.adId,tr.dataset.adName,tr.dataset.campName,tr.dataset.thumb);
     });});
-    // Checkbox de cada linha alterna selecao
-    tb.querySelectorAll('input.cr-row-checkbox').forEach(cb=>{cb.addEventListener('click',e=>{
-        e.stopPropagation();
-        const tr=cb.closest('tr');
-        toggleCompareAd(tr.dataset.adId,tr.dataset.adName,tr.dataset.campName,tr.dataset.thumb);
-    });});
     tb.querySelectorAll('tr[data-ad-id]').forEach(tr=>{tr.addEventListener('click',e=>{
         if(e.target.closest('.row-dot'))return;
-        if(e.target.closest('input.cr-row-checkbox'))return;
         openAdModal(tr.dataset.adId,tr.dataset.adName,tr.dataset.thumb);
     });});
     // Sincroniza estado do 'selecionar todos' apos render
@@ -3650,10 +3642,7 @@ function updateCompareUI(){
         card.classList.toggle('cr-compared',compareAdIds.has(card.dataset.adId));
     });
     document.querySelectorAll('#cr-tbody tr[data-ad-id]').forEach(tr=>{
-        const selected = compareAdIds.has(tr.dataset.adId);
-        tr.classList.toggle('selected', selected);
-        const cb = tr.querySelector('input.cr-row-checkbox');
-        if (cb) cb.checked = selected;
+        tr.classList.toggle('selected', compareAdIds.has(tr.dataset.adId));
     });
 
     // Botao "Abrir no Gerenciador" aparece quando tem qualquer selecao
