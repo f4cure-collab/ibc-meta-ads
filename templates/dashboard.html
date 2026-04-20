@@ -3715,8 +3715,8 @@ document.addEventListener('click', function(e){
     if (!btn) return;
     btn.addEventListener('click', function(){
         if (compareAdIds.size === 0) return;
-        // Ads Manager exige act=<id_numerico> senao abre a conta default do usuario.
-        // Agrupa os ads selecionados por conta e abre 1 aba por conta.
+        // Agrupa por conta: Ads Manager exige act=<id> e usamos filter_set pra
+        // FILTRAR a lista (nao so selecionar). Formato: [{name,operator,value}]
         var byAccount = {};
         compareAdIds.forEach(function(info, adId){
             var acc = (info && info.account_id) ? String(info.account_id) : '';
@@ -3729,9 +3729,12 @@ document.addEventListener('click', function(e){
             if (!confirm('Voce selecionou criativos de ' + accounts.length + ' contas. Vou abrir ' + accounts.length + ' abas, uma por conta. Continuar?')) return;
         }
         accounts.forEach(function(accNum){
-            var ids = byAccount[accNum].join(',');
-            var url = 'https://adsmanager.facebook.com/adsmanager/manage/ads?selected_ad_ids=' + encodeURIComponent(ids);
-            if (accNum) url += '&act=' + encodeURIComponent(accNum);
+            var ids = byAccount[accNum];
+            var filterSet = [{"name":"ad.id","operator":"IN","value":ids}];
+            var url = 'https://adsmanager.facebook.com/adsmanager/manage/ads'
+                + '?act=' + encodeURIComponent(accNum)
+                + '&filter_set=' + encodeURIComponent(JSON.stringify(filterSet))
+                + '&selected_ad_ids=' + encodeURIComponent(ids.join(','));
             window.open(url, '_blank');
         });
     });
