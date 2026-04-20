@@ -1771,7 +1771,7 @@ def api_campaigns_multi_insights():
 
         # v5: filtra campanhas sem dados quando ids=all (nao polui o seletor
         # de Projecao com campanhas antigas arquivadas sem impressoes).
-        cache_key = f"multi_insights_v7_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"multi_insights_v8_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -1827,6 +1827,63 @@ def api_campaigns_multi_insights():
             },
             extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
         )
+
+        # Video metrics (Nutricao): Meta NAO retorna video_* com time_increment=1
+        # em level=campaign (campos ficam vazios nas rows diarias). Pra detail
+        # cards/funil de Nutricao funcionar, fazemos uma query separada agregada
+        # (sem time_increment) e injetamos nos dailies como se fosse do ultimo dia.
+        # O frontend soma por campanha e o total fica correto.
+        if camp_type == CAMP_TYPE_NUTRICAO and rows:
+            try:
+                video_rows = _fetch_insights_for_tagged_campaigns(
+                    tagged_camps,
+                    base_params={
+                        "fields": "campaign_id," + VIDEO_METRIC_FIELDS,
+                        "time_range": json.dumps({"since": date_from, "until": date_to}),
+                        "level": "campaign",
+                        "limit": 500,
+                    },
+                    extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
+                )
+                video_by_cid = {}
+                for vr in video_rows:
+                    cid = vr.get("campaign_id")
+                    if cid:
+                        video_by_cid[cid] = {
+                            "video_plays": _extract_video_metric(vr, "video_play_actions"),
+                            "video_p25": _extract_video_metric(vr, "video_p25_watched_actions"),
+                            "video_p50": _extract_video_metric(vr, "video_p50_watched_actions"),
+                            "video_p75": _extract_video_metric(vr, "video_p75_watched_actions"),
+                            "video_p95": _extract_video_metric(vr, "video_p95_watched_actions"),
+                            "video_p100": _extract_video_metric(vr, "video_p100_watched_actions"),
+                            "video_thruplay": _extract_video_metric(vr, "video_thruplay_watched_actions"),
+                        }
+                # Pega o maior date_start por campanha pra injetar os totais naquele dia.
+                # (Frontend soma todos os dias, entao totais vao pra apenas 1 dia evita
+                # dobrar valores se Meta em algum momento comecar a devolver por dia.)
+                last_date_by_cid = {}
+                for r in rows:
+                    cid = r.get("campaign_id")
+                    d = r.get("date_start", "")
+                    if cid and d and d > last_date_by_cid.get(cid, ""):
+                        last_date_by_cid[cid] = d
+                for r in rows:
+                    cid = r.get("campaign_id")
+                    d = r.get("date_start", "")
+                    if cid in video_by_cid and d == last_date_by_cid.get(cid):
+                        vdata = video_by_cid[cid]
+                        # Injeta como lista de actions (formato esperado por parse_insights)
+                        def _wrap(n):
+                            return [{"action_type": "video_view", "value": str(n)}] if n else []
+                        r["video_play_actions"] = _wrap(vdata["video_plays"])
+                        r["video_p25_watched_actions"] = _wrap(vdata["video_p25"])
+                        r["video_p50_watched_actions"] = _wrap(vdata["video_p50"])
+                        r["video_p75_watched_actions"] = _wrap(vdata["video_p75"])
+                        r["video_p95_watched_actions"] = _wrap(vdata["video_p95"])
+                        r["video_p100_watched_actions"] = _wrap(vdata["video_p100"])
+                        r["video_thruplay_watched_actions"] = _wrap(vdata["video_thruplay"])
+            except Exception as e:
+                print(f"[NUTRICAO multi-insights video] Falha: {e}")
 
         # Crescimento: calcula atribuicao de seguidores (IG API + link_click + share)
         crescimento_attr = {}
