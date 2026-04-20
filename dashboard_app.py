@@ -1019,6 +1019,55 @@ def _fetch_account_total_spend(acc_id, date_from, date_to):
     return total
 
 
+def _get_crescimento_context(date_from, date_to, crescimento_spend=None):
+    """Retorna contexto de atribuicao de Crescimento pra um periodo.
+    Cacheado por 30min — mesma janela TTL do gasto por conta.
+
+    Evita repetir o calculo em cada endpoint (campaigns, multi_insights,
+    daily_summary, breakdowns). Antes, cada um desses chamava fetch_ig_
+    follower_gain_total + fetch_total_spend_all_accounts + calc share =
+    3-4 operacoes pesadas, multiplicadas por chamada.
+
+    Args:
+        date_from / date_to: periodo a analisar
+        crescimento_spend: gasto da Crescimento no periodo (se None, busca)
+
+    Returns dict com:
+        ig_net_total: ganho liquido de seguidores do perfil IG
+        total_acc_spend: gasto total (todas as contas que tem Crescimento)
+        crescimento_spend: gasto de Crescimento especificamente
+        other_spend: gasto das outras campanhas (total - crescimento)
+        cresc_share: fracao do IG net atribuivel a Crescimento (0-1)
+        total_seguidores_attributed: ig_net × share (seguidores 'reais' atribuidos)
+    """
+    # Parte 1: gasto total de todas as contas de Crescimento (cached 20min em _fetch_account_total_spend)
+    accounts = _get_accounts_for_type(CAMP_TYPE_CRESCIMENTO)
+    total_acc_spend = _fetch_total_spend_all_accounts(accounts, date_from, date_to)
+
+    # Parte 2: IG follower gain (cached 6h em fetch_ig_follower_gain_total)
+    try:
+        ig_follower, ig_non = fetch_ig_follower_gain_total(IG_PROFILE_ID_JRM, date_from, date_to)
+        ig_net_total = max(0, ig_follower - ig_non)
+    except Exception as e:
+        print(f"[CRESCIMENTO CTX] IG API falhou: {e}")
+        ig_net_total = 0
+
+    # Parte 3: share calculation — depende do gasto de Crescimento
+    cresc_spend = crescimento_spend if crescimento_spend is not None else 0
+    other_spend = max(0, total_acc_spend - cresc_spend)
+    cresc_share = compute_crescimento_share(cresc_spend, other_spend) if cresc_spend > 0 else 1.0
+    total_seguidores = int(round(ig_net_total * cresc_share)) if ig_net_total > 0 else 0
+
+    return {
+        "ig_net_total": ig_net_total,
+        "total_acc_spend": total_acc_spend,
+        "crescimento_spend": cresc_spend,
+        "other_spend": other_spend,
+        "cresc_share": cresc_share,
+        "total_seguidores_attributed": total_seguidores,
+    }
+
+
 def _fetch_total_spend_all_accounts(account_ids, date_from, date_to):
     """Soma gasto total de multiplas contas."""
     total = 0
