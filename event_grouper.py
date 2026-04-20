@@ -70,6 +70,31 @@ CITY_MAP = {
     "RIBEIRAOPRETO": "Ribeirão Preto",
     "RIBEIRAO_PRETO": "Ribeirão Preto",
     "RIBEIRAO": "Ribeirão Preto",
+    # Variantes por extenso de cidades ja abreviadas (crescimento usa nomes
+    # completos, eventos SPK/DSP/AIE usam siglas)
+    "PORTOALEGRE": "Porto Alegre",
+    "PORTO_ALEGRE": "Porto Alegre",
+    "BELOHORIZONTE": "Belo Horizonte",
+    "BELO_HORIZONTE": "Belo Horizonte",
+    "SAOJOSEDORIOPRETO": "São José do Rio Preto",
+    "SAO_JOSE_DO_RIO_PRETO": "São José do Rio Preto",
+    "RIOPRETO": "São José do Rio Preto",
+    "SAOJOSERP": "São José do Rio Preto",
+    # Novas cidades que aparecem em campanhas de crescimento
+    "SOROCABA": "Sorocaba",
+    "RIOVERDE": "Rio Verde",
+    "RIO_VERDE": "Rio Verde",
+    "CASCAVEL": "Cascavel",
+    "MARINGA": "Maringá",
+    "BALNEARIOCAMBORIU": "Balneário Camboriú",
+    "BALNEARIO_CAMBORIU": "Balneário Camboriú",
+    "BALNEARIO": "Balneário Camboriú",
+    "CAMBORIU": "Balneário Camboriú",
+    # Regiao/pais (EUA nao eh cidade mas e usado como segmentacao)
+    "EUA": "Estados Unidos",
+    "USA": "Estados Unidos",
+    "ESTADOSUNIDOS": "Estados Unidos",
+    "ESTADOS_UNIDOS": "Estados Unidos",
     "RMKT": "Remarketing",
 }
 
@@ -108,6 +133,22 @@ CITY_KEY_NORMALIZE = {
     "BOA_VISTA": "BOAVISTA",
     "RIBEIRAO_PRETO": "RIBEIRAOPRETO",
     "RIBEIRAO": "RIBEIRAOPRETO",
+    # Consolidar variantes por extenso com abreviacoes canonicas
+    "PORTOALEGRE": "POA",
+    "PORTO_ALEGRE": "POA",
+    "BELOHORIZONTE": "BH",
+    "BELO_HORIZONTE": "BH",
+    "SAOJOSEDORIOPRETO": "SJRP",
+    "SAO_JOSE_DO_RIO_PRETO": "SJRP",
+    "RIOPRETO": "SJRP",
+    "SAOJOSERP": "SJRP",
+    "USA": "EUA",
+    "ESTADOSUNIDOS": "EUA",
+    "ESTADOS_UNIDOS": "EUA",
+    "RIO_VERDE": "RIOVERDE",
+    "BALNEARIO_CAMBORIU": "BALNEARIOCAMBORIU",
+    "CAMBORIU": "BALNEARIOCAMBORIU",
+    "BALNEARIO": "BALNEARIOCAMBORIU",
 }
 
 
