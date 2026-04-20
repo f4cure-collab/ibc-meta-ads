@@ -2269,6 +2269,136 @@ def _aggregate_daily_total(daily_rows):
     }
 
 
+def _compute_advanced_metrics_from_aggregates(ads_by_campaign, totals_by_ad, totals_7d_by_ad, totals_3d_by_ad, date_from, date_to):
+    """Calcula share, velocity, trend, confidence e score a partir de metricas
+    agregadas por janela (total, 7d, 3d) — sem precisar de daily por ad.
+
+    Share (total): spend_ad / spend_campanha_total
+    Share (7d): spend_ad_7d / spend_campanha_7d
+    Share (3d): spend_ad_3d / spend_campanha_3d
+    Velocity: (share_3d - share_total) / share_total
+    Trend: escalando / caindo / estavel (baseado em velocity)
+    Score: volume * roas_factor * share_factor * spend_factor * trend_boost
+    """
+    is_nutricao_camp = False
+    try:
+        from flask import has_request_context as _hrc
+        if _hrc():
+            is_nutricao_camp = getattr(g, "camp_type", None) == CAMP_TYPE_NUTRICAO
+    except Exception:
+        pass
+
+    for camp_id, camp_data in ads_by_campaign.items():
+        ads = camp_data["ads"]
+        # Totais de campanha (soma dos ads)
+        camp_total_spend = sum(totals_by_ad.get(a["ad_id"], {}).get("spend", 0) for a in ads)
+        camp_7d_spend = sum(totals_7d_by_ad.get(a["ad_id"], {}).get("spend", 0) for a in ads)
+        camp_3d_spend = sum(totals_3d_by_ad.get(a["ad_id"], {}).get("spend", 0) for a in ads)
+        camp_total_rev = sum(totals_by_ad.get(a["ad_id"], {}).get("revenue", 0) for a in ads)
+        camp_roas = camp_total_rev / camp_total_spend if camp_total_spend > 0 else 0
+
+        # Top por share pra confidence
+        share_total_by_ad = {}
+        share_7d_by_ad = {}
+        for ad in ads:
+            aid = ad["ad_id"]
+            ad_spend = totals_by_ad.get(aid, {}).get("spend", 0)
+            ad_7d_spend = totals_7d_by_ad.get(aid, {}).get("spend", 0)
+            share_total_by_ad[aid] = (ad_spend / camp_total_spend * 100) if camp_total_spend > 0 else 0
+            share_7d_by_ad[aid] = (ad_7d_spend / camp_7d_spend * 100) if camp_7d_spend > 0 else 0
+        top1_total_id = max(share_total_by_ad, key=share_total_by_ad.get, default="")
+        top3_7d_ids = set(sorted(share_7d_by_ad, key=share_7d_by_ad.get, reverse=True)[:3])
+        top1_7d_id = max(share_7d_by_ad, key=share_7d_by_ad.get, default="")
+
+        for a in ads:
+            aid = a["ad_id"]
+            r_total = totals_by_ad.get(aid, {})
+            r_7d = totals_7d_by_ad.get(aid, {})
+            r_3d = totals_3d_by_ad.get(aid, {})
+            days = a.get("days_active", 0)
+
+            # 3d / 7d data
+            a["spend_3d"] = round(r_3d.get("spend", 0), 2)
+            a["roas_3d"] = round(r_3d.get("roas", 0), 2)
+            a["purchases_3d"] = r_3d.get("purchases", 0)
+            a["spend_7d"] = round(r_7d.get("spend", 0), 2)
+            a["roas_7d"] = round(r_7d.get("roas", 0), 2)
+            a["purchases_7d"] = r_7d.get("purchases", 0)
+            a["video_thruplay_3d"] = r_3d.get("video_thruplay", 0)
+            a["video_thruplay_7d"] = r_7d.get("video_thruplay", 0)
+            a["video_plays_3d"] = r_3d.get("video_plays", 0)
+            a["video_plays_7d"] = r_7d.get("video_plays", 0)
+
+            # Share (percentual do gasto da campanha)
+            share_total = share_total_by_ad.get(aid, 0)
+            ad_3d_spend = r_3d.get("spend", 0)
+            share_3d = (ad_3d_spend / camp_3d_spend * 100) if camp_3d_spend > 0 else 0
+            share_7d = share_7d_by_ad.get(aid, 0)
+            a["share_total"] = round(share_total, 1)
+            a["share_7d"] = round(share_7d, 1)
+            a["share_3d"] = round(share_3d, 1)
+
+            # Velocity: variacao % entre share_3d e share_total
+            if share_total > 0:
+                velocity = round(((share_3d - share_total) / share_total) * 100)
+            else:
+                velocity = 0
+            a["velocity"] = velocity
+            a["velocity_note"] = "novo" if days <= 3 else "maduro"
+
+            # Trend
+            if days <= 3:
+                a["trend"] = "estavel"
+            elif velocity >= 30:
+                a["trend"] = "escalando"
+            elif velocity <= -30:
+                a["trend"] = "caindo"
+            else:
+                a["trend"] = "estavel"
+
+            # Confidence (desempenho relativo a campanha)
+            conv = (a.get("video_thruplay", 0) if is_nutricao_camp else a.get("purchases", 0))
+            roas = a.get("roas", 0)
+            spend = a.get("spend", 0)
+            roas_ratio = roas / camp_roas if camp_roas > 0 else 0
+            is_top3_7d = aid in top3_7d_ids
+            is_top1_total = aid == top1_total_id and aid == top1_7d_id
+            if conv == 0:
+                a["confidence"] = "baixo" if days <= 7 else "ruim"
+            elif is_top1_total and conv >= 1:
+                a["confidence"] = "alto"
+            elif is_top3_7d and roas_ratio >= 0.9:
+                a["confidence"] = "alto"
+            elif roas_ratio >= 0.7 and conv >= 3:
+                a["confidence"] = "medio"
+            elif roas_ratio < 0.5 and spend > 200:
+                a["confidence"] = "ruim"
+            elif velocity <= -30 and days > 7:
+                a["confidence"] = "declinando"
+            elif conv >= 1:
+                a["confidence"] = "tendencia"
+            else:
+                a["confidence"] = "baixo"
+
+            # Data confidence
+            if days >= 14 or spend >= 2000:
+                a["data_confidence"] = "alta"
+            elif days >= 7 or spend >= 500:
+                a["data_confidence"] = "media"
+            else:
+                a["data_confidence"] = "baixa"
+
+            # Score
+            volume = conv
+            roas_factor = max(roas, 0.5)
+            share_factor = 1 + (share_total / 100.0) * 3
+            spend_factor = math.log(max(spend, 1) + 1)
+            trend_boost = 1.3 if a["trend"] == "escalando" else (0.7 if a["trend"] == "caindo" else 1.0)
+            a["score"] = round(volume * roas_factor * share_factor * spend_factor * trend_boost, 2)
+
+            # Frequency ja esta em totals_by_ad
+
+
 def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings=None):
     """Busca criativos de campanhas com métricas avançadas.
 
@@ -2320,15 +2450,54 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
             camps_with_data.update(ids_in_acc)
     print(f"[OPT] {len(camps_with_data)}/{len(sales_campaigns)} campanhas com impressoes no periodo ({len(by_account)} conta(s))")
 
-    # Para cada conta: 1 call pros /ads e 1 call pros /insights (em batch)
+    # Estrategia otimizada: usa 4 queries de AGREGADO por conta (sem time_increment=1).
+    #
+    # Meta bloqueia BUC quando time_increment=1 com full fields gera tabela enorme
+    # (500 ads x 30 dias = 15k rows com video_p25..p100, actions, etc). Cada row
+    # exige computacao pesada do lado da Meta — BUC estourava em poucos minutos.
+    #
+    # Agora: 4 queries por conta, todas AGREGADAS (nao por dia):
+    #   1) /ads: lista ads + creative metadata (nao agrega)
+    #   2) /insights level=ad, periodo total: metricas completas por ad
+    #   3) /insights level=ad, ultimos 7d: metricas por ad pra bloco 7D
+    #   4) /insights level=ad, ultimos 3d: metricas por ad pra bloco 3D
+    #
+    # Total: 4 calls x 2 contas = 8 calls, cada uma MUITO mais leve. Share/velocity
+    # sao calculadas a partir desses agregados (ratio spend_3d/spend_total etc).
     dt_end = datetime.strptime(date_to, "%Y-%m-%d")
+    dt_7d_from = (dt_end - timedelta(days=6)).strftime("%Y-%m-%d")
+    dt_3d_from = (dt_end - timedelta(days=2)).strftime("%Y-%m-%d")
+    totals_by_ad = {}
+    totals_7d_by_ad = {}
+    totals_3d_by_ad = {}
+
+    def _fetch_agg(acc_id, camp_ids_active, d_from, d_to, label):
+        try:
+            rows = meta_get_all_pages(
+                f"{acc_id}/insights",
+                {
+                    "fields": insight_fields,
+                    "time_range": json.dumps({"since": d_from, "until": d_to}),
+                    "level": "ad",
+                    "filtering": json.dumps([
+                        {"field": "campaign.id", "operator": "IN", "value": camp_ids_active},
+                        {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
+                    ]),
+                    "limit": 500,
+                }
+            )
+            return rows
+        except Exception as e:
+            warnings.append({"step": f"fetch_agg_{label}", "account_id": acc_id, "error": str(e)})
+            print(f"[ERROR] agg {label} falhou em {acc_id}: {e}")
+            return []
+
     for acc_id, ids_in_acc in by_account.items():
-        # Filtra so campanhas da conta que tiveram impressoes
         camp_ids_active = [cid for cid in ids_in_acc if cid in camps_with_data]
         if not camp_ids_active:
             continue
 
-        # Call 1: ads de todas as campanhas da conta em 1 query
+        # Call 1: ads (nome, criativo, status)
         try:
             acc_ads = meta_get_all_pages(
                 f"{acc_id}/ads",
@@ -2345,33 +2514,19 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
             print(f"[ERROR] batch ads falhou em {acc_id}: {e}")
             acc_ads = []
 
-        # Call 2: insights diarios de todos os ads da conta em 1 query
-        try:
-            acc_insights = meta_get_all_pages(
-                f"{acc_id}/insights",
-                {
-                    "fields": insight_fields,
-                    "time_range": json.dumps({"since": date_from, "until": date_to}),
-                    "level": "ad",
-                    "time_increment": 1,
-                    "filtering": json.dumps([
-                        {"field": "campaign.id", "operator": "IN", "value": camp_ids_active},
-                        {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
-                    ]),
-                    "limit": 500,
-                }
-            )
-        except Exception as e:
-            warnings.append({"step": "fetch_insights_batch", "account_id": acc_id, "error": str(e)})
-            print(f"[ERROR] batch insights falhou em {acc_id}: {e}")
-            acc_insights = []
-
-        # Agrupa insights por ad_id
-        for row in acc_insights:
+        # Calls 2-4: agregados totais / 7d / 3d
+        for row in _fetch_agg(acc_id, camp_ids_active, date_from, date_to, "total"):
             ad_id = row.get("ad_id")
-            if not ad_id:
-                continue
-            daily_by_ad.setdefault(ad_id, []).append(row)
+            if ad_id:
+                totals_by_ad[ad_id] = parse_insights(row)
+        for row in _fetch_agg(acc_id, camp_ids_active, dt_7d_from, date_to, "7d"):
+            ad_id = row.get("ad_id")
+            if ad_id:
+                totals_7d_by_ad[ad_id] = parse_insights(row)
+        for row in _fetch_agg(acc_id, camp_ids_active, dt_3d_from, date_to, "3d"):
+            ad_id = row.get("ad_id")
+            if ad_id:
+                totals_3d_by_ad[ad_id] = parse_insights(row)
 
         # Agrupa ads por campanha e processa
         ads_by_camp_local = {}
@@ -2392,9 +2547,7 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
             camp_ads = []
             for ad in ads:
                 ad_id = ad["id"]
-                if ad_id not in daily_by_ad:
-                    continue
-                ad_metrics = _aggregate_daily_total(daily_by_ad[ad_id])
+                ad_metrics = totals_by_ad.get(ad_id)
                 if not ad_metrics or ad_metrics.get("impressions", 0) == 0:
                     continue
                 creative = ad.get("creative", {})
@@ -2421,8 +2574,10 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
                 camp_ads.append(entry)
             ads_by_campaign[cid] = {"name": camp.get("name", ""), "ads": camp_ads}
 
-    # Calcular métricas avançadas (3d, 7d, velocity, trend, etc) usando dados diários já cacheados
-    _compute_advanced_metrics(ads_by_campaign, daily_by_ad, date_from, date_to)
+    # Calcular metricas avancadas (3d, 7d, velocity, trend, score) usando AGREGADOS pre-computados.
+    _compute_advanced_metrics_from_aggregates(
+        ads_by_campaign, totals_by_ad, totals_7d_by_ad, totals_3d_by_ad, date_from, date_to
+    )
 
     # Flatten
     all_creatives = []
@@ -2825,7 +2980,7 @@ def api_all_creatives():
         # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
         is_viewer = session.get("role") == "viewer"
 
-        cache_key = f"all_creatives_v5_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"all_creatives_v6_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -4865,7 +5020,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
             try:
                 k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                 k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
-                k_creat = f"all_creatives_v5_{ct}_active_{dt_from}_{dt_to}"
+                k_creat = f"all_creatives_v6_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
@@ -4938,7 +5093,7 @@ def _refresh_recent_loop():
                         try:
                             k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                             k_daily = f"daily_summary_v5_{ct}_all_{dt_from}_{dt_to}"
-                            k_creat = f"all_creatives_v5_{ct}_active_{dt_from}_{dt_to}"
+                            k_creat = f"all_creatives_v6_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             hdr = {"X-Internal-Scheduler": "refresh_loop"}
