@@ -4161,24 +4161,69 @@ async function openAdModal(adId,adName,thumbnailUrl){
                     <div class="scard clickable" data-metric="spend" data-tip="Total investido"><div class="sl">Gasto</div><div class="sv" style="font-size:20px">${fmtM(t.spend)}</div></div>
                     <div class="scard clickable" data-metric="revenue" data-tip="Receita gerada"><div class="sl">Receita</div><div class="sv" style="font-size:20px">${fmtM(t.revenue)}</div></div>
                     <div class="scard clickable" data-metric="roas" data-tip="${roasTip(t.roas)}"><div class="sl">ROAS</div><div class="sv" style="font-size:20px;color:${roasC(t.roas)}">${fmtR(t.roas)}</div></div>
-                    <div class="scard clickable" data-metric="purchases" data-tip="${isLeadCapture()?'Leads captados':'Compras atribu&iacute;das'}"><div class="sl">${labelConversao()}</div><div class="sv" style="font-size:20px">${fmt(purch)}</div></div>
-                    <div class="scard clickable" data-metric="cpa" data-tip="${isLeadCapture()?'Custo por lead':'Custo por aquisi&ccedil;&atilde;o'}"><div class="sl">${labelCPA()}</div><div class="sv" style="font-size:20px">${fmtM(t.cpa)}</div></div>
+                    ${(function(){
+                        // Card principal (conversao) adapta por tipo:
+                        // - Nutricao: ThruPlays
+                        // - Crescimento: Visitas ao Perfil
+                        // - Outros: purchases
+                        var primary, costPer, primaryTip, costTip;
+                        if (isNutricao()) {
+                            primary = t.video_thruplay||0;
+                            costPer = primary>0 ? t.spend/primary : 0;
+                            primaryTip = 'Visualizacoes completas do video';
+                            costTip = 'Custo por ThruPlay';
+                        } else if (isCrescimento()) {
+                            primary = t.profile_visits||0;
+                            costPer = primary>0 ? t.spend/primary : 0;
+                            primaryTip = 'Visitas ao perfil (meta principal)';
+                            costTip = 'Custo por visita ao perfil';
+                        } else {
+                            primary = purch;
+                            costPer = t.cpa;
+                            primaryTip = isLeadCapture()?'Leads captados':'Compras atribuidas';
+                            costTip = isLeadCapture()?'Custo por lead':'Custo por aquisicao';
+                        }
+                        return '<div class="scard clickable" data-metric="purchases" data-tip="'+primaryTip+'"><div class="sl">'+labelConversao()+'</div><div class="sv" style="font-size:20px">'+fmt(primary)+'</div></div>'+
+                               '<div class="scard clickable" data-metric="cpa" data-tip="'+costTip+'"><div class="sl">'+labelCPA()+'</div><div class="sv" style="font-size:20px">'+fmtM(costPer)+'</div></div>';
+                    })()}
                     <!-- Funil — volumes -->
                     <div class="scard clickable" data-metric="impressions" data-tip="Total de impress&otilde;es"><div class="sl">Impress&otilde;es</div><div class="sv" style="font-size:20px">${fmt(t.impressions)}</div></div>
                     <div class="scard clickable" data-metric="link_clicks" data-tip="Cliques no link"><div class="sl">Cliques</div><div class="sv" style="font-size:20px">${fmt(t.link_clicks)}</div></div>
-                    <div class="scard clickable" data-metric="lpv" data-tip="${isCrescimento()?'Visitas ao perfil do Instagram':'Visualiza&ccedil;&otilde;es da p&aacute;gina'}"><div class="sl auto-label-lpv">LPV</div><div class="sv" style="font-size:20px">${fmt(t.lpv)}</div></div>
-                    <div class="scard clickable" data-metric="initiate_checkout" data-tip="Checkouts iniciados"><div class="sl">Checkouts</div><div class="sv" style="font-size:20px">${fmt(t.initiate_checkout)}</div></div>
+                    ${(function(){
+                        // Card do passo intermediario do funil: LPV | Visitas Perfil | -
+                        // Para Crescimento usamos profile_visits (LPV nao se aplica).
+                        // Para Nutricao nao mostramos esse card (tem seus proprios video_*).
+                        if (isNutricao()) return '';
+                        var cresc = isCrescimento();
+                        var val = cresc ? (t.profile_visits||0) : t.lpv;
+                        var lbl = cresc ? 'Visitas Perfil' : 'LPV';
+                        var tip = cresc ? 'Visitas ao perfil do Instagram (meta da campanha)' : 'Visualiza&ccedil;&otilde;es da p&aacute;gina';
+                        var metric = cresc ? 'profile_visits' : 'lpv';
+                        return '<div class="scard clickable" data-metric="'+metric+'" data-tip="'+tip+'"><div class="sl">'+lbl+'</div><div class="sv" style="font-size:20px">'+fmt(val)+'</div></div>';
+                    })()}
+                    ${isLeadCapture()?'':'<div class="scard clickable" data-metric="initiate_checkout" data-tip="Checkouts iniciados"><div class="sl">Checkouts</div><div class="sv" style="font-size:20px">'+fmt(t.initiate_checkout)+'</div></div>'}
                     <!-- Funil — taxas -->
                     <div class="scard clickable" data-metric="ctr" data-tip="Impress&otilde;es &rarr; Cliques"><div class="sl">CTR</div><div class="sv" style="font-size:20px">${fmtP(t.ctr)}</div></div>
-                    <div class="scard clickable" data-metric="rate_click_lpv" data-tip="Cliques &rarr; LPV/Perfil"><div class="sl auto-label-rate-click">Click&rarr;LPV</div><div class="sv" style="font-size:20px">${fmtP(t.link_clicks>0?(t.lpv/t.link_clicks*100):0)}</div></div>
-                    <div class="scard clickable" data-metric="rate_lpv_ic" data-tip="LPV &rarr; Checkout"><div class="sl">LPV&rarr;Checkout</div><div class="sv" style="font-size:20px">${fmtP(t.lpv>0?(t.initiate_checkout/t.lpv*100):0)}</div></div>
-                    <div class="scard clickable" data-metric="rate_ic_purchase" data-tip="Checkout &rarr; Compra"><div class="sl">Checkout&rarr;Compra</div><div class="sv" style="font-size:20px">${fmtP(t.initiate_checkout>0?(purch/t.initiate_checkout*100):0)}</div></div>
-                    <!-- Taxa LPV->Lead so para meteoricos -->
-                    ${isLeadCapture()?(function(){
+                    ${(function(){
+                        // Click -> passo intermediario (LPV ou Perfil)
+                        if (isNutricao()) return '';
                         var cresc = isCrescimento();
+                        var mid = cresc ? (t.profile_visits||0) : t.lpv;
+                        var lbl = cresc ? 'Click&rarr;Perfil' : 'Click&rarr;LPV';
+                        var tip = cresc ? 'Cliques que abriram o perfil' : 'Cliques &rarr; LPV';
+                        var pct = t.link_clicks>0 ? (mid/t.link_clicks*100) : 0;
+                        return '<div class="scard clickable" data-metric="rate_click_lpv" data-tip="'+tip+'"><div class="sl">'+lbl+'</div><div class="sv" style="font-size:20px">'+fmtP(pct)+'</div></div>';
+                    })()}
+                    ${(!isLeadCapture() && !isNutricao())?'<div class="scard clickable" data-metric="rate_lpv_ic" data-tip="LPV &rarr; Checkout"><div class="sl">LPV&rarr;Checkout</div><div class="sv" style="font-size:20px">'+fmtP(t.lpv>0?(t.initiate_checkout/t.lpv*100):0)+'</div></div>':''}
+                    ${(!isLeadCapture() && !isNutricao())?'<div class="scard clickable" data-metric="rate_ic_purchase" data-tip="Checkout &rarr; Compra"><div class="sl">Checkout&rarr;Compra</div><div class="sv" style="font-size:20px">'+fmtP(t.initiate_checkout>0?(purch/t.initiate_checkout*100):0)+'</div></div>':''}
+                    ${isLeadCapture()?(function(){
+                        if (isNutricao()) return '';
+                        var cresc = isCrescimento();
+                        var mid = cresc ? (t.profile_visits||0) : t.lpv;
                         var lbl = cresc ? 'Perfil&rarr;Seguidor' : 'LPV&rarr;Lead';
-                        var tip = cresc ? 'Quantos dos que visitaram o perfil viraram seguidores' : 'Quantos dos que viram a pagina cadastraram';
-                        return '<div class="scard clickable" data-metric="rate_lpv_lead" data-tip="'+tip+'"><div class="sl">'+lbl+'</div><div class="sv" style="font-size:20px">'+fmtP(t.lpv>0?(purch/t.lpv*100):0)+'</div></div>';
+                        var tip = cresc ? 'Visitas ao perfil que viraram seguidores' : 'Quantos dos que viram a pagina cadastraram';
+                        var pct = mid>0?(purch/mid*100):0;
+                        return '<div class="scard clickable" data-metric="rate_lpv_lead" data-tip="'+tip+'"><div class="sl">'+lbl+'</div><div class="sv" style="font-size:20px">'+fmtP(pct)+'</div></div>';
                     })():''}
                     <!-- Custos unitários -->
                     <div class="scard clickable" data-metric="cpm" data-tip="Custo por mil impress&otilde;es"><div class="sl">CPM</div><div class="sv" style="font-size:20px">${fmtM(t.cpm)}</div></div>
