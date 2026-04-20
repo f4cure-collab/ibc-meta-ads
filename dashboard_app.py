@@ -2271,7 +2271,7 @@ def api_daily_summary():
                 by_date[d] = {
                     "date": d, "spend": 0, "revenue": 0, "purchases": 0,
                     "impressions": 0, "clicks": 0, "link_clicks": 0,
-                    "lpv": 0, "initiate_checkout": 0,
+                    "lpv": 0, "profile_visits": 0, "initiate_checkout": 0,
                 }
             by_date[d]["spend"] += parsed.get("spend", 0)
             by_date[d]["revenue"] += parsed.get("revenue", 0)
@@ -2280,6 +2280,7 @@ def api_daily_summary():
             by_date[d]["clicks"] += parsed.get("clicks", 0)
             by_date[d]["link_clicks"] += parsed.get("link_clicks", 0)
             by_date[d]["lpv"] += parsed.get("lpv", 0)
+            by_date[d]["profile_visits"] += parsed.get("profile_visits", 0)
             by_date[d]["initiate_checkout"] += parsed.get("initiate_checkout", 0)
 
         # Crescimento: distribui total_net * share entre dias proporcional ao spend
@@ -2303,6 +2304,8 @@ def api_daily_summary():
             row["cpm"] = round((row["spend"] / row["impressions"]) * 1000, 2) if row["impressions"] > 0 else 0
             row["ctr"] = round((row["clicks"] / row["impressions"]) * 100, 2) if row["impressions"] > 0 else 0
             row["cost_per_ic"] = round(row["spend"] / row["initiate_checkout"], 2) if row["initiate_checkout"] > 0 else 0
+            pv = row.get("profile_visits", 0)
+            row["cost_per_profile_visit"] = round(row["spend"] / pv, 2) if pv > 0 else 0
             lc = row["link_clicks"]
             row["rate_click_lpv"] = round((row["lpv"] / lc) * 100, 2) if lc > 0 else 0
             row["rate_lpv_ic"] = round((row["initiate_checkout"] / row["lpv"]) * 100, 2) if row["lpv"] > 0 else 0
@@ -2787,7 +2790,7 @@ def api_breakdowns():
             return blocked
         campaign_id = request.args.get("campaign_id", "")
 
-        cache_key = f"breakdowns_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"breakdowns_v2_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         cached = get_cached(cache_key)
         if cached:
             return jsonify(cached)
@@ -2823,7 +2826,7 @@ def api_breakdowns():
             else:
                 base_params["filtering"] = json.dumps([{"field": "campaign.objective", "operator": "IN", "value": ["OUTCOME_SALES"]}])
 
-        ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas"
+        ins_fields = "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas,results"
 
         def extract_purchase(row):
             conv = 0
@@ -2910,6 +2913,7 @@ def api_breakdowns():
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
             roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
+            pv = _extract_profile_visits_from_row(row)
             age_result.append({
                 "age": row.get("age", "?"),
                 "spend": round(spend, 2),
@@ -2919,6 +2923,8 @@ def api_breakdowns():
                 "revenue": round(revenue, 2),
                 "roas": roas,
                 "cpa": round(spend / conv, 2) if conv > 0 else 0,
+                "profile_visits": pv,
+                "cost_per_profile_visit": round(spend / pv, 2) if pv > 0 else 0,
             })
 
         # Processar sexo
@@ -2928,6 +2934,7 @@ def api_breakdowns():
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
             roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
+            pv = _extract_profile_visits_from_row(row)
             gender_result.append({
                 "gender": gender_labels.get(row.get("gender", ""), row.get("gender", "?")),
                 "spend": round(spend, 2),
@@ -2937,11 +2944,13 @@ def api_breakdowns():
                 "revenue": round(revenue, 2),
                 "roas": roas,
                 "cpa": round(spend / conv, 2) if conv > 0 else 0,
+                "profile_visits": pv,
+                "cost_per_profile_visit": round(spend / pv, 2) if pv > 0 else 0,
             })
 
         # Processar dia da semana
         weekdays = {0: "Segunda", 1: "Terca", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sabado", 6: "Domingo"}
-        weekday_totals = {i: {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0, "days": 0} for i in range(7)}
+        weekday_totals = {i: {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0, "profile_visits": 0, "days": 0} for i in range(7)}
 
         for row in daily_data:
             date_str = row.get("date_start", "")
@@ -2959,6 +2968,7 @@ def api_breakdowns():
             weekday_totals[wd]["clicks"] += int(row.get("clicks", 0))
             weekday_totals[wd]["conversions"] += conv
             weekday_totals[wd]["revenue"] += revenue
+            weekday_totals[wd]["profile_visits"] += _extract_profile_visits_from_row(row)
             weekday_totals[wd]["days"] += 1
 
         weekday_result = []
@@ -2968,6 +2978,7 @@ def api_breakdowns():
             rev = t["revenue"]
             if rev == 0 and t["conversions"] > 0:
                 rev = t["conversions"] * ticket_medio
+            pv = t["profile_visits"]
             weekday_result.append({
                 "day": weekdays[i],
                 "day_num": i,
@@ -2979,6 +2990,9 @@ def api_breakdowns():
                 "roas": round(rev / t["spend"], 2) if t["spend"] > 0 else 0,
                 "impressions": t["impressions"],
                 "clicks": t["clicks"],
+                "profile_visits": pv,
+                "profile_visits_avg": round(pv / days_count, 1),
+                "cost_per_profile_visit": round(t["spend"] / pv, 2) if pv > 0 else 0,
             })
 
         response = {

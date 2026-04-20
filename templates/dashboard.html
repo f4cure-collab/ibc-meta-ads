@@ -664,8 +664,10 @@
             <div style="flex:1"></div>
         </div>
         <div class="scards" id="camp-summary-cards">
-            <!-- Financeiro -->
+            <!-- Financeiro + meta principal de Crescimento (Visitas ao perfil) -->
             <div class="scard clickable" data-metric="spend" data-tip="Clique para gr&aacute;fico de gasto di&aacute;rio"><div class="sl">Gasto</div><div class="sv" id="s-spend">--</div></div>
+            <div class="scard clickable show-crescimento" data-metric="profile_visits" data-tip="Visitas ao perfil do Instagram — meta principal da campanha"><div class="sl">Visitas Perfil</div><div class="sv" id="s-profile-visits">--</div></div>
+            <div class="scard clickable show-crescimento" data-metric="cost_per_profile_visit" data-tip="Custo por visita ao perfil (gasto / visitas)"><div class="sl">Custo/Visita</div><div class="sv" id="s-cost-per-visit">--</div></div>
             <div class="scard clickable" data-metric="revenue" data-tip="Clique para gr&aacute;fico de receita di&aacute;ria"><div class="sl">Receita</div><div class="sv" id="s-revenue">--</div></div>
             <div class="scard clickable" data-metric="roas" data-tip="Clique para evolu&ccedil;&atilde;o do ROAS"><div class="sl">ROAS</div><div class="sv" id="s-roas">--</div></div>
             <div class="scard clickable" data-metric="purchases" data-tip="Clique para ver por dia"><div class="sl auto-label-conv">Compras</div><div class="sv" id="s-purchases">--</div></div>
@@ -673,7 +675,6 @@
             <!-- Funil — volumes -->
             <div class="scard clickable" data-metric="impressions" data-tip="Clique para impress&otilde;es por dia"><div class="sl">Impress&otilde;es</div><div class="sv" id="s-impressions">--</div></div>
             <div class="scard clickable" data-metric="clicks" data-tip="Clique para cliques por dia"><div class="sl">Cliques</div><div class="sv" id="s-clicks">--</div></div>
-            <div class="scard clickable show-crescimento" data-metric="profile_visits" data-tip="Visitas ao perfil do Instagram (coluna Resultados do Meta)"><div class="sl">Visitas Perfil</div><div class="sv" id="s-profile-visits">--</div></div>
             <!-- Funil — taxas -->
             <div class="scard clickable" data-metric="ctr" data-tip="Impress&otilde;es &rarr; Cliques (CTR)"><div class="sl">CTR</div><div class="sv" id="s-ctr">--</div></div>
             <div class="scard clickable" data-metric="rate_click_lpv" data-tip="Cliques &rarr; Visualiza&ccedil;&atilde;o de p&aacute;gina/perfil"><div class="sl auto-label-rate-click">Click&rarr;LPV</div><div class="sv" id="s-rate-click-lpv">--</div></div>
@@ -692,6 +693,8 @@
             <div class="metric-viewer-canvas-wrap"><canvas id="cmv-canvas"></canvas></div>
         </div>
         <div class="cgrid rankings-grid">
+            <div class="ccard ccard-rank show-crescimento"><h3 id="rank-visits-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128241; Visitas Perfil por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-visits"></canvas></div></div>
+            <div class="ccard ccard-rank show-crescimento"><h3 id="rank-cpv-title" style="cursor:pointer" data-tip="Custo por Visita (menor &harr; maior)">&#128184; Custo/Visita por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpv"></div></div></div>
             <div class="ccard ccard-rank hide-meteoricos"><h3 id="rank-roas-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (melhor &harr; pior)">&#127942; ROAS por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-roas"></canvas></div></div>
             <div class="ccard ccard-rank show-meteoricos"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpl"></div></div></div>
             <div class="ccard ccard-rank"><h3 id="rank-spend-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128176; Gasto/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-spend"></canvas></div></div>
@@ -712,6 +715,8 @@
                     <th data-key="name" data-tip="Nome da campanha no Meta Ads. Clique na linha para selecionar/deselecionar">Campanha</th>
                     <th data-key="status">Status</th>
                     <th data-key="spend" class="tr" data-tip="Total investido no per&iacute;odo">Gasto</th>
+                    <th data-key="profile_visits" class="tr show-crescimento" data-tip="Visitas ao perfil do Instagram (meta principal da campanha)">Visitas Perfil</th>
+                    <th data-key="cost_per_profile_visit" class="tr show-crescimento" data-tip="Custo por visita ao perfil (gasto / visitas)">Custo/Visita</th>
                     <th data-key="revenue" data-metric="revenue" class="tr" data-tip="Valor total das compras atribu&iacute;das">Receita</th>
                     <th data-key="roas" data-metric="roas" class="tr" data-tip="Return on Ad Spend (receita/gasto)">ROAS</th>
                     <th data-key="purchases" class="tr" data-tip="N&uacute;mero de compras">Compras</th>
@@ -720,7 +725,6 @@
                     <th data-key="cpm" class="tr" data-tip="Custo por mil impress&otilde;es">CPM</th>
                     <th data-key="impressions" class="tr" data-tip="Total de exibi&ccedil;&otilde;es">Impress&otilde;es</th>
                     <th data-key="link_clicks" class="tr" data-tip="Cliques no link de destino">Cliques Link</th>
-                    <th data-key="profile_visits" class="tr show-crescimento" data-tip="Visitas ao perfil do Instagram (Resultados)">Visitas Perfil</th>
                 </tr></thead><tbody id="camp-tbody"></tbody></table>
             </div>
         </div>
@@ -774,7 +778,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#9892; Sexo — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('gender','gender')">Sexo</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','spend')">Gasto</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','conversions')">Conv.</th><th data-key="cpa" style="text-align:right;cursor:pointer" onclick="sortBd('gender','cpa')">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('gender','gender')">Sexo</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','spend')">Gasto</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('gender','profile_visits')">Visitas</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('gender','cost_per_profile_visit')">Custo/Visita</th><th style="text-align:right;cursor:pointer" onclick="sortBd('gender','conversions')">Conv.</th><th data-key="cpa" style="text-align:right;cursor:pointer" onclick="sortBd('gender','cpa')">CPA</th></tr></thead>
                             <tbody id="bd-gender"></tbody>
                         </table>
                     </div>
@@ -788,7 +792,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128100; Idade — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('age','age')">Faixa</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','spend')">Gasto</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','conversions')">Conv.</th><th data-key="cpa" style="text-align:right;cursor:pointer" onclick="sortBd('age','cpa')">CPA</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('age','age')">Faixa</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','spend')">Gasto</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('age','profile_visits')">Visitas</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('age','cost_per_profile_visit')">Custo/Visita</th><th style="text-align:right;cursor:pointer" onclick="sortBd('age','conversions')">Conv.</th><th data-key="cpa" style="text-align:right;cursor:pointer" onclick="sortBd('age','cpa')">CPA</th></tr></thead>
                             <tbody id="bd-age"></tbody>
                         </table>
                     </div>
@@ -802,7 +806,7 @@
                     <div class="panel" style="padding:16px;">
                         <h4 style="color:var(--accent);font-size:13px;margin-bottom:12px;">&#128197; Dia da Semana — Tabela</h4>
                         <table style="width:100%;font-size:12px;">
-                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th><th class="show-meteoricos" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cpl')">CPL</th></tr></thead>
+                            <thead><tr style="color:var(--t3);"><th style="cursor:pointer" onclick="sortBd('weekday','day_num')">Dia</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','spend_avg')">Gasto/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','profile_visits_avg')">Visitas/dia</th><th class="show-crescimento" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cost_per_profile_visit')">Custo/Visita</th><th style="text-align:right;cursor:pointer" onclick="sortBd('weekday','conv_avg')">Conv/dia</th><th data-metric="roas" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','roas')">ROAS</th><th class="show-meteoricos" style="text-align:right;cursor:pointer" onclick="sortBd('weekday','cpl')">CPL</th></tr></thead>
                             <tbody id="bd-weekday"></tbody>
                         </table>
                     </div>
@@ -1488,6 +1492,10 @@ async function loadCamp(force){
         $('#s-campaigns').textContent=fmt(s.total_campaigns);$('#s-impressions').textContent=fmt(s.total_impressions);
         $('#s-clicks').textContent=fmt(s.total_clicks);
         if($('#s-profile-visits')) $('#s-profile-visits').textContent=fmt(s.total_profile_visits||0);
+        if($('#s-cost-per-visit')) {
+            var pvSum = s.total_profile_visits||0;
+            $('#s-cost-per-visit').textContent = pvSum>0 ? fmtM(s.total_spend/pvSum) : '--';
+        }
         renderCampTbl(campData);renderCampCharts(campData);
 
         showCampLoading(true,'Carregando gráficos...','Etapa 2/3 — Dados diários e frequência');
@@ -1503,7 +1511,7 @@ async function loadCamp(force){
         showCampLoading(false);
     }catch(e){
         showCampLoading(false);
-        $('#camp-tbody').innerHTML=`<tr><td colspan="13" style="text-align:center;padding:32px;color:var(--red)">Erro: ${e.message}</td></tr>`;
+        $('#camp-tbody').innerHTML=`<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--red)">Erro: ${e.message}</td></tr>`;
     }
     btn.disabled=false;btn.textContent='Carregar';
     // Carregar breakdowns automaticamente
@@ -1524,7 +1532,7 @@ function renderCampTbl(data){
         return campName.includes(q)||evName.includes(q)||evShort.includes(q);
     });
     $('#camp-cnt').textContent=`${f.length} de ${data.length}`;
-    if(!f.length){tb.innerHTML='<tr><td colspan="13"><div class="empty"><p>Nenhuma campanha</p></div></td></tr>';return;}
+    if(!f.length){tb.innerHTML='<tr><td colspan="14"><div class="empty"><p>Nenhuma campanha</p></div></td></tr>';return;}
 
     // Agrupar por evento
     const eventMap={};
@@ -1586,6 +1594,8 @@ function renderCampTbl(data){
             </td>
             <td><span class="sb s-${ev.camps.some(c=>c.status==='ACTIVE')?'ACTIVE':'PAUSED'}">${ev.camps.some(c=>c.status==='ACTIVE')?'Ativa':'Pausada'}</span></td>
             <td class="tr" style="font-weight:700">${fmtM(evSpend)}</td>
+            <td class="tr show-crescimento" style="font-weight:700">${fmt(evProfVisits)}</td>
+            <td class="tr show-crescimento" style="font-weight:700">${fmtM(evProfVisits>0?evSpend/evProfVisits:0)}</td>
             <td class="tr" data-metric="revenue" style="font-weight:700">${fmtM(evRev)}</td>
             <td class="tr" data-metric="roas" style="font-weight:700;color:${roasC(evRoas)}">${fmtR(evRoas)}</td>
             <td class="tr" style="font-weight:700">${fmt(evPurch)}</td>
@@ -1594,7 +1604,6 @@ function renderCampTbl(data){
             <td class="tr">${fmtM(evCpm)}</td>
             <td class="tr">${fmt(evImpr)}</td>
             <td class="tr">${fmt(evClicks)}</td>
-            <td class="tr show-crescimento" style="font-weight:700">${fmt(evProfVisits)}</td>
         </tr>`;
 
         // Campanhas: SEMPRE escondidas (expandir ao clicar se multi)
@@ -1606,6 +1615,8 @@ function renderCampTbl(data){
                     <td class="cn" style="padding-left:36px;font-size:12px;color:var(--t2)" data-tip="${c.name}">${c.name}</td>
                     <td><span class="sb s-${c.status}">${c.status==='ACTIVE'?'Ativa':'Pausada'}</span></td>
                     <td class="tr">${fmtM(c.spend)}</td>
+                    <td class="tr show-crescimento">${fmt(c.profile_visits||0)}</td>
+                    <td class="tr show-crescimento">${fmtM((c.profile_visits||0)>0?c.spend/c.profile_visits:0)}</td>
                     <td class="tr" data-metric="revenue">${fmtM(c.revenue)}</td>
                     <td class="tr" data-metric="roas" style="color:${roasC(c.roas)};font-weight:600">${fmtR(c.roas)}</td>
                     <td class="tr">${fmt(c.purchases)}</td>
@@ -1614,7 +1625,6 @@ function renderCampTbl(data){
                     <td class="tr">${fmtM(c.cpm)}</td>
                     <td class="tr">${fmt(c.impressions)}</td>
                     <td class="tr">${fmt(c.link_clicks)}</td>
-                    <td class="tr show-crescimento">${fmt(c.profile_visits||0)}</td>
                 </tr>`;
             });
         }
@@ -1721,10 +1731,11 @@ function aggregateByEvent(data){
     const map={};
     data.forEach(c=>{
         const eid=c.event_id||'OUTROS';
-        if(!map[eid])map[eid]={name:c.event_name||'Outros',event_id:eid,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,link_clicks:0,active_days:0,period_days:0,_count:0};
+        if(!map[eid])map[eid]={name:c.event_name||'Outros',event_id:eid,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,link_clicks:0,profile_visits:0,active_days:0,period_days:0,_count:0};
         const e=map[eid];
         e.spend+=c.spend||0;e.revenue+=c.revenue||0;e.purchases+=c.purchases||0;
         e.impressions+=c.impressions||0;e.clicks+=c.clicks||0;e.link_clicks+=c.link_clicks||0;
+        e.profile_visits+=c.profile_visits||0;
         // active_days: usar o maior entre as campanhas do evento
         if((c.active_days||0)>e.active_days)e.active_days=c.active_days||0;
         if((c.period_days||0)>e.period_days)e.period_days=c.period_days||0;
@@ -1735,18 +1746,19 @@ function aggregateByEvent(data){
         e.cpa=e.purchases>0?e.spend/e.purchases:0;
         e.ctr=e.impressions>0?(e.clicks/e.impressions)*100:0;
         e.cpm=e.impressions>0?(e.spend/e.impressions)*1000:0;
+        e.cost_per_profile_visit=e.profile_visits>0?e.spend/e.profile_visits:0;
         return e;
     });
 }
 
-const rankSortState={roas:true,spend:true,sales:true};
+const rankSortState={roas:true,spend:true,sales:true,visits:true,cpv:true};
 
 function renderCampCharts(data){
 
     // Destruir charts antigos do Chart.js caso existam (legacy)
     dc('rr');dc('sr');dc('sd');
     // Remover canvases antigos e substituir por containers de lista
-    ['ch-roas','ch-spend','ch-sales-day'].forEach(id=>{
+    ['ch-roas','ch-spend','ch-sales-day','ch-visits','ch-cpv'].forEach(id=>{
         const old=document.getElementById(id);
         if(!old)return;
         if(old.tagName==='CANVAS'){
@@ -1805,6 +1817,44 @@ function _renderRankings(evData){
     }
 
     const cplGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
+    const visitsGrad='linear-gradient(90deg,#0e5a4a,#16a377,#7ee6c5)';
+    const cpvGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
+
+    // Crescimento-only: rankings de Visitas ao Perfil e Custo/Visita
+    if (isCrescimento()) {
+        const vd=rankSortState.visits?1:-1;
+        const byVisits=evData.map(c=>({...c,pv:c.profile_visits||0})).sort((a,b)=>vd*((b.pv)-(a.pv)));
+        const maxVisits=byVisits.reduce((m,c)=>Math.max(m,c.pv||0),0);
+        const vt=$('#rank-visits-title');if(vt)vt.innerHTML=`&#128241; Visitas Perfil por Evento ${rankSortState.visits?'&#9660;':'&#9650;'}`;
+        renderList('ch-visits',byVisits,maxVisits,c=>c.pv||0,
+            (c,v)=>fmt(v),
+            (c,v)=>`${c.name}: ${fmt(v)} visitas ao perfil (${c._count} campanhas)`,visitsGrad);
+
+        const cva=rankSortState.cpv;
+        const cvd=cva?1:-1;
+        const byCpv=evData.map(c=>({...c,cpv:(c.profile_visits||0)>0?c.spend/c.profile_visits:null}))
+            .sort((a,b)=>{
+                if(a.cpv==null&&b.cpv==null)return 0;
+                if(a.cpv==null)return 1;
+                if(b.cpv==null)return -1;
+                return cvd*(a.cpv-b.cpv);
+            });
+        const maxCpv=byCpv.reduce((m,c)=>Math.max(m,c.cpv||0),0);
+        const ct2=$('#rank-cpv-title');if(ct2)ct2.innerHTML=`&#128184; Custo/Visita por Evento ${cva?'&#9650;':'&#9660;'}`;
+        const elCpv=document.getElementById('ch-cpv');
+        if (elCpv && byCpv.length) {
+            elCpv.innerHTML='<div class="rank-list">'+byCpv.map((c,i)=>{
+                const v=c.cpv;
+                const pct=maxCpv>0&&v!=null?Math.max(2,(v/maxCpv)*100):0;
+                const sn=shortEvName(c.name||'');
+                const valHtml=v==null?'<span style="color:var(--t3)">sem visitas</span>':fmtM(v);
+                const tip=v==null?`${c.name}: sem visitas no periodo (${c._count} campanhas)`:`${c.name}: ${fmtM(v)}/visita (${fmt(c.profile_visits||0)} visitas, ${c._count} campanhas)`;
+                return`<div class="rank-row" data-tip="${tip}"><span class="rank-pos">${i+1}</span><span class="rank-name">${sn}</span><div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}%;background:${cpvGrad}"></div></div><span class="rank-val">${valHtml}</span></div>`;
+            }).join('')+'</div>';
+        } else if (elCpv) {
+            elCpv.innerHTML='<div style="color:var(--t3);text-align:center;padding:40px 20px;font-size:12px">Sem dados no periodo selecionado</div>';
+        }
+    }
 
     if (isLeadCapture()) {
         // CPL ranking (menor = melhor). Default ASC: menor CPL primeiro.
@@ -1873,11 +1923,13 @@ function _renderRankings(evData){
 
 // Click nos t&iacute;tulos dos rankings para inverter ordem
 document.addEventListener('click',e=>{
-    const t=e.target.closest('#rank-roas-title,#rank-cpl-title,#rank-spend-title,#rank-sales-title');
+    const t=e.target.closest('#rank-roas-title,#rank-cpl-title,#rank-spend-title,#rank-sales-title,#rank-visits-title,#rank-cpv-title');
     if(!t||!window._rankEvData)return;
     if(t.id==='rank-roas-title'||t.id==='rank-cpl-title')rankSortState.roas=!rankSortState.roas;
     else if(t.id==='rank-spend-title')rankSortState.spend=!rankSortState.spend;
     else if(t.id==='rank-sales-title')rankSortState.sales=!rankSortState.sales;
+    else if(t.id==='rank-visits-title')rankSortState.visits=!rankSortState.visits;
+    else if(t.id==='rank-cpv-title')rankSortState.cpv=!rankSortState.cpv;
     _renderRankings(window._rankEvData);
 });
 
@@ -2181,6 +2233,7 @@ const DETAIL_METRICS={
     impressions:{label:'Impressões',color:'#1f6feb',fmt:fmt,calc:d=>d.impressions||0,axis:'big'},
     clicks:{label:'Cliques',color:'#a5d6ff',fmt:fmt,calc:d=>d.link_clicks||d.clicks||0,axis:'count'},
     profile_visits:{label:'Visitas Perfil',color:'#7ee6c5',fmt:fmt,calc:d=>d.profile_visits||0,axis:'count'},
+    cost_per_profile_visit:{label:'Custo/Visita',color:'#16a377',fmt:fmtM,calc:d=>{const pv=d.profile_visits||0;return pv>0?d.spend/pv:0;},axis:'unit_cost'},
     lpv:{label:'LPV',color:'#d2a8ff',fmt:fmt,calc:d=>d.lpv||0,axis:'count'},
     initiate_checkout:{label:'Checkouts',color:'#f0883e',fmt:fmt,calc:d=>d.initiate_checkout||0,axis:'count'},
     // Funil — taxas de conversão
@@ -2214,6 +2267,10 @@ function _syncTopCards(){
     $('#s-impressions').textContent=fmt(t.impressions);
     $('#s-clicks').textContent=fmt(t.link_clicks||t.clicks||0);
     if($('#s-profile-visits')) $('#s-profile-visits').textContent=fmt(t.profile_visits||0);
+    if($('#s-cost-per-visit')) {
+        var pv = t.profile_visits||0;
+        $('#s-cost-per-visit').textContent = pv>0 ? fmtM(t.spend/pv) : '--';
+    }
     $('#s-rate-click-lpv').textContent=fmtP(t.rate_click_lpv||0);
     $('#s-rate-lpv-ic').textContent=fmtP(t.rate_lpv_ic||0);
     $('#s-rate-ic-purchase').textContent=fmtP(t.rate_ic_purchase||0);
@@ -2544,12 +2601,14 @@ let campDailyData=[];
 
 const CAMP_METRICS={
     spend:{label:'Gasto',color:'#f85149',fmt:fmtM,key:'spend',axis:'money'},
+    profile_visits:{label:'Visitas Perfil',color:'#7ee6c5',fmt:fmt,key:'profile_visits',axis:'count'},
+    cost_per_profile_visit:{label:'Custo/Visita',color:'#16a377',fmt:fmtM,key:'cost_per_profile_visit',axis:'unit_cost'},
     revenue:{label:'Receita',color:'#3fb950',fmt:fmtM,key:'revenue',axis:'money'},
     roas:{label:'ROAS',color:'#58a6ff',fmt:fmtR,key:'roas',axis:'ratio'},
+    purchases:{label:labelConversao(),color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
     cpa:{label:labelCPA(),color:'#d29922',fmt:fmtM,key:'cpa',axis:'unit_cost'},
     cpm:{label:'CPM',color:'#bc8cff',fmt:fmtM,key:'cpm',axis:'unit_cost'},
     ctr:{label:'CTR',color:'#79c0ff',fmt:fmtP,key:'ctr',axis:'pct'},
-    purchases:{label:labelConversao(),color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
     impressions:{label:'Impress\u00f5es',color:'#1f6feb',fmt:fmt,key:'impressions',axis:'big'},
     clicks:{label:'Cliques',color:'#a5d6ff',fmt:fmt,key:'clicks',axis:'count'},
     rate_click_lpv:{label:'Click\u2192LPV',color:'#56d4dd',fmt:fmtP,key:'rate_click_lpv',axis:'pct'},
@@ -4223,11 +4282,22 @@ function renderBdTables() {
         });
     }
 
+    var crescActive = typeof isCrescimento === 'function' && isCrescimento();
+    function pvCells(x) {
+        var pv = x.profile_visits || 0;
+        var cpv = x.cost_per_profile_visit || 0;
+        return crescActive
+            ? '<td class="show-crescimento" style="text-align:right;color:#7ee6c5;font-weight:600;">' + fmt(pv) + '</td>' +
+              '<td class="show-crescimento" style="text-align:right;">' + (cpv>0?fmtM(cpv):'--') + '</td>'
+            : '<td class="show-crescimento" style="display:none;"></td><td class="show-crescimento" style="display:none;"></td>';
+    }
+
     // Sexo
     var gs = sortArr(d.gender, _bdSorts.gender.key, _bdSorts.gender.asc);
     $('#bd-gender').innerHTML = gs.map(function(g){
         return '<tr><td style="color:var(--t1);font-weight:600;">' + g.gender + '</td>' +
             '<td style="text-align:right;">' + fmtM(g.spend) + '</td>' +
+            pvCells(g) +
             '<td style="text-align:right;color:var(--accent2);">' + g.conversions + '</td>' +
             '<td style="text-align:right;">' + fmtM(g.cpa) + '</td></tr>';
     }).join('');
@@ -4237,6 +4307,7 @@ function renderBdTables() {
     $('#bd-age').innerHTML = as.map(function(a){
         return '<tr><td style="color:var(--t1);font-weight:600;">' + a.age + '</td>' +
             '<td style="text-align:right;">' + fmtM(a.spend) + '</td>' +
+            pvCells(a) +
             '<td style="text-align:right;color:var(--accent2);">' + a.conversions + '</td>' +
             '<td style="text-align:right;">' + fmtM(a.cpa) + '</td></tr>';
     }).join('');
@@ -4251,8 +4322,15 @@ function renderBdTables() {
         var cplCell = showCpl
             ? '<td class="show-meteoricos" style="text-align:right;font-weight:700;color:#7ee787;">' + fmtM(w.cpl) + '</td>'
             : '<td class="show-meteoricos" style="display:none;"></td>';
+        var pvAvg = w.profile_visits_avg || 0;
+        var cpv = w.cost_per_profile_visit || 0;
+        var pvCell = crescActive
+            ? '<td class="show-crescimento" style="text-align:right;color:#7ee6c5;font-weight:600;">' + fmt(pvAvg) + '</td>' +
+              '<td class="show-crescimento" style="text-align:right;">' + (cpv>0?fmtM(cpv):'--') + '</td>'
+            : '<td class="show-crescimento" style="display:none;"></td><td class="show-crescimento" style="display:none;"></td>';
         return '<tr><td style="color:var(--t1);font-weight:600;">' + w.day + '</td>' +
             '<td style="text-align:right;">' + fmtM(w.spend_avg) + '</td>' +
+            pvCell +
             '<td style="text-align:right;color:var(--accent2);">' + w.conv_avg + '</td>' +
             '<td data-metric="roas" style="text-align:right;color:' + roasC(w.roas) + ';font-weight:700;">' + fmtR(w.roas) + '</td>' +
             cplCell + '</tr>';
