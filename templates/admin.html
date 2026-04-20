@@ -237,6 +237,19 @@
         </div>
     </div>
 
+    <!-- Diagnostico Crescimento: descobrir action_type correto para seguidores -->
+    <div class="card" id="crescimentoCard" data-adm-section="campaigns" style="display:none;">
+        <h2>Diagnostico Crescimento (action_types)</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:12px;">
+            Se os numeros de "Seguidores" no dash estao diferentes do Gerenciador,
+            provavelmente estamos pegando um action_type errado. Este diagnostico
+            mostra os action_types reais das campanhas CRESCIMENTO dos ultimos 30 dias.
+            Informe o action_type correto pra ajustar o codigo.
+        </p>
+        <button class="btn btn-primary" onclick="loadCrescimentoPreview()">Carregar action_types</button>
+        <div id="crescimentoContent" style="margin-top:16px;"></div>
+    </div>
+
     <!-- Campanhas nao identificadas -->
     <div class="card" id="unidentifiedCard" data-adm-section="campaigns" style="display:none;">
         <h2>Campanhas Nao Identificadas</h2>
@@ -446,6 +459,8 @@ async function loadUsers() {
         document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
         var uc = document.getElementById('unidentifiedCard');
         if (uc) uc.style.display = _isSuper ? 'block' : 'none';
+        var cc = document.getElementById('crescimentoCard');
+        if (cc) cc.style.display = _isSuper ? 'block' : 'none';
         var ac = document.getElementById('adAccountsCard');
         if (ac) {
             ac.style.display = _isSuper ? 'block' : 'none';
@@ -1033,6 +1048,66 @@ async function deleteAdAccount(id) {
         if (!d.ok) { alert('Erro: '+d.error); return; }
         loadAdAccounts();
     } catch(e) { alert(e.message); }
+}
+
+// ── Diagnostico Crescimento: descobrir action_type correto para seguidores ──
+async function loadCrescimentoPreview() {
+    var box = document.getElementById('crescimentoContent');
+    box.innerHTML = '<div style="color:#888;padding:16px;">Consultando Meta API... (pode demorar 10-20s)</div>';
+    try {
+        var r = await fetch('/api/admin/crescimento-preview');
+        var d = await r.json();
+        if (!d.ok) { box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + d.error + '</div>'; return; }
+
+        var html = '<div style="color:#ccc;font-size:12px;margin-bottom:10px;">'
+            + '<strong style="color:#ec4899;">' + d.total + ' campanhas</strong> de Crescimento · '
+            + 'Gasto 30d: <strong style="color:#fff;">R$ ' + (d.total_spend||0).toLocaleString('pt-BR') + '</strong>';
+        if (d.total_spend > 0) {
+            html += '<br><span style="color:#888;">No gerenciador Meta voce ve o total de seguidores. Divida: R$ ' + (d.total_spend||0).toFixed(2) + ' / seguidores = CPS real. Compare com o valor abaixo para achar o action_type correto.</span>';
+        }
+        html += '</div>';
+
+        html += '<div style="background:#0f0f23;padding:10px;border-radius:6px;margin-bottom:12px;">';
+        html += '<strong style="color:#4f8cff;font-size:12px;">FOLLOW_TYPES atualmente configurado:</strong><br>';
+        (d.current_follow_types || []).forEach(function(t){
+            html += '<span style="display:inline-block;margin-top:6px;padding:3px 8px;background:#1a1a3e;border-radius:4px;margin-right:6px;font-family:monospace;font-size:11px;color:#4caf50;">'+t+'</span>';
+        });
+        html += '</div>';
+
+        if (!d.action_types_seen.length) {
+            html += '<div style="color:#ff9800;padding:12px;">Nenhum action_type encontrado. As campanhas podem nao ter dados suficientes.</div>';
+        } else {
+            html += '<strong style="color:#4f8cff;font-size:12px;">ACTION_TYPES ranking (todos com valor > 0 nos ultimos 30d):</strong>';
+            html += '<table style="width:100%;font-size:11px;margin-top:8px;"><thead><tr>'
+                + '<th style="text-align:left;padding:4px;color:#888;">action_type</th>'
+                + '<th style="text-align:right;padding:4px;color:#888;">total_value</th>'
+                + '<th style="text-align:right;padding:4px;color:#888;">campanhas</th>'
+                + '<th style="text-align:right;padding:4px;color:#888;">CPS calculado</th>'
+                + '</tr></thead><tbody>';
+            d.action_types_seen.forEach(function(a) {
+                var isKnown = (d.current_follow_types || []).indexOf(a.action_type) >= 0;
+                var highlight = isKnown ? 'color:#4caf50;font-weight:700;' : 'color:#ccc;';
+                var cps = a.total_value > 0 ? (d.total_spend / a.total_value).toFixed(2) : '-';
+                // Hint: se action_type parece seguidor, marca em verde claro
+                if (/follow|seguir|ig_account/i.test(a.action_type)) highlight = 'color:#7ee787;font-weight:700;';
+                html += '<tr>'
+                    + '<td style="padding:4px;font-family:monospace;'+highlight+'">'+a.action_type+(isKnown?' <span style="color:#4caf50;">[em uso]</span>':'')+'</td>'
+                    + '<td style="padding:4px;text-align:right;color:#fff;">'+(a.total_value||0).toLocaleString('pt-BR')+'</td>'
+                    + '<td style="padding:4px;text-align:right;color:#aaa;">'+a.count_campaigns+'</td>'
+                    + '<td style="padding:4px;text-align:right;color:#ffc857;font-weight:600;">R$ '+cps+'</td>'
+                    + '</tr>';
+            });
+            html += '</tbody></table>';
+            html += '<div style="color:#666;font-size:11px;margin-top:8px;">'
+                + '<strong>Como usar:</strong> veja qual action_type tem o CPS calculado mais proximo do que voce ve no Gerenciador Meta. '
+                + 'Compare total_value com o total de "Seguidores no..." do Gerenciador. '
+                + 'Se o action_type correto nao esta em [em uso], me informe o nome e ajusto o FOLLOW_TYPES.'
+                + '</div>';
+        }
+        box.innerHTML = html;
+    } catch(e) {
+        box.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + e.message + '</div>';
+    }
 }
 
 // ── Campanhas nao identificadas + overrides manuais ──

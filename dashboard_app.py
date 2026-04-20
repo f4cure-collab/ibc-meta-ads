@@ -282,14 +282,17 @@ LEAD_TYPES = [
     "offsite_conversion.fb_pixel_lead",
 ]
 
-# Action_types que representam "seguir" no Instagram/Facebook. Varios nomes
-# conforme o tipo de otimizacao da campanha — usa o primeiro com valor > 0.
+# Action_types que representam "seguir" no Instagram/Facebook.
+# IMPORTANTE: incluir APENAS types que SAO seguidores de verdade. Nao incluir
+# post_save, page_engagement, etc — esses inflam a contagem com outras acoes.
+# Se o action_type real das campanhas nao estiver aqui, a contagem vai 0 e
+# aparece o diagnostico /api/admin/crescimento-preview pra descobrir qual usar.
 FOLLOW_TYPES = [
     "onsite_conversion.follow",
     "follow",
     "onsite_conversion.ig_following",
-    "onsite_conversion.post_save",
-    "page_engagement",
+    "instagram_follow",
+    "ig_account_follow",
 ]
 
 CAMP_TYPE_VENDAS = "vendas"
@@ -3230,6 +3233,68 @@ def api_ad_accounts_delete(acc_id):
 
 
 # ── Campanhas nao identificadas: lista campanhas de TODAS contas/tipos ──
+# ── Diagnostico Crescimento: identifica action_type correto p/ seguidores ──
+@app.route("/api/admin/crescimento-preview")
+def api_crescimento_preview():
+    """Retorna ranking de action_types em campanhas de CRESCIMENTO (ultimos 30d),
+    ordenados por total_value. Usa pra descobrir qual action_type representa
+    'seguidores' de verdade (ajustar FOLLOW_TYPES no backend)."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        now_br = _now_br()
+        dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
+        dt_from = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        filtered = _fetch_type_campaigns(
+            CAMP_TYPE_CRESCIMENTO, "id,name,status", _camp_status_filter("all")
+        )
+        if not filtered:
+            return jsonify({"ok": True, "total": 0, "campaigns": [], "action_types_seen": []})
+
+        insights_raw = _fetch_insights_for_tagged_campaigns(
+            filtered,
+            base_params={
+                "fields": "campaign_id,campaign_name,spend,impressions,actions",
+                "time_range": json.dumps({"since": dt_from, "until": dt_to}),
+                "level": "campaign",
+                "limit": 500,
+            }
+        )
+
+        action_types_seen = {}
+        for row in insights_raw:
+            for act in (row.get("actions") or []):
+                at = act.get("action_type", "")
+                v = 0
+                try: v = int(float(act.get("value", 0)))
+                except Exception: pass
+                if at and v > 0:
+                    prev = action_types_seen.get(at, {"count_campaigns": 0, "total_value": 0})
+                    prev["count_campaigns"] += 1
+                    prev["total_value"] += v
+                    action_types_seen[at] = prev
+
+        ranked = sorted(
+            [{"action_type": k, **v} for k, v in action_types_seen.items()],
+            key=lambda x: x["total_value"], reverse=True
+        )[:30]
+
+        total_spend = sum(float(r.get("spend", 0)) for r in insights_raw)
+
+        return jsonify({
+            "ok": True,
+            "total": len(filtered),
+            "period": f"{dt_from} -> {dt_to}",
+            "total_spend": round(total_spend, 2),
+            "current_follow_types": FOLLOW_TYPES,
+            "action_types_seen": ranked,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
 @app.route("/api/admin/unidentified-campaigns")
 def api_unidentified_campaigns():
     """Lista campanhas que nao foram alocadas a nenhum evento/produto.

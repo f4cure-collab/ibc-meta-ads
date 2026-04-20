@@ -1179,6 +1179,9 @@ function adaptStaticLabelsToType() {
     document.querySelectorAll('.auto-label-lpv').forEach(function(el){
         el.textContent = isCrescimento() ? 'Visitas Perfil' : 'LPV';
     });
+    // Titulo do ranking CPL/CPS (estatico no HTML, aplica labelCPA no load)
+    var rc = document.getElementById('rank-cpl-title');
+    if (rc) rc.innerHTML = '&#128200; ' + cpa0 + ' por Evento &#9650;';
     // Titulo da tabela de campanhas
     document.querySelectorAll('.tbl-camps-label').forEach(function(el){
         if (isCrescimento()) el.textContent = 'Campanhas de Crescimento';
