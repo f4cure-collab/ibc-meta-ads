@@ -2819,7 +2819,7 @@ def api_breakdowns():
             return blocked
         campaign_id = request.args.get("campaign_id", "")
 
-        cache_key = f"breakdowns_v5_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"breakdowns_v6_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         cached = get_cached(cache_key)
         if cached:
             return jsonify(cached)
@@ -2934,15 +2934,37 @@ def api_breakdowns():
             except Exception as e:
                 print(f"[BREAKDOWNS crescimento] Falha IG API: {e}")
 
-        def _attrib_crescimento(spend, default_conv, default_pv):
-            """Para Crescimento, distribui totais proporcional ao gasto do bucket.
+        # Pra variar o custo por visita entre buckets (idade/sexo/dia), distribuimos
+        # profile_visits proporcional a link_click do bucket, nao ao gasto. link_click
+        # e a acao mais correlacionada com profile_visit_view (~1:1 nas campanhas IBC)
+        # e e retornada por breakdown. Se usassemos gasto, o custo/visita daria igual
+        # em todo bucket (constante = total_spend/total_pv).
+        def _extract_proxy(row):
+            """Extrai a acao proxy pra distribuir profile_visits no bucket."""
+            for a in (row.get("actions") or []):
+                if a.get("action_type") == "link_click":
+                    try:
+                        return int(float(a.get("value", 0) or 0))
+                    except Exception:
+                        return 0
+            return int(row.get("clicks", 0) or 0)
+
+        def _attrib_crescimento(spend, default_conv, default_pv, proxy_val=0, proxy_total=0):
+            """Para Crescimento, distribui totais proporcional ao proxy (link_click)
+            quando disponivel; fallback para gasto se proxy_total zero. Isso faz
+            o custo por visita variar entre buckets, refletindo diferenca real
+            de eficiencia por demografia.
             Caso os valores nativos da linha ja venham populados (ex: Meteoricos),
             usa-os direto. Retorna (conv, profile_visits)."""
             if camp_type != CAMP_TYPE_CRESCIMENTO:
                 return default_conv, default_pv
-            if total_spend <= 0:
+            # Proxy-based share quando disponivel (varia por bucket -> custo/visita varia)
+            if proxy_total > 0:
+                share = proxy_val / proxy_total
+            elif total_spend > 0:
+                share = spend / total_spend
+            else:
                 return 0, default_pv
-            share = spend / total_spend
             seguidores = int(round(crescimento_total_seguidores * share))
             pv = default_pv if default_pv > 0 else int(round(crescimento_total_pv * share))
             return seguidores, pv
@@ -2983,13 +3005,14 @@ def api_breakdowns():
             return est_roas, round(est_revenue, 2)
 
         # Processar idade
+        age_proxy_total = sum(_extract_proxy(r) for r in age_data) if camp_type == CAMP_TYPE_CRESCIMENTO else 0
         age_result = []
         for row in age_data:
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
             roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
             pv_raw = _extract_profile_visits_from_row(row)
-            conv, pv = _attrib_crescimento(spend, conv, pv_raw)
+            conv, pv = _attrib_crescimento(spend, conv, pv_raw, _extract_proxy(row), age_proxy_total)
             age_result.append({
                 "age": row.get("age", "?"),
                 "spend": round(spend, 2),
@@ -3004,6 +3027,7 @@ def api_breakdowns():
             })
 
         # Processar sexo
+        gender_proxy_total = sum(_extract_proxy(r) for r in gender_data) if camp_type == CAMP_TYPE_CRESCIMENTO else 0
         gender_result = []
         gender_labels = {"male": "Masculino", "female": "Feminino", "unknown": "Desconhecido"}
         for row in gender_data:
@@ -3011,7 +3035,7 @@ def api_breakdowns():
             spend = float(row.get("spend", 0))
             roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
             pv_raw = _extract_profile_visits_from_row(row)
-            conv, pv = _attrib_crescimento(spend, conv, pv_raw)
+            conv, pv = _attrib_crescimento(spend, conv, pv_raw, _extract_proxy(row), gender_proxy_total)
             gender_result.append({
                 "gender": gender_labels.get(row.get("gender", ""), row.get("gender", "?")),
                 "spend": round(spend, 2),
@@ -3027,7 +3051,7 @@ def api_breakdowns():
 
         # Processar dia da semana
         weekdays = {0: "Segunda", 1: "Terca", 2: "Quarta", 3: "Quinta", 4: "Sexta", 5: "Sabado", 6: "Domingo"}
-        weekday_totals = {i: {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0, "profile_visits": 0, "days": 0} for i in range(7)}
+        weekday_totals = {i: {"spend": 0, "impressions": 0, "clicks": 0, "conversions": 0, "revenue": 0, "profile_visits": 0, "proxy": 0, "days": 0} for i in range(7)}
 
         for row in daily_data:
             date_str = row.get("date_start", "")
@@ -3046,7 +3070,10 @@ def api_breakdowns():
             weekday_totals[wd]["conversions"] += conv
             weekday_totals[wd]["revenue"] += revenue
             weekday_totals[wd]["profile_visits"] += _extract_profile_visits_from_row(row)
+            weekday_totals[wd]["proxy"] += _extract_proxy(row)
             weekday_totals[wd]["days"] += 1
+
+        weekday_proxy_total = sum(weekday_totals[i]["proxy"] for i in range(7)) if camp_type == CAMP_TYPE_CRESCIMENTO else 0
 
         weekday_result = []
         for i in range(7):
@@ -3055,7 +3082,7 @@ def api_breakdowns():
             rev = t["revenue"]
             if rev == 0 and t["conversions"] > 0:
                 rev = t["conversions"] * ticket_medio
-            conv, pv = _attrib_crescimento(t["spend"], t["conversions"], t["profile_visits"])
+            conv, pv = _attrib_crescimento(t["spend"], t["conversions"], t["profile_visits"], t.get("proxy", 0), weekday_proxy_total)
             weekday_result.append({
                 "day": weekdays[i],
                 "day_num": i,
