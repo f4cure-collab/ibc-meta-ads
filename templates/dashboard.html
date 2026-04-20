@@ -1079,20 +1079,20 @@
                 <th data-sort="data_confidence" data-tip="Clique para ordenar por confian&ccedil;a dos dados" style="padding:4px 4px">Conf.</th>
                 <th class="tr" data-sort="spend" data-tip="Clique para ordenar por gasto">Gasto</th>
                 <th class="tr" data-sort="purchases" data-tip="Clique para ordenar por compras">Conv.</th>
-                <th class="tr" data-sort="roas" data-tip="Clique para ordenar por ROAS">ROAS</th>
+                <th class="tr" data-sort="roas" data-metric="roas" data-tip="Clique para ordenar por ROAS">ROAS</th>
                 <th data-sort="campaign_name" data-tip="Clique para ordenar por campanha">Camp.</th>
                 <th class="tr" data-sort="spend_7d" data-tip="Clique para ordenar por gasto 7d">7D</th>
                 <th class="tr" data-sort="purchases_7d" data-tip="Clique para ordenar por compras 7d">CV.7D</th>
-                <th class="tr" data-sort="roas_7d" data-tip="Clique para ordenar por ROAS 7d">R.7D</th>
+                <th class="tr" data-sort="roas_7d" data-metric="roas" data-tip="Clique para ordenar por ROAS 7d">R.7D</th>
                 <th class="tr" data-sort="spend_3d" data-tip="Clique para ordenar por gasto 3d">3D</th>
                 <th class="tr" data-sort="purchases_3d" data-tip="Clique para ordenar por compras 3d">CV.3D</th>
-                <th class="tr" data-sort="roas_3d" data-tip="Clique para ordenar por ROAS 3d">R.3D</th>
+                <th class="tr" data-sort="roas_3d" data-metric="roas" data-tip="Clique para ordenar por ROAS 3d">R.3D</th>
                 <th data-sort="trend" data-tip="Clique para ordenar por tend&ecirc;ncia">Tend.</th>
                 <th class="tr" data-sort="score" data-tip="Clique para ordenar por score">Score</th>
                 <th class="tr" data-sort="cpa" data-tip="Clique para ordenar por CPA">CPA</th>
                 <th class="tr" data-sort="ctr" data-tip="Clique para ordenar por CTR">CTR</th>
                 <th class="tr" data-sort="cpm" data-tip="Clique para ordenar por CPM">CPM</th>
-                <th class="tr" data-sort="revenue" data-tip="Clique para ordenar por receita">Receita</th>
+                <th class="tr" data-sort="revenue" data-metric="revenue" data-tip="Clique para ordenar por receita">Receita</th>
                 <th class="tr" data-sort="impressions" data-tip="Clique para ordenar por impress&otilde;es">Impr.</th>
                 <th class="tr" data-sort="share_7d" data-tip="Clique para ordenar por participa&ccedil;&atilde;o 7d">P.7D</th>
             </tr></thead><tbody id="cr-tbody"></tbody></table></div>
@@ -3569,20 +3569,20 @@ function renderTbl(data){
         <td style="padding:4px 4px" data-tip="Confian&ccedil;a: ${c.data_confidence==='alta'?'Alta — 14+ dias OU R$2.000+ investido':c.data_confidence==='media'?'M&eacute;dia — 7+ dias OU R$500+ investido':'Baixa — menos de 7 dias E menos de R$500'}">${confBadge(c.data_confidence)}</td>
         <td class="tr" data-tip="Gasto: valor total investido neste criativo durante o per&iacute;odo selecionado.">${fmtM(c.spend)}</td>
         <td class="tr" data-tip="${isNutricao()?'ThruPlays: visualizacoes completas do video':(isLeadCapture()?'Leads captados por este criativo':'Compras atribuidas a este criativo pelo pixel da Meta.')}" style="font-weight:600">${fmt(isNutricao()?(c.video_thruplay||0):c.purchases)}</td>
-        <td class="tr" style="color:${rc};font-weight:700" data-tip="ROAS (Return on Ad Spend): quanto o criativo retornou em receita para cada R$ 1 investido.">${fmtR(c.roas)}</td>
+        <td class="tr" data-metric="roas" style="color:${rc};font-weight:700" data-tip="ROAS (Return on Ad Spend): quanto o criativo retornou em receita para cada R$ 1 investido.">${fmtR(c.roas)}</td>
         <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--t3)" data-tip="Campanha de origem: ${c.campaign_name||'--'}">${c.campaign_name||''}</td>
         <td class="tr" data-tip="Gasto 7d: valor investido neste criativo nos &uacute;ltimos 7 dias.">${fmtM(c.spend_7d)}</td>
         <td class="tr" data-tip="${isNutricao()?'ThruPlays 7d: visualizacoes completas nos ultimos 7 dias.':(isLeadCapture()?'Leads nos ultimos 7 dias.':'Compras 7d: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 7 dias.')}">${fmt(isNutricao()?(c.video_thruplay_7d||0):c.purchases_7d)}</td>
-        <td class="tr" style="color:${r7c};font-weight:600" data-tip="ROAS 7d: receita gerada para cada R$ 1 investido neste criativo nos &uacute;ltimos 7 dias.">${fmtR(c.roas_7d)}</td>
+        <td class="tr" data-metric="roas" style="color:${r7c};font-weight:600" data-tip="ROAS 7d: receita gerada para cada R$ 1 investido neste criativo nos &uacute;ltimos 7 dias.">${fmtR(c.roas_7d)}</td>
         <td class="tr" data-tip="Gasto 3d: valor investido neste criativo nos &uacute;ltimos 3 dias.">${fmtM(c.spend_3d)}</td>
         <td class="tr" data-tip="${isNutricao()?'ThruPlays 3d: visualizacoes completas nos ultimos 3 dias.':(isLeadCapture()?'Leads nos ultimos 3 dias.':'Compras 3d: vendas atribu&iacute;das a este criativo nos &uacute;ltimos 3 dias.')}">${fmt(isNutricao()?(c.video_thruplay_3d||0):c.purchases_3d)}</td>
-        <td class="tr" style="color:${r3c};font-weight:600" data-tip="ROAS 3d: receita gerada para cada R$ 1 investido neste criativo nos &uacute;ltimos 3 dias.">${fmtR(c.roas_3d)}</td>
+        <td class="tr" data-metric="roas" style="color:${r3c};font-weight:600" data-tip="ROAS 3d: receita gerada para cada R$ 1 investido neste criativo nos &uacute;ltimos 3 dias.">${fmtR(c.roas_3d)}</td>
         <td data-tip="Tend&ecirc;ncia: dire&ccedil;&atilde;o recente do criativo com base na velocidade de escala (escalando, est&aacute;vel ou caindo).">${c.trend?trendH(c.trend):'--'}</td>
         <td class="tr" style="font-weight:600" data-tip="Score: nota geral calculada a partir de compras, ROAS, gasto e tend&ecirc;ncia. Serve pra comparar criativos rapidamente — quanto maior, melhor.">${fmt(c.score)}</td>
-        <td class="tr" data-tip="CPA (Custo por Aquisi&ccedil;&atilde;o): quanto custou em m&eacute;dia cada compra — gasto dividido pelo n&uacute;mero de compras.">${fmtM(c.cpa)}</td>
+        <td class="tr" data-tip="${isNutricao()?'CPTP: gasto / ThruPlays':(isLeadCapture()?'CPL: gasto / leads':'CPA: gasto / compras')}">${fmtM(isNutricao()?((c.video_thruplay||0)>0?c.spend/c.video_thruplay:0):c.cpa)}</td>
         <td class="tr" data-tip="CTR (Click Through Rate): percentual de pessoas que viram o an&uacute;ncio e clicaram. Mede a atratividade do criativo.">${fmtP(c.ctr)}</td>
         <td class="tr" data-tip="CPM (Custo por Mil impress&otilde;es): quanto custa em m&eacute;dia cada 1.000 exibi&ccedil;&otilde;es do criativo.">${fmtM(c.cpm)}</td>
-        <td class="tr" data-tip="Receita: valor total em reais gerado pelas compras atribu&iacute;das a este criativo.">${fmtM(c.revenue)}</td>
+        <td class="tr" data-metric="revenue" data-tip="Receita: valor total em reais gerado pelas compras atribu&iacute;das a este criativo.">${fmtM(c.revenue)}</td>
         <td class="tr" data-tip="Impress&otilde;es: n&uacute;mero total de vezes que o an&uacute;ncio foi exibido para os usu&aacute;rios.">${fmt(c.impressions)}</td>
         <td class="tr" data-tip="Participa&ccedil;&atilde;o nos &uacute;ltimos 7 dias: percentual do gasto da campanha destinado a este criativo nesse per&iacute;odo." style="color:${sh7.color};font-weight:600">${sh7.arrow} ${c.share_7d||0}%</td>
     </tr>`;
