@@ -793,12 +793,29 @@ def _extract_link_clicks_from_row(row):
     return 0
 
 
+def _extract_results_from_row(row):
+    """Extrai o 'results' da campanha (Meta coluna 'Resultados' do Gerenciador).
+    Retorna a soma dos results de todos os action_types. Cai para link_click se
+    a campanha nao tem results (ex: campanhas antigas ou sem objetivo definido)."""
+    results = row.get("results") or []
+    total = 0
+    for r in results:
+        try:
+            total += int(float(r.get("value", 0) or 0))
+        except Exception:
+            pass
+    if total > 0:
+        return total
+    # Fallback: link_click como proxy de visitas ao perfil
+    return _extract_link_clicks_from_row(row)
+
+
 # Peso relativo de campanhas NAO-Crescimento na atribuicao de seguidores.
-# Campanhas de vendas/leads/comercial tambem "compram" seguidores como efeito
-# colateral, mas sao muito menos eficientes que Crescimento (que otimiza pra isso).
-# Default 0.1 significa: R$1 em outra campanha gera 0.1 seguidor vs 1.0 em Crescimento.
-# Calibrado para bater com os valores do Gerenciador Meta (109k de 125k NET = 87%).
-CRESCIMENTO_NON_CRESCIMENTO_WEIGHT = 0.1
+# Default 0.025 = R$1 em outra campanha gera 0.025 seguidor vs 1.0 em Crescimento.
+# Calibrado pelos dados reais: 109.258 atribuido Meta / 125.381 NET IG = 87%.
+# Valor menor dessa tabela significa que campanhas que nao otimizam seguidor
+# contribuem pouco pro ganho do perfil.
+CRESCIMENTO_NON_CRESCIMENTO_WEIGHT = 0.025
 
 
 def _fetch_account_total_spend(acc_id, date_from, date_to):
@@ -845,45 +862,48 @@ def compute_crescimento_share(crescimento_spend, other_spend,
 
 
 def compute_crescimento_follower_attribution(daily_rows, ig_net_total, crescimento_share=1.0):
-    """Atribuicao de seguidores TOTAL do periodo proporcional a link_clicks agregados.
+    """Atribuicao de seguidores TOTAL proporcional aos 'results' (Visitas ao perfil) de cada campanha.
+
+    Meta UI mostra coluna 'Resultados' com visitas ao perfil do Instagram. Esse numero
+    e mais preciso que link_click (que inclui cliques que vao pra landing pages, nao so
+    pro perfil). A API Meta expoe isso via campo 'results'. Fallback para link_click se
+    results estiver ausente.
 
     ig_net_total: ganho liquido TOTAL do periodo (FOLLOWER - NON_FOLLOWER) do perfil IG
-    crescimento_share: fracao atribuivel a Crescimento (0-1)
+    crescimento_share: fracao do NET atribuivel a Crescimento (0-1)
 
     Para cada campanha:
-      seguidores = ig_net_total * crescimento_share * (link_clicks_camp_total / total_link_clicks_cresc)
+      seguidores = ig_net_total * crescimento_share * (results_camp / total_results_cresc)
 
     Returns: dict {(campaign_id, date): seguidores_atribuidos_float}
-    Obs: tambem distribui uniformemente por dia pra compatibilidade com view diaria.
     """
-    # Agrupa link_clicks por campanha (total do periodo)
-    clicks_by_cid = {}
+    # Agrupa results (visitas ao perfil) por campanha
+    results_by_cid = {}
     days_by_cid = {}
     for row in daily_rows:
         cid = row.get("campaign_id", "")
         d = row.get("date_start", "")
         if not cid or not d:
             continue
-        lc = _extract_link_clicks_from_row(row)
-        clicks_by_cid[cid] = clicks_by_cid.get(cid, 0) + lc
-        days_by_cid.setdefault(cid, []).append((d, lc))
+        r = _extract_results_from_row(row)
+        results_by_cid[cid] = results_by_cid.get(cid, 0) + r
+        days_by_cid.setdefault(cid, []).append((d, r))
 
-    total_clicks = sum(clicks_by_cid.values())
-    if total_clicks <= 0 or ig_net_total <= 0:
+    total_results = sum(results_by_cid.values())
+    if total_results <= 0 or ig_net_total <= 0:
         return {}
 
     gain_for_cresc = ig_net_total * crescimento_share
     attribution = {}
 
-    # Distribui total por campanha, depois entre os dias proporcional aos link_clicks daquele dia
-    for cid, total_cid_clicks in clicks_by_cid.items():
-        if total_cid_clicks <= 0:
+    for cid, total_cid_results in results_by_cid.items():
+        if total_cid_results <= 0:
             continue
-        cid_total_follows = gain_for_cresc * (total_cid_clicks / total_clicks)
-        # Dentro da campanha, distribui por dia proporcional aos clicks do dia
-        for (date, clicks_day) in days_by_cid[cid]:
-            if clicks_day > 0:
-                attribution[(cid, date)] = cid_total_follows * (clicks_day / total_cid_clicks)
+        cid_total_follows = gain_for_cresc * (total_cid_results / total_results)
+        # Dentro da campanha, distribui por dia proporcional aos results do dia
+        for (date, results_day) in days_by_cid[cid]:
+            if results_day > 0:
+                attribution[(cid, date)] = cid_total_follows * (results_day / total_cid_results)
     return attribution
 
 
@@ -1238,7 +1258,7 @@ INSIGHT_FIELDS_DAILY = (
 )
 INSIGHT_FIELDS_DAILY_CAMP = (
     "campaign_id,campaign_name,spend,impressions,clicks,inline_link_clicks,reach,frequency,"
-    "actions,action_values,purchase_roas,date_start"
+    "actions,action_values,purchase_roas,results,date_start"
 )
 
 
@@ -1304,7 +1324,8 @@ def api_campaigns():
                     daily_rows = _fetch_insights_for_tagged_campaigns(
                         sales_campaigns,
                         base_params={
-                            "fields": "campaign_id,date_start,inline_link_clicks,actions,spend",
+                            # 'results' = coluna 'Resultados' do Gerenciador = Visitas ao perfil
+                            "fields": "campaign_id,date_start,inline_link_clicks,actions,spend,results",
                             "time_range": json.dumps({"since": date_from, "until": date_to}),
                             "time_increment": 1,
                             "level": "campaign",
