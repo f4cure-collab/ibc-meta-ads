@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
-from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh
+from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh, log_api_usage, clear_old_usage_logs, get_usage_stats
 from event_grouper import group_campaigns_by_event, _parse_campaign_name as _parse_name
 
 # Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
@@ -32,6 +32,54 @@ app.permanent_session_lifetime = timedelta(hours=12)
 # Atras do NGINX em HTTPS: respeita X-Forwarded-Proto/For/Host
 # para que cookies Secure e url_for funcionem com o esquema correto.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+
+# ── API usage logging (diagnostico) ────────────────────────────────────
+# Registra cada request nos endpoints /api/dashboard/* pra saber quantas
+# chamadas Meta cada um gerou. Dados em cache_manager api_usage_log, TTL 7 dias.
+@app.before_request
+def _usage_before():
+    try:
+        from flask import request as _req
+        # So track /api/dashboard/*
+        if not _req.path.startswith("/api/dashboard/"):
+            return
+        g._usage_start = time.time()
+        g.meta_calls = 0
+        g._usage_track = True
+    except Exception:
+        pass
+
+
+@app.after_request
+def _usage_after(resp):
+    try:
+        if not getattr(g, "_usage_track", False):
+            return resp
+        duration = int((time.time() - g._usage_start) * 1000)
+        meta_calls = getattr(g, "meta_calls", 0) or 0
+        cache_hit = (meta_calls == 0 and resp.status_code == 200)
+        from flask import request as _req
+        endpoint = _req.path
+        camp_type = _req.args.get("camp_type") or getattr(g, "camp_type", None)
+        user = session.get("username") if "session" in globals() else None
+        # Pega pior pct atual (post-request) pra ver impacto
+        try:
+            pct, _ = _worst_usage_pct()
+        except Exception:
+            pct = None
+        log_api_usage(
+            endpoint=endpoint,
+            camp_type=camp_type,
+            meta_calls=meta_calls,
+            cache_hit=cache_hit,
+            duration_ms=duration,
+            user=user,
+            worst_buc_pct=pct,
+        )
+    except Exception as e:
+        print(f"[USAGE LOG HOOK] {e}")
+    return resp
 
 API_VERSION = "v21.0"
 BASE_URL = f"https://graph.facebook.com/{API_VERSION}"
@@ -729,12 +777,25 @@ def get_dashboard_rate_info():
     }
 
 
+def _inc_meta_call_counter():
+    """Incrementa contador de chamadas Meta no contexto da request atual.
+    Usado pelo middleware de logging pra saber quantas chamadas o request
+    gerou. Usa flask.g (thread-safe por request)."""
+    try:
+        from flask import has_request_context
+        if has_request_context():
+            g.meta_calls = (getattr(g, "meta_calls", 0) or 0) + 1
+    except Exception:
+        pass
+
+
 def meta_get(endpoint, params=None):
     _enforce_rate_limit()
     p = {"access_token": TOKEN}
     if params:
         p.update(params)
     resp = requests.get(f"{BASE_URL}/{endpoint}", params=p, timeout=60)
+    _inc_meta_call_counter()
     _update_rate_from_headers(resp)
     data = resp.json()
     if "error" in data:
@@ -1041,6 +1102,7 @@ def meta_get_all_pages(endpoint, params=None, max_retries=3):
         _enforce_rate_limit()
         try:
             resp = requests.get(url, params=p, timeout=60)
+            _inc_meta_call_counter()
             _update_rate_from_headers(resp)
             data = resp.json()
         except Exception as e:
@@ -3745,6 +3807,23 @@ def api_ad_accounts_delete(acc_id):
     return jsonify({"ok": True, "extra_accounts": accounts})
 
 
+# ── Diagnostico de uso de API (historico 7 dias) ──────────────────────
+@app.route("/api/admin/usage-stats")
+def api_admin_usage_stats():
+    """Retorna estatisticas de uso da API dos ultimos N dias.
+    Mostra: top endpoints por chamadas Meta, requests mais pesados,
+    uso por hora nas ultimas 24h, taxa de cache hit."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        days = int(request.args.get("days", "7"))
+        days = max(1, min(days, 30))
+        stats = get_usage_stats(days=days)
+        return jsonify({"ok": True, "data": stats})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 400
+
+
 # ── Campanhas nao identificadas: lista campanhas de TODAS contas/tipos ──
 # ── Diagnostico Crescimento: identifica action_type correto p/ seguidores ──
 @app.route("/api/admin/ig-test")
@@ -4390,6 +4469,8 @@ def _scheduled_refresh():
 
     print(f"[SCHEDULER] Iniciando atualizacao automatica — ranges: {preload_ranges} dias, ate {dt_to}")
     clear_expired()
+    # Limpa logs de uso da API > 7 dias (diagnostico)
+    clear_old_usage_logs(days=7)
 
     with app.test_client() as client:
         # Simular login para acessar endpoints protegidos

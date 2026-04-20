@@ -33,8 +33,117 @@ def _get_db():
             acquired_at TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_usage_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT NOT NULL,
+            endpoint TEXT NOT NULL,
+            camp_type TEXT,
+            meta_calls INTEGER DEFAULT 0,
+            cache_hit INTEGER DEFAULT 0,
+            duration_ms INTEGER,
+            user TEXT,
+            worst_buc_pct INTEGER
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_ts ON api_usage_log(ts)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_api_usage_endpoint ON api_usage_log(endpoint)")
     conn.commit()
     return conn
+
+
+def log_api_usage(endpoint, camp_type=None, meta_calls=0, cache_hit=False, duration_ms=None, user=None, worst_buc_pct=None):
+    """Registra uma chamada ao dashboard pra diagnostico."""
+    try:
+        conn = _get_db()
+        conn.execute(
+            "INSERT INTO api_usage_log (ts, endpoint, camp_type, meta_calls, cache_hit, duration_ms, user, worst_buc_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (datetime.now().isoformat(), endpoint, camp_type, int(meta_calls), 1 if cache_hit else 0, duration_ms, user, worst_buc_pct)
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[USAGE LOG] Erro: {e}")
+
+
+def clear_old_usage_logs(days=7):
+    """Apaga logs de uso com mais de N dias."""
+    try:
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        conn = _get_db()
+        result = conn.execute("DELETE FROM api_usage_log WHERE ts < ?", (cutoff,))
+        rows_deleted = result.rowcount
+        conn.commit()
+        conn.close()
+        if rows_deleted > 0:
+            print(f"[USAGE LOG] Limpei {rows_deleted} registros > {days}d")
+        return rows_deleted
+    except Exception as e:
+        print(f"[USAGE LOG] Erro no cleanup: {e}")
+        return 0
+
+
+def get_usage_stats(days=7):
+    """Retorna estatisticas agregadas dos ultimos N dias."""
+    try:
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        conn = _get_db()
+        # Top endpoints por chamadas Meta
+        by_endpoint = conn.execute("""
+            SELECT endpoint,
+                   COUNT(*) as hits,
+                   SUM(meta_calls) as total_calls,
+                   SUM(cache_hit) as cache_hits,
+                   AVG(duration_ms) as avg_ms,
+                   MAX(duration_ms) as max_ms
+            FROM api_usage_log
+            WHERE ts >= ?
+            GROUP BY endpoint
+            ORDER BY total_calls DESC
+            LIMIT 30
+        """, (cutoff,)).fetchall()
+
+        # Requests mais pesados
+        heaviest = conn.execute("""
+            SELECT ts, endpoint, camp_type, meta_calls, duration_ms, user, worst_buc_pct
+            FROM api_usage_log
+            WHERE ts >= ? AND cache_hit = 0
+            ORDER BY meta_calls DESC, duration_ms DESC
+            LIMIT 20
+        """, (cutoff,)).fetchall()
+
+        # Uso por hora do dia (ultimas 24h)
+        cutoff_24h = (datetime.now() - timedelta(hours=24)).isoformat()
+        hourly = conn.execute("""
+            SELECT substr(ts, 1, 13) as hour,
+                   COUNT(*) as requests,
+                   SUM(meta_calls) as calls
+            FROM api_usage_log
+            WHERE ts >= ?
+            GROUP BY hour
+            ORDER BY hour
+        """, (cutoff_24h,)).fetchall()
+
+        # Totais
+        totals = conn.execute("""
+            SELECT COUNT(*) as total_requests,
+                   SUM(meta_calls) as total_meta_calls,
+                   SUM(cache_hit) as total_cache_hits
+            FROM api_usage_log
+            WHERE ts >= ?
+        """, (cutoff,)).fetchone()
+
+        conn.close()
+        return {
+            "by_endpoint": [dict(zip([d[0] for d in [("endpoint",), ("hits",), ("total_calls",), ("cache_hits",), ("avg_ms",), ("max_ms",)]], r)) for r in by_endpoint],
+            "heaviest": [dict(zip([d[0] for d in [("ts",), ("endpoint",), ("camp_type",), ("meta_calls",), ("duration_ms",), ("user",), ("worst_buc_pct",)]], r)) for r in heaviest],
+            "hourly": [dict(zip(["hour", "requests", "calls"], r)) for r in hourly],
+            "totals": dict(zip(["total_requests", "total_meta_calls", "total_cache_hits"], totals or (0, 0, 0))),
+            "period_days": days,
+        }
+    except Exception as e:
+        print(f"[USAGE LOG] Erro stats: {e}")
+        return {"error": str(e)}
 
 
 def try_acquire_scheduler_lock(name, max_age_hours=0.25):

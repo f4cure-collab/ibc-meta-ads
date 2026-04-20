@@ -81,6 +81,7 @@
         body[data-adm-active="users"]    [data-adm-section]:not([data-adm-section="users"])   {display:none !important}
         body[data-adm-active="system"]   [data-adm-section]:not([data-adm-section="system"])  {display:none !important}
         body[data-adm-active="campaigns"] [data-adm-section]:not([data-adm-section="campaigns"]){display:none !important}
+        body[data-adm-active="usage"]    [data-adm-section]:not([data-adm-section="usage"])   {display:none !important}
         body[data-adm-active="help"]     [data-adm-section]:not([data-adm-section="help"])    {display:none !important}
     </style>
 </head>
@@ -98,6 +99,7 @@
         <button class="adm-nav-btn" data-adm-tab="users">Usuarios</button>
         <button class="adm-nav-btn" data-adm-tab="system" data-super-only>Sistema</button>
         <button class="adm-nav-btn" data-adm-tab="campaigns" data-super-only>Campanhas</button>
+        <button class="adm-nav-btn" data-adm-tab="usage" data-super-only>Diagnostico API</button>
         <button class="adm-nav-btn" data-adm-tab="help">Ajuda</button>
     </div>
 
@@ -334,6 +336,72 @@
                 <button class="btn" style="background:#2a2a4a;color:#ccc;" onclick="closeAllocateModal()">Cancelar</button>
             </div>
             <div class="alert alert-error" id="allocErr"></div>
+        </div>
+    </div>
+
+    <!-- Diagnostico de uso da API Meta (historico 7 dias) -->
+    <div class="card" data-adm-section="usage" style="display:none;">
+        <h2>Diagnostico de Uso da API</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:16px;">
+            Historico dos ultimos 7 dias de chamadas ao dashboard — mostra
+            quais endpoints consomem mais da API Meta e quanto e servido do cache.
+            Registros antigos sao apagados automaticamente.
+        </p>
+
+        <div id="usageOverview" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;">
+            <div class="stat-card" style="background:#1a1d24;padding:14px;border-radius:8px;border:1px solid #2a2e36;">
+                <div style="color:#888;font-size:11px;text-transform:uppercase;">Total Requests</div>
+                <div id="usgTotalReq" style="font-size:22px;font-weight:700;color:#fff;margin-top:4px;">--</div>
+            </div>
+            <div class="stat-card" style="background:#1a1d24;padding:14px;border-radius:8px;border:1px solid #2a2e36;">
+                <div style="color:#888;font-size:11px;text-transform:uppercase;">Chamadas Meta</div>
+                <div id="usgTotalMeta" style="font-size:22px;font-weight:700;color:#ff9558;margin-top:4px;">--</div>
+            </div>
+            <div class="stat-card" style="background:#1a1d24;padding:14px;border-radius:8px;border:1px solid #2a2e36;">
+                <div style="color:#888;font-size:11px;text-transform:uppercase;">Cache Hit Rate</div>
+                <div id="usgCacheHit" style="font-size:22px;font-weight:700;color:#3fdf85;margin-top:4px;">--</div>
+            </div>
+            <div class="stat-card" style="background:#1a1d24;padding:14px;border-radius:8px;border:1px solid #2a2e36;">
+                <div style="color:#888;font-size:11px;text-transform:uppercase;">Periodo</div>
+                <div id="usgPeriod" style="font-size:16px;font-weight:700;color:#58a6ff;margin-top:4px;">ultimos 7 dias</div>
+            </div>
+        </div>
+
+        <button class="btn" id="btnReloadUsage" style="margin-bottom:16px;">Recarregar</button>
+
+        <h3 style="color:#fff;font-size:15px;margin:20px 0 10px;">Top Endpoints por Chamadas Meta</h3>
+        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead style="background:#1a1d24;">
+                    <tr style="color:#aaa;text-align:left;">
+                        <th style="padding:10px;">Endpoint</th>
+                        <th style="padding:10px;text-align:right;">Hits</th>
+                        <th style="padding:10px;text-align:right;">Calls Meta</th>
+                        <th style="padding:10px;text-align:right;">Cache Hits</th>
+                        <th style="padding:10px;text-align:right;">Media (ms)</th>
+                        <th style="padding:10px;text-align:right;">Max (ms)</th>
+                    </tr>
+                </thead>
+                <tbody id="usgEndpointTbody"></tbody>
+            </table>
+        </div>
+
+        <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">Requests Mais Pesados (cache miss)</h3>
+        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead style="background:#1a1d24;">
+                    <tr style="color:#aaa;text-align:left;">
+                        <th style="padding:10px;">Quando</th>
+                        <th style="padding:10px;">Endpoint</th>
+                        <th style="padding:10px;">Tipo</th>
+                        <th style="padding:10px;text-align:right;">Calls</th>
+                        <th style="padding:10px;text-align:right;">Duracao</th>
+                        <th style="padding:10px;text-align:right;">BUC%</th>
+                        <th style="padding:10px;">Usuario</th>
+                    </tr>
+                </thead>
+                <tbody id="usgHeaviestTbody"></tbody>
+            </table>
         </div>
     </div>
 
@@ -1402,6 +1470,7 @@ function hide(id) { document.getElementById(id).style.display='none'; }
             b.classList.toggle('active', b.getAttribute('data-adm-tab') === tab);
         });
         localStorage.setItem('admActiveTab', tab);
+        if (tab === 'usage') loadUsageStats();
     }
     setActive(saved);
     document.querySelectorAll('.adm-nav-btn').forEach(function(b){
@@ -1410,6 +1479,64 @@ function hide(id) { document.getElementById(id).style.display='none'; }
         });
     });
 })();
+
+// ── Diagnostico de uso da API ──
+function fmtNum(n) { return (n||0).toLocaleString('pt-BR'); }
+function fmtPct(v) { return (v||0).toFixed(1) + '%'; }
+function fmtTs(ts) {
+    if (!ts) return '--';
+    try {
+        var d = new Date(ts);
+        return d.toLocaleDateString('pt-BR') + ' ' + d.toTimeString().slice(0,5);
+    } catch(e) { return ts; }
+}
+async function loadUsageStats() {
+    try {
+        var r = await fetch('/api/admin/usage-stats?days=7');
+        var d = await r.json();
+        if (!d.ok) {
+            document.getElementById('usgTotalReq').textContent = 'erro';
+            return;
+        }
+        var s = d.data || {};
+        var tot = s.totals || {};
+        document.getElementById('usgTotalReq').textContent = fmtNum(tot.total_requests);
+        document.getElementById('usgTotalMeta').textContent = fmtNum(tot.total_meta_calls);
+        var hitRate = tot.total_requests > 0 ? (tot.total_cache_hits / tot.total_requests * 100) : 0;
+        document.getElementById('usgCacheHit').textContent = fmtPct(hitRate);
+        document.getElementById('usgPeriod').textContent = 'ultimos ' + (s.period_days || 7) + ' dias';
+
+        var byEp = s.by_endpoint || [];
+        document.getElementById('usgEndpointTbody').innerHTML = byEp.map(function(row){
+            var hitPct = row.hits > 0 ? (row.cache_hits / row.hits * 100).toFixed(0) + '%' : '--';
+            return '<tr style="border-top:1px solid #2a2e36;color:#ddd;">' +
+                '<td style="padding:8px 10px;font-family:monospace;">' + (row.endpoint||'') + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;">' + fmtNum(row.hits) + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;color:#ff9558;font-weight:600;">' + fmtNum(row.total_calls) + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;color:#3fdf85;">' + fmtNum(row.cache_hits) + ' (' + hitPct + ')</td>' +
+                '<td style="padding:8px 10px;text-align:right;">' + Math.round(row.avg_ms||0) + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;color:#888;">' + Math.round(row.max_ms||0) + '</td>' +
+                '</tr>';
+        }).join('') || '<tr><td colspan="6" style="padding:20px;text-align:center;color:#666;">Nenhum dado ainda.</td></tr>';
+
+        var heavy = s.heaviest || [];
+        document.getElementById('usgHeaviestTbody').innerHTML = heavy.map(function(row){
+            return '<tr style="border-top:1px solid #2a2e36;color:#ddd;">' +
+                '<td style="padding:8px 10px;color:#888;">' + fmtTs(row.ts) + '</td>' +
+                '<td style="padding:8px 10px;font-family:monospace;font-size:11px;">' + (row.endpoint||'') + '</td>' +
+                '<td style="padding:8px 10px;">' + (row.camp_type||'--') + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;color:#ff9558;font-weight:600;">' + fmtNum(row.meta_calls) + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;">' + Math.round(row.duration_ms||0) + ' ms</td>' +
+                '<td style="padding:8px 10px;text-align:right;">' + (row.worst_buc_pct!=null?row.worst_buc_pct+'%':'--') + '</td>' +
+                '<td style="padding:8px 10px;color:#888;">' + (row.user||'--') + '</td>' +
+                '</tr>';
+        }).join('') || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#666;">Nenhum request pesado registrado.</td></tr>';
+    } catch(e) {
+        console.error('usage-stats:', e);
+    }
+}
+var _btnReloadUsage = document.getElementById('btnReloadUsage');
+if (_btnReloadUsage) _btnReloadUsage.addEventListener('click', loadUsageStats);
 
 loadAll();
 </script>
