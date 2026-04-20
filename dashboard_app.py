@@ -4424,19 +4424,70 @@ def _scheduled_refresh():
     print(f"[SCHEDULER] Atualizacao completa! Tudo cacheado ate {datetime.now().strftime('%H:%M')}")
 
 
-def _refresh_recent_loop():
-    """Thread separada que revalida o cache dos ranges recentes ao longo do dia.
-
-    Ciclo de 30min para garantir que 1d (TTL=36min) nunca expire entre refreshes.
-    Ranges maiores (7d/14d/30d) so sao refreshados a cada 4 ciclos (~2h) pois
-    seus TTLs sao maiores (3h/8h/20h).
-
-    Historico do problema: TTL 1d=30min com ciclo 2h deixava o cache vazio por
-    ~1h30 entre refreshes — usuario abria de manha e dados nao estavam cacheados."""
+def _warmup_camp_type(ct, days_list, dt_to):
+    """Warmup de todos os endpoints cacheaveis de UM camp_type.
+    Usado em paralelo (1 thread por tipo) pra popular cache mais rapido
+    apos boot/bump de versao de cache."""
     now_br = _now_br
-    # Primeira execucao 10s apos boot para popular o cache imediatamente
-    time.sleep(10)
-    iteration = 0
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["username"] = SUPER_ADMIN_EMAIL
+            sess["role"] = "super_admin"
+        for days in days_list:
+            dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
+            try:
+                k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
+                k_daily = f"daily_summary_v4_{ct}_all_{dt_from}_{dt_to}"
+                k_creat = f"all_creatives_{ct}_active_{dt_from}_{dt_to}"
+                base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
+
+                if should_refresh(k_camp):
+                    print(f"[WARMUP-{ct}] campaigns {days}d")
+                    client.get(f"/api/dashboard/campaigns?{base}&camp_status=all")
+                    time.sleep(2)
+                if should_refresh(k_daily):
+                    print(f"[WARMUP-{ct}] daily_summary {days}d")
+                    client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all")
+                    time.sleep(2)
+                if should_refresh(k_creat):
+                    print(f"[WARMUP-{ct}] all_creatives {days}d")
+                    client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active")
+                    time.sleep(3)
+            except Exception as e:
+                print(f"[WARMUP-{ct}] Erro {days}d: {e}")
+
+
+def _refresh_recent_loop():
+    """Thread que revalida o cache dos ranges recentes ao longo do dia.
+
+    Primeira execucao: warmup PARALELO (1 thread por camp_type) pra encher
+    o cache rapido apos boot — evita primeira carga lenta do dia em qualquer
+    tipo. Depois, ciclos de 30min sequenciais pra manter o 1d fresco.
+
+    Ranges maiores (7d/14d/30d) refresh a cada 4 ciclos (~2h) pois TTLs
+    sao maiores (3h/8h/20h)."""
+    now_br = _now_br
+    # Warmup paralelo logo apos boot (5s de buffer pro app acabar de subir)
+    time.sleep(5)
+    try:
+        refresh_scheduler_lock("refresh_recent")
+        dt_to = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
+        print(f"[WARMUP] Iniciando warmup paralelo dos {len(VALID_CAMP_TYPES)} tipos — {datetime.now().strftime('%H:%M')}")
+        initial_ranges = [1, 7, 14, 30]
+        warmup_threads = []
+        for ct in VALID_CAMP_TYPES:
+            t = threading.Thread(target=_warmup_camp_type, args=(ct, initial_ranges, dt_to), daemon=True)
+            t.start()
+            warmup_threads.append(t)
+        # Aguarda todos terminarem antes de entrar no ciclo normal
+        for t in warmup_threads:
+            t.join(timeout=180)  # 3min por tipo — evita travar eternamente
+        print(f"[WARMUP] Concluido em {datetime.now().strftime('%H:%M')}")
+    except Exception as e:
+        print(f"[WARMUP] Erro inicial: {e}")
+
+    iteration = 1  # ja fizemos o warmup inicial (= iteration 0)
     while True:
         try:
             refresh_scheduler_lock("refresh_recent")
@@ -4453,8 +4504,6 @@ def _refresh_recent_loop():
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
-                            # Chaves de cache correspondentes (matching backend logic).
-                            # Pula requisicao se cache ainda tem >40% do TTL original.
                             k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                             k_daily = f"daily_summary_v4_{ct}_all_{dt_from}_{dt_to}"
                             k_creat = f"all_creatives_{ct}_active_{dt_from}_{dt_to}"
