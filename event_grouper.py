@@ -199,7 +199,8 @@ def _parse_campaign_name(name):
 
     # Nutricao: agrupa por cidade (pode ter sub-evento DSP/SPK mas a cidade
     # e o principal agrupador — mesma logica de Crescimento).
-    if "NUTRICAO" in tokens_split:
+    # ENGAJAMENTO tambem entra aqui (campanhas de video pra engajamento).
+    if "NUTRICAO" in tokens_split or "ENGAJAMENTO" in tokens_split:
         name_norm = name_upper.replace("-", "_").replace(".", "_")
         best_city = None
         best_key = None

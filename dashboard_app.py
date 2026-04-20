@@ -426,11 +426,11 @@ def _is_crescimento_campaign(name):
 
 
 def _is_nutricao_campaign(name):
-    """True se o nome contem token NUTRICAO em qualquer posicao.
-    Campanhas NUTRICAO otimizam para video view (ThruPlay), nao gera lead/venda.
-    Padrao: NUTRICAO_<EVENT>_<CIDADE>_<SUFIX> ou M.M_NUTRICAO_<CIDADE>_<EVENT>."""
+    """True se o nome contem token NUTRICAO OU ENGAJAMENTO em qualquer posicao.
+    Campanhas de video otimizando pra ThruPlay — agrupadas sob Nutricao.
+    Padroes: NUTRICAO_<EVENT>_<CIDADE>_<SUFIX>, M.M_NUTRICAO_..., ENGAJAMENTO_*"""
     tokens = _name_tokens(name)
-    return "NUTRICAO" in tokens
+    return "NUTRICAO" in tokens or "ENGAJAMENTO" in tokens
 
 
 def _is_comercial_campaign(name):
