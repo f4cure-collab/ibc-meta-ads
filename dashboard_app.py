@@ -2813,7 +2813,7 @@ def api_breakdowns():
             return blocked
         campaign_id = request.args.get("campaign_id", "")
 
-        cache_key = f"breakdowns_v4_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"breakdowns_v5_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         cached = get_cached(cache_key)
         if cached:
             return jsonify(cached)
@@ -2903,7 +2903,19 @@ def api_breakdowns():
         crescimento_total_pv = 0
         crescimento_total_seguidores = 0
         if camp_type == CAMP_TYPE_CRESCIMENTO and total_spend > 0:
-            crescimento_total_pv = sum(_extract_profile_visits_from_row(r) for r in totals_data)
+            # Consulta dedicada em level=campaign: o campo 'results' so vem
+            # populado nesse nivel (em level=account ele some). Sem isso,
+            # crescimento_total_pv ficava em 0 e atribuicao nao distribuia nada.
+            try:
+                pv_rows = meta_get_all_pages(endpoint, {
+                    **base_params,
+                    "fields": "spend,actions,results",
+                    "level": "campaign",
+                })
+                crescimento_total_pv = sum(_extract_profile_visits_from_row(r) for r in pv_rows)
+            except Exception as e:
+                print(f"[BREAKDOWNS crescimento pv] Falha: {e}")
+                crescimento_total_pv = sum(_extract_profile_visits_from_row(r) for r in totals_data)
             try:
                 ig_follower, ig_non = fetch_ig_follower_gain_total(IG_PROFILE_ID_JRM, date_from, date_to)
                 ig_net = max(0, ig_follower - ig_non)
