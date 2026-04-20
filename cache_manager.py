@@ -80,6 +80,26 @@ def log_api_usage(endpoint, camp_type=None, meta_calls=0, cache_hit=False, durat
         print(f"[USAGE LOG] Erro: {e}")
 
 
+def get_api_calls_for_user(user_email, days=7, limit=500):
+    """Retorna chamadas de API de um usuario especifico nos ultimos N dias.
+    Ordenado do mais recente pro mais antigo. Exclui calls automaticas."""
+    try:
+        cutoff = (datetime.now(_BR_TZ).replace(tzinfo=None) - timedelta(days=days)).isoformat()
+        conn = _get_db()
+        rows = conn.execute("""
+            SELECT ts, endpoint, camp_type, meta_calls, cache_hit, duration_ms, worst_buc_pct
+            FROM api_usage_log
+            WHERE user = ? AND ts >= ?
+            ORDER BY ts DESC
+            LIMIT ?
+        """, (user_email, cutoff, limit)).fetchall()
+        conn.close()
+        return [dict(zip(["ts", "endpoint", "camp_type", "meta_calls", "cache_hit", "duration_ms", "worst_buc_pct"], r)) for r in rows]
+    except Exception as e:
+        print(f"[USAGE LOG] Erro get_api_calls_for_user: {e}")
+        return []
+
+
 def clear_old_usage_logs(days=7):
     """Apaga logs de uso com mais de N dias (comparacao em fuso BR)."""
     try:

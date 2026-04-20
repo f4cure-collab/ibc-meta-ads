@@ -911,7 +911,17 @@ function formatDuration(seconds) {
     return h + 'h ' + rm + 'min';
 }
 
+var _userLogEmail = '';
+var _userLogFilter = 'all';
+
 async function viewLog(email) {
+    _userLogEmail = email;
+    _userLogFilter = 'all';
+    await renderUserLog();
+}
+
+async function renderUserLog() {
+    var email = _userLogEmail;
     var user = _allUsers.find(function(u){return u.email===email;}) || {};
     document.getElementById('userLogSubtitle').textContent = (user.name ? user.name + ' (' + email + ')' : email);
     var content = document.getElementById('userLogContent');
@@ -929,11 +939,58 @@ async function viewLog(email) {
     }
 
     try {
-        var r = await fetch('/api/admin/users/' + encodeURIComponent(email) + '/log');
+        var r = await fetch('/api/admin/users/' + encodeURIComponent(email) + '/log?filter=' + encodeURIComponent(_userLogFilter));
         var d = await r.json();
         if (!d.ok) { content.innerHTML = '<div style="color:#f44336;padding:16px;">Erro: ' + d.error + '</div>'; return; }
         var blocks = d.blocks || [];
-        if (!blocks.length) { content.innerHTML = '<div style="color:#888;text-align:center;padding:24px;">Sem registros de atividade.</div>'; return; }
+        var events = d.events || [];
+
+        // Topo: filtros
+        var filterBar = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center;">'
+            + '<span style="color:#888;font-size:11px;">Mostrar:</span>'
+            + ['all','login','api','away'].map(function(f){
+                var labels = {all:'Tudo', login:'Logins', api:'Chamadas API', away:'Ausencias'};
+                var active = _userLogFilter===f;
+                return '<button onclick="_userLogFilter=\''+f+'\';renderUserLog()" style="background:'+(active?'#4f8cff':'transparent')+';color:'+(active?'#fff':'#aaa')+';border:1px solid '+(active?'#4f8cff':'#333')+';padding:5px 12px;border-radius:6px;font-size:11px;cursor:pointer;">'+labels[f]+'</button>';
+            }).join('')
+            + '</div>';
+
+        // Se filtro != all, mostra apenas a timeline de eventos
+        if (_userLogFilter !== 'all') {
+            if (!events.length) { content.innerHTML = filterBar + '<div style="color:#888;text-align:center;padding:24px;">Nenhum evento deste tipo.</div>'; return; }
+            var evHtml = filterBar + '<table style="width:100%;font-size:12px;"><thead><tr>'
+                + '<th style="text-align:left;padding:5px 8px;color:#888;font-size:10px;">QUANDO</th>'
+                + '<th style="text-align:left;padding:5px 8px;color:#888;font-size:10px;">TIPO</th>'
+                + '<th style="text-align:left;padding:5px 8px;color:#888;font-size:10px;">DETALHES</th>'
+                + '</tr></thead><tbody>';
+            events.forEach(function(e){
+                var detail = '';
+                var label = '';
+                if (e.kind === 'login') {
+                    label = e.event === 'login' ? '<span style="color:#4caf50;">login</span>'
+                          : e.event === 'logout' ? '<span style="color:#ff9558;">logout</span>'
+                          : '<span style="color:#888;">heartbeat</span>';
+                    detail = e.ip ? '<span style="font-family:monospace;color:#666;">'+e.ip+'</span>' : '';
+                } else if (e.kind === 'api') {
+                    label = e.cache_hit ? '<span style="color:#3fdf85;">api (cache)</span>' : '<span style="color:#ff9558;">api (meta)</span>';
+                    detail = '<span style="font-family:monospace;font-size:10px;">'+(e.endpoint||'')+'</span>'
+                           + (e.camp_type ? ' <span style="color:#888;">['+e.camp_type+']</span>' : '')
+                           + ' <span style="color:#888;">· '+(e.meta_calls||0)+' calls · '+(e.duration_ms||0)+' ms</span>';
+                } else if (e.kind === 'away') {
+                    label = '<span style="color:#bc8cff;">ausente</span>';
+                    detail = 'por ' + formatDuration(e.duration_seconds||0);
+                }
+                evHtml += '<tr><td style="padding:4px 8px;color:#aaa;border-bottom:1px solid #1a1a3e;">'+fmtTime(e.ts)+'</td>'
+                    + '<td style="padding:4px 8px;border-bottom:1px solid #1a1a3e;">'+label+'</td>'
+                    + '<td style="padding:4px 8px;border-bottom:1px solid #1a1a3e;">'+detail+'</td></tr>';
+            });
+            evHtml += '</tbody></table>';
+            content.innerHTML = evHtml;
+            return;
+        }
+
+        // Filtro 'all': modo blocos (resumo por sessao)
+        if (!blocks.length) { content.innerHTML = filterBar + '<div style="color:#888;text-align:center;padding:24px;">Sem registros de atividade.</div>'; return; }
 
         // Agrupa blocos por dia (horario de Brasilia)
         var byDay = {};
@@ -944,7 +1001,7 @@ async function viewLog(email) {
             byDay[day].push(b);
         });
 
-        var html = '';
+        var html = filterBar;
         dayOrder.forEach(function(day) {
             var dayBlocks = byDay[day];
             // Tempo total ativo no dia

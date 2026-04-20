@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
-from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh, log_api_usage, clear_old_usage_logs, get_usage_stats
+from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh, log_api_usage, clear_old_usage_logs, get_usage_stats, get_api_calls_for_user
 from event_grouper import group_campaigns_by_event, _parse_campaign_name as _parse_name
 
 # Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
@@ -3549,7 +3549,67 @@ def api_user_log(email):
         })
 
     blocks.sort(key=lambda b: b.get("start") or "", reverse=True)
-    return jsonify({"ok": True, "blocks": blocks[:60]})
+
+    # Timeline detalhado: fusiona login/logout/heartbeat + API calls + gaps de ausencia.
+    # Aceita filter=all|login|api|away pra o frontend.
+    filter_kind = (request.args.get("filter") or "all").lower()
+    events = []
+
+    # 1) Eventos do activity_log (login/logout/heartbeat)
+    for ev in user_events[-500:]:  # cap pra nao inchar resposta
+        ev_type = ev.get("event") or "heartbeat"
+        kind = "login" if ev_type in ("login", "logout") else "heartbeat"
+        events.append({
+            "ts": ev.get("ts", ""),
+            "kind": kind,
+            "event": ev_type,
+            "ip": ev.get("ip", ""),
+        })
+
+    # 2) Chamadas de API do usuario (via api_usage_log)
+    api_calls = get_api_calls_for_user(email, days=7, limit=500)
+    for c in api_calls:
+        events.append({
+            "ts": c.get("ts", ""),
+            "kind": "api",
+            "endpoint": c.get("endpoint", ""),
+            "camp_type": c.get("camp_type"),
+            "meta_calls": c.get("meta_calls", 0),
+            "cache_hit": bool(c.get("cache_hit")),
+            "duration_ms": c.get("duration_ms"),
+            "worst_buc_pct": c.get("worst_buc_pct"),
+        })
+
+    # 3) Periodos de ausencia (gaps >15min entre atividades consecutivas)
+    all_ts = sorted(
+        [e.get("ts") for e in user_events if e.get("ts")]
+        + [c.get("ts") for c in api_calls if c.get("ts")]
+    )
+    AWAY_THRESHOLD = 15 * 60
+    for i in range(1, len(all_ts)):
+        try:
+            dp = datetime.fromisoformat(all_ts[i-1].replace("Z", "+00:00"))
+            dc = datetime.fromisoformat(all_ts[i].replace("Z", "+00:00"))
+            gap = (dc - dp).total_seconds()
+            if gap > AWAY_THRESHOLD:
+                events.append({
+                    "ts": all_ts[i-1],
+                    "kind": "away",
+                    "duration_seconds": int(gap),
+                    "end_ts": all_ts[i],
+                })
+        except Exception:
+            pass
+
+    # Aplica filtro
+    if filter_kind != "all":
+        events = [e for e in events if e.get("kind") == filter_kind]
+
+    # Ordena mais recente primeiro
+    events.sort(key=lambda e: e.get("ts") or "", reverse=True)
+    events = events[:300]  # cap de resposta
+
+    return jsonify({"ok": True, "blocks": blocks[:60], "events": events, "filter": filter_kind})
 
 
 @app.route("/api/admin/preview-as", methods=["POST"])
