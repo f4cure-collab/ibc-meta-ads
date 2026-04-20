@@ -793,20 +793,68 @@ def _extract_link_clicks_from_row(row):
     return 0
 
 
-def compute_crescimento_follower_attribution(daily_rows, ig_gains_by_day):
-    """Atribuicao de seguidores a campanhas proporcional a link_clicks.
+# Peso relativo de campanhas NAO-Crescimento na atribuicao de seguidores.
+# Campanhas de vendas/leads/comercial tambem "compram" seguidores como efeito
+# colateral, mas sao muito menos eficientes que Crescimento (que otimiza pra isso).
+# Default 0.1 significa: R$1 em outra campanha gera 0.1 seguidor vs 1.0 em Crescimento.
+# Calibrado para bater com os valores do Gerenciador Meta (109k de 125k NET = 87%).
+CRESCIMENTO_NON_CRESCIMENTO_WEIGHT = 0.1
+
+
+def _fetch_account_total_spend(acc_id, date_from, date_to):
+    """Retorna gasto total de UMA conta no periodo (todas campanhas, todos tipos).
+    Cache interno via cache_manager — TTL 20min."""
+    cache_key = f"account_total_spend_{acc_id}_{date_from}_{date_to}"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        rows = meta_get_all_pages(f"{acc_id}/insights", {
+            "fields": "spend",
+            "time_range": json.dumps({"since": date_from, "until": date_to}),
+            "level": "account",
+        })
+        total = sum(float(r.get("spend", 0) or 0) for r in rows)
+    except Exception as e:
+        print(f"[ACCOUNT-SPEND] Erro {acc_id}: {e}")
+        total = 0
+    set_cached(cache_key, total, ttl_hours=0.33)
+    return total
+
+
+def _fetch_total_spend_all_accounts(account_ids, date_from, date_to):
+    """Soma gasto total de multiplas contas."""
+    total = 0
+    for acc in account_ids:
+        total += _fetch_account_total_spend(acc, date_from, date_to)
+    return total
+
+
+def compute_crescimento_share(crescimento_spend, other_spend,
+                              non_cresc_weight=CRESCIMENTO_NON_CRESCIMENTO_WEIGHT):
+    """Fracao dos seguidores totais que sao atribuiveis a campanhas de Crescimento.
+
+    crescimento_spend conta 1.0; outras campanhas contam non_cresc_weight (default 0.1).
+    Retorna valor entre 0 e 1."""
+    cresc_eff = crescimento_spend * 1.0
+    other_eff = other_spend * non_cresc_weight
+    total_eff = cresc_eff + other_eff
+    if total_eff <= 0:
+        return 1.0
+    return cresc_eff / total_eff
+
+
+def compute_crescimento_follower_attribution(daily_rows, ig_gains_by_day, crescimento_share=1.0):
+    """Atribuicao de seguidores a campanhas de Crescimento proporcional a link_clicks.
 
     Para cada dia:
-      seguidores_campanha = ganho_dia_IG * (link_clicks_campanha / total_link_clicks_dia)
+      seguidores_campanha = ganho_dia_IG * crescimento_share * (link_clicks_camp / total_link_clicks_dia)
 
-    Args:
-        daily_rows: rows da Meta Marketing API com time_increment=1, cada row = 1 (campanha,dia)
-        ig_gains_by_day: dict {date_str: ganho_liquido_seguidores} da IG API
+    crescimento_share (0-1): fracao do NET total IG que vem de ads de Crescimento.
+    Campanhas de outros tipos levam (1-share) do NET para seus side-effects + organico.
 
-    Returns:
-        dict {(campaign_id, date): seguidores_atribuidos_float}
+    Returns: dict {(campaign_id, date): seguidores_atribuidos_float}
     """
-    # Agrupa por data
     by_date = {}
     for row in daily_rows:
         d = row.get("date_start", "")
@@ -820,13 +868,15 @@ def compute_crescimento_follower_attribution(daily_rows, ig_gains_by_day):
         gain = ig_gains_by_day.get(date, 0)
         if gain <= 0:
             continue
+        # Aplica share: so distribuimos a parte atribuivel a Crescimento
+        gain_cresc = gain * crescimento_share
         click_by_cid = {r.get("campaign_id"): _extract_link_clicks_from_row(r) for r in rows}
         total_clicks = sum(click_by_cid.values())
         if total_clicks <= 0:
             continue
         for cid, clicks in click_by_cid.items():
             if clicks > 0:
-                attribution[(cid, date)] = gain * (clicks / total_clicks)
+                attribution[(cid, date)] = gain_cresc * (clicks / total_clicks)
     return attribution
 
 
@@ -1237,7 +1287,7 @@ def api_campaigns():
 
         # 2b. Crescimento: sobrescreve 'purchases' com seguidores atribuidos do IG
         # (Meta Marketing API nao expoe follow por campanha — usamos IG Graph API
-        # com atribuicao proporcional por link_click)
+        # com atribuicao proporcional por link_click, ponderada por gasto total)
         if camp_type == CAMP_TYPE_CRESCIMENTO:
             try:
                 ig_gains = fetch_ig_follower_gain_by_day(IG_PROFILE_ID_JRM, date_from, date_to)
@@ -1252,7 +1302,15 @@ def api_campaigns():
                             "limit": 500,
                         }
                     )
-                    attribution = compute_crescimento_follower_attribution(daily_rows, ig_gains)
+                    # Ponderacao: calcula share de Crescimento vs total da conta
+                    crescimento_spend = sum(float(r.get("spend", 0) or 0) for r in daily_rows)
+                    accounts = _get_accounts_for_type(camp_type)
+                    total_account_spend = _fetch_total_spend_all_accounts(accounts, date_from, date_to)
+                    other_spend = max(0, total_account_spend - crescimento_spend)
+                    cresc_share = compute_crescimento_share(crescimento_spend, other_spend)
+                    attribution = compute_crescimento_follower_attribution(
+                        daily_rows, ig_gains, crescimento_share=cresc_share
+                    )
                     # Agrega por campanha e injeta em insights_map
                     total_by_camp = {}
                     for (cid, _d), v in attribution.items():
@@ -1488,13 +1546,20 @@ def api_campaigns_multi_insights():
             extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
         )
 
-        # Crescimento: calcula atribuicao diaria de seguidores (IG API + link_click)
+        # Crescimento: calcula atribuicao diaria de seguidores (IG API + link_click + share)
         crescimento_attr = {}
         if camp_type == CAMP_TYPE_CRESCIMENTO:
             try:
                 ig_gains = fetch_ig_follower_gain_by_day(IG_PROFILE_ID_JRM, date_from, date_to)
                 if ig_gains:
-                    crescimento_attr = compute_crescimento_follower_attribution(rows, ig_gains)
+                    cresc_spend = sum(float(r.get("spend", 0) or 0) for r in rows)
+                    accounts = _get_accounts_for_type(camp_type)
+                    total_spend = _fetch_total_spend_all_accounts(accounts, date_from, date_to)
+                    other_spend = max(0, total_spend - cresc_spend)
+                    cresc_share = compute_crescimento_share(cresc_spend, other_spend)
+                    crescimento_attr = compute_crescimento_follower_attribution(
+                        rows, ig_gains, crescimento_share=cresc_share
+                    )
             except Exception as e:
                 print(f"[CRESCIMENTO multi-insights] Falha: {e}")
 
@@ -2076,11 +2141,18 @@ def api_daily_summary():
             extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
         )
 
-        # Crescimento: sobrescreve purchases com ganho de seguidores do dia da IG API
+        # Crescimento: sobrescreve purchases com ganho de seguidores do dia * share
         ig_gains = {}
+        cresc_share = 1.0
         if camp_type == CAMP_TYPE_CRESCIMENTO:
             try:
                 ig_gains = fetch_ig_follower_gain_by_day(IG_PROFILE_ID_JRM, date_from, date_to)
+                if ig_gains:
+                    cresc_spend = sum(float(r.get("spend", 0) or 0) for r in rows)
+                    accounts = _get_accounts_for_type(camp_type)
+                    total_spend = _fetch_total_spend_all_accounts(accounts, date_from, date_to)
+                    other_spend = max(0, total_spend - cresc_spend)
+                    cresc_share = compute_crescimento_share(cresc_spend, other_spend)
             except Exception as e:
                 print(f"[CRESCIMENTO daily-summary] Falha IG API: {e}")
 
@@ -2104,11 +2176,11 @@ def api_daily_summary():
             by_date[d]["lpv"] += parsed.get("lpv", 0)
             by_date[d]["initiate_checkout"] += parsed.get("initiate_checkout", 0)
 
-        # Crescimento: substitui purchases agregado pelo ganho IG do dia
-        # (soma dos atribuidos = total de seguidores do dia no perfil)
+        # Crescimento: substitui purchases agregado pelo ganho IG do dia * share
+        # (so atribuimos a fracao de crescimento — o resto vai pra outras camps/organico)
         if camp_type == CAMP_TYPE_CRESCIMENTO and ig_gains:
             for d, row in by_date.items():
-                gain = ig_gains.get(d, 0)
+                gain = ig_gains.get(d, 0) * cresc_share
                 row["purchases"] = max(0, int(round(gain)))
 
         # Calcular m&eacute;tricas derivadas por dia
