@@ -1200,6 +1200,58 @@ function adaptStaticLabelsToType() {
         else if (isMeteoricos()) el.textContent = 'Campanhas de Meteoricos';
         else el.textContent = 'Campanhas de Vendas';
     });
+    // Tooltips dinamicos: reescreve data-tip pra refletir o tipo atual
+    // (Compras -> Seguidores, CPA -> CPS, etc). Cacheia o original em
+    // dataset.tipBase pra conseguir voltar pra Vendas sem perder o texto.
+    var convL = conv0.toLowerCase();
+    var cpaTip, convTip, revTip;
+    if (isCrescimento()) {
+        cpaTip = 'Custo por seguidor (gasto/seguidores)';
+        convTip = 'Numero de seguidores conquistados';
+        revTip = 'Nao aplicavel em Crescimento';
+    } else if (isLeadCapture()) {
+        cpaTip = 'Custo por lead (gasto/leads)';
+        convTip = 'Numero de leads captados';
+        revTip = 'Nao aplicavel em captacao de lead';
+    } else {
+        cpaTip = 'Custo por aquisicao (gasto/compras)';
+        convTip = 'Numero de compras';
+        revTip = 'Valor total das compras atribuidas';
+    }
+    document.querySelectorAll('th[data-key="purchases"]').forEach(function(el){ el.setAttribute('data-tip', convTip); });
+    document.querySelectorAll('th[data-key="cpa"]').forEach(function(el){ el.setAttribute('data-tip', cpaTip); });
+    document.querySelectorAll('th[data-key="revenue"]').forEach(function(el){ el.setAttribute('data-tip', revTip); });
+    document.querySelectorAll('[data-metric="purchases"]').forEach(function(el){ if(el.tagName==='TH'||el.classList.contains('scard')) el.setAttribute('data-tip', convTip); });
+    document.querySelectorAll('[data-metric="cpa"]').forEach(function(el){ if(el.tagName==='TH'||el.classList.contains('scard')) el.setAttribute('data-tip', cpaTip); });
+    document.querySelectorAll('[data-metric="revenue"]').forEach(function(el){ if(el.tagName==='TH'||el.classList.contains('scard')) el.setAttribute('data-tip', revTip); });
+
+    // Rewriter generico: aplica em TODO elemento com data-tip, sempre partindo
+    // do texto original (cacheado em tipBase), pra trocar de tipo funcionar em ambas direcoes.
+    var purchWord = convL;
+    var purchSingular = convL.replace(/s$/, '');
+    document.querySelectorAll('[data-tip]').forEach(function(el){
+        var base = el.dataset.tipBase;
+        if (!base) {
+            base = el.getAttribute('data-tip');
+            el.dataset.tipBase = base;
+        }
+        if (!isLeadCapture()) {
+            if (el.getAttribute('data-tip') !== base) el.setAttribute('data-tip', base);
+            return;
+        }
+        var newTip = base
+            .replace(/Custo por aquisi\S*\s*\(gasto\/compras\)/gi, cpaTip)
+            .replace(/Custo por aquisi\S*/gi, cpa0)
+            .replace(/gasto\/compras/gi, 'gasto/' + purchWord)
+            .replace(/n&uacute;mero de compras/gi, 'Numero de ' + purchWord)
+            .replace(/N&uacute;mero de compras/gi, 'Numero de ' + purchWord)
+            .replace(/total das compras/gi, 'total das ' + purchWord)
+            .replace(/compras atribu\S*/gi, purchWord + ' atribuidos')
+            .replace(/por compra/gi, 'por ' + purchSingular)
+            .replace(/CPA/g, cpa0);
+        if (newTip !== el.getAttribute('data-tip')) el.setAttribute('data-tip', newTip);
+    });
+
     if (!isLeadCapture()) return;
     // 2. Reescrita em bloco para tipos nao-vendas (Leads/Seguidores/CPL/CPS)
     var conv = conv0;
@@ -1218,7 +1270,7 @@ function adaptStaticLabelsToType() {
     document.querySelectorAll('option[value="cpa_asc"]').forEach(function(o){
         if (o.textContent.indexOf('CPA') >= 0) o.textContent = o.textContent.replace('CPA', cpa);
     });
-    // Labels soltos em spans/labels
+    // Labels soltos em spans/labels — e tambem textos que contem "compras"/"aquisicao"
     document.querySelectorAll('label, .lbl, .pl, span').forEach(function(el){
         if (el.children.length) return;
         var t = el.textContent;
