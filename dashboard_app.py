@@ -2720,6 +2720,7 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
                 entry = {
                     "campaign_id": cid,
                     "campaign_name": camp.get("name", ""),
+                    "account_id": acc_id,
                     "ad_id": ad_id,
                     "ad_name": ad.get("name", ""),
                     "ad_status": ad.get("status", ""),
@@ -3124,7 +3125,7 @@ def api_all_creatives():
         # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
         is_viewer = session.get("role") == "viewer"
 
-        cache_key = f"all_creatives_v7_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"all_creatives_v8_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -5173,7 +5174,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
             try:
                 k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                 k_daily = f"daily_summary_v6_{ct}_all_{dt_from}_{dt_to}"
-                k_creat = f"all_creatives_v7_{ct}_active_{dt_from}_{dt_to}"
+                k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
@@ -5245,7 +5246,7 @@ def _refresh_recent_loop():
                         try:
                             k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
                             k_daily = f"daily_summary_v6_{ct}_all_{dt_from}_{dt_to}"
-                            k_creat = f"all_creatives_v7_{ct}_active_{dt_from}_{dt_to}"
+                            k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             hdr = {"X-Internal-Scheduler": "refresh_loop"}
