@@ -1334,7 +1334,9 @@ def api_campaigns():
         if blocked:
             return blocked
 
-        cache_key = f"campaigns_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        # v3: attribution baseada em profile_visits (campo results). Bumpado pra
+        # invalidar cache antigo que ainda usava link_click como proxy.
+        cache_key = f"campaigns_v3_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -1577,7 +1579,8 @@ def api_campaigns_multi_insights():
         camp_status = request.args.get("camp_status", "all")
         force = request.args.get("force", "false") == "true"
 
-        cache_key = f"multi_insights_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
+        # v3: attribution diaria usa profile_visits. Cache bumpado.
+        cache_key = f"multi_insights_v3_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -1666,10 +1669,12 @@ def api_campaigns_multi_insights():
                 }
             parsed = parse_insights(row)
             parsed["date"] = row.get("date_start", "")
-            # Sobrescreve purchases com seguidores atribuidos do dia (crescimento)
+            # Sobrescreve purchases com seguidores atribuidos do dia (crescimento).
+            # Mantem como FLOAT (arredondado so na exibicao) — arredondar por dia
+            # a valores pequenos (<1) zera e soma total fica menor que o real.
             if crescimento_attr:
                 attr_val = crescimento_attr.get((cid, parsed["date"]), 0)
-                parsed["purchases"] = int(round(attr_val))
+                parsed["purchases"] = round(attr_val, 2)
                 if parsed.get("spend", 0) > 0 and parsed["purchases"] > 0:
                     parsed["cpa"] = round(parsed["spend"] / parsed["purchases"], 2)
                 else:
@@ -2203,7 +2208,7 @@ def api_daily_summary():
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_v3_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
