@@ -421,16 +421,16 @@
 
         <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">Requests Mais Pesados (cache miss)</h3>
         <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
                 <thead style="background:#1a1d24;">
                     <tr style="color:#aaa;text-align:left;">
-                        <th style="padding:10px;">Quando</th>
+                        <th style="padding:10px;white-space:nowrap;">Quando</th>
                         <th style="padding:10px;">Endpoint</th>
-                        <th style="padding:10px;">Tipo</th>
-                        <th style="padding:10px;text-align:right;">Calls</th>
-                        <th style="padding:10px;text-align:right;">Duracao</th>
-                        <th style="padding:10px;text-align:right;">BUC%</th>
-                        <th style="padding:10px;">Usuario</th>
+                        <th style="padding:10px;white-space:nowrap;">Tipo</th>
+                        <th style="padding:10px;text-align:right;white-space:nowrap;">Calls</th>
+                        <th style="padding:10px;text-align:right;white-space:nowrap;">Duracao</th>
+                        <th style="padding:10px;text-align:right;white-space:nowrap;">BUC%</th>
+                        <th style="padding:10px;white-space:nowrap;">Usuario</th>
                     </tr>
                 </thead>
                 <tbody id="usgHeaviestTbody"></tbody>
@@ -1647,7 +1647,7 @@ async function loadUsageStats() {
                 '<td style="padding:8px 10px;text-align:right;color:#ff9558;font-weight:600;">' + fmtNum(row.meta_calls) + '</td>' +
                 '<td style="padding:8px 10px;text-align:right;">' + Math.round(row.duration_ms||0) + ' ms</td>' +
                 '<td style="padding:8px 10px;text-align:right;">' + (row.worst_buc_pct!=null?row.worst_buc_pct+'%':'--') + '</td>' +
-                '<td style="padding:8px 10px;">' + userCell + '</td>' +
+                '<td style="padding:8px 10px;white-space:nowrap;word-break:keep-all;">' + userCell + '</td>' +
                 '</tr>';
         }).join('') || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#666;">Nenhum request pesado registrado.</td></tr>';
     } catch(e) {
