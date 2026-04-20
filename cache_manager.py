@@ -83,13 +83,31 @@ def clear_old_usage_logs(days=7):
         return 0
 
 
-def get_usage_stats(days=7):
-    """Retorna estatisticas agregadas dos ultimos N dias."""
+def get_usage_stats(days=7, source="all", user_filter=""):
+    """Retorna estatisticas agregadas dos ultimos N dias.
+
+    Args:
+        days: janela em dias (1-30)
+        source: 'all' | 'user' (apenas humanos) | 'auto' (apenas scheduler)
+        user_filter: substring pra filtrar por email do usuario
+    """
     try:
         cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        # Monta clausulas WHERE extras baseado nos filtros
+        extra_where = []
+        extra_params = []
+        if source == "user":
+            extra_where.append("(user IS NULL OR user NOT LIKE 'auto:%')")
+        elif source == "auto":
+            extra_where.append("user LIKE 'auto:%'")
+        if user_filter:
+            extra_where.append("user LIKE ?")
+            extra_params.append("%" + user_filter + "%")
+        where_extra = (" AND " + " AND ".join(extra_where)) if extra_where else ""
+
         conn = _get_db()
         # Top endpoints por chamadas Meta
-        by_endpoint = conn.execute("""
+        by_endpoint = conn.execute(f"""
             SELECT endpoint,
                    COUNT(*) as hits,
                    SUM(meta_calls) as total_calls,
@@ -97,49 +115,52 @@ def get_usage_stats(days=7):
                    AVG(duration_ms) as avg_ms,
                    MAX(duration_ms) as max_ms
             FROM api_usage_log
-            WHERE ts >= ?
+            WHERE ts >= ?{where_extra}
             GROUP BY endpoint
             ORDER BY total_calls DESC
             LIMIT 30
-        """, (cutoff,)).fetchall()
+        """, (cutoff, *extra_params)).fetchall()
 
         # Requests mais pesados
-        heaviest = conn.execute("""
+        heaviest = conn.execute(f"""
             SELECT ts, endpoint, camp_type, meta_calls, duration_ms, user, worst_buc_pct
             FROM api_usage_log
-            WHERE ts >= ? AND cache_hit = 0
+            WHERE ts >= ? AND cache_hit = 0{where_extra}
             ORDER BY meta_calls DESC, duration_ms DESC
-            LIMIT 20
-        """, (cutoff,)).fetchall()
+            LIMIT 30
+        """, (cutoff, *extra_params)).fetchall()
 
-        # Uso por hora do dia (ultimas 24h)
-        cutoff_24h = (datetime.now() - timedelta(hours=24)).isoformat()
-        hourly = conn.execute("""
-            SELECT substr(ts, 1, 13) as hour,
-                   COUNT(*) as requests,
-                   SUM(meta_calls) as calls
+        # Top usuarios (humanos) por chamadas
+        by_user = conn.execute(f"""
+            SELECT COALESCE(user, '(anonimo)') as user,
+                   COUNT(*) as hits,
+                   SUM(meta_calls) as total_calls,
+                   SUM(cache_hit) as cache_hits
             FROM api_usage_log
-            WHERE ts >= ?
-            GROUP BY hour
-            ORDER BY hour
-        """, (cutoff_24h,)).fetchall()
+            WHERE ts >= ?{where_extra}
+            GROUP BY user
+            ORDER BY total_calls DESC
+            LIMIT 20
+        """, (cutoff, *extra_params)).fetchall()
 
         # Totais
-        totals = conn.execute("""
+        totals = conn.execute(f"""
             SELECT COUNT(*) as total_requests,
                    SUM(meta_calls) as total_meta_calls,
                    SUM(cache_hit) as total_cache_hits
             FROM api_usage_log
-            WHERE ts >= ?
-        """, (cutoff,)).fetchone()
+            WHERE ts >= ?{where_extra}
+        """, (cutoff, *extra_params)).fetchone()
 
         conn.close()
         return {
-            "by_endpoint": [dict(zip([d[0] for d in [("endpoint",), ("hits",), ("total_calls",), ("cache_hits",), ("avg_ms",), ("max_ms",)]], r)) for r in by_endpoint],
-            "heaviest": [dict(zip([d[0] for d in [("ts",), ("endpoint",), ("camp_type",), ("meta_calls",), ("duration_ms",), ("user",), ("worst_buc_pct",)]], r)) for r in heaviest],
-            "hourly": [dict(zip(["hour", "requests", "calls"], r)) for r in hourly],
+            "by_endpoint": [dict(zip(["endpoint", "hits", "total_calls", "cache_hits", "avg_ms", "max_ms"], r)) for r in by_endpoint],
+            "heaviest": [dict(zip(["ts", "endpoint", "camp_type", "meta_calls", "duration_ms", "user", "worst_buc_pct"], r)) for r in heaviest],
+            "by_user": [dict(zip(["user", "hits", "total_calls", "cache_hits"], r)) for r in by_user],
             "totals": dict(zip(["total_requests", "total_meta_calls", "total_cache_hits"], totals or (0, 0, 0))),
             "period_days": days,
+            "filter_source": source,
+            "filter_user": user_filter,
         }
     except Exception as e:
         print(f"[USAGE LOG] Erro stats: {e}")

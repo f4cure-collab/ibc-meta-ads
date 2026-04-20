@@ -367,7 +367,25 @@
             </div>
         </div>
 
-        <button class="btn" id="btnReloadUsage" style="margin-bottom:16px;">Recarregar</button>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+            <label style="color:#aaa;font-size:12px;margin:0;">Periodo:</label>
+            <select id="usgFilterDays" style="background:#1a1d24;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;">
+                <option value="1">1 dia</option>
+                <option value="3">3 dias</option>
+                <option value="7" selected>7 dias</option>
+                <option value="14">14 dias</option>
+                <option value="30">30 dias</option>
+            </select>
+            <label style="color:#aaa;font-size:12px;margin:0 0 0 10px;">Fonte:</label>
+            <select id="usgFilterSource" style="background:#1a1d24;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;">
+                <option value="all" selected>Todas</option>
+                <option value="user">Apenas usuarios</option>
+                <option value="auto">Apenas automaticas (scheduler)</option>
+            </select>
+            <label style="color:#aaa;font-size:12px;margin:0 0 0 10px;">Usuario:</label>
+            <input type="text" id="usgFilterUser" placeholder="email ou parte" style="background:#1a1d24;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:180px;">
+            <button class="btn" id="btnReloadUsage" style="margin:0;">Aplicar</button>
+        </div>
 
         <h3 style="color:#fff;font-size:15px;margin:20px 0 10px;">Top Endpoints por Chamadas Meta</h3>
         <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
@@ -383,6 +401,21 @@
                     </tr>
                 </thead>
                 <tbody id="usgEndpointTbody"></tbody>
+            </table>
+        </div>
+
+        <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">Top Usuarios / Fontes</h3>
+        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                <thead style="background:#1a1d24;">
+                    <tr style="color:#aaa;text-align:left;">
+                        <th style="padding:10px;">Usuario / Fonte</th>
+                        <th style="padding:10px;text-align:right;">Requests</th>
+                        <th style="padding:10px;text-align:right;">Calls Meta</th>
+                        <th style="padding:10px;text-align:right;">Cache Hits</th>
+                    </tr>
+                </thead>
+                <tbody id="usgUserTbody"></tbody>
             </table>
         </div>
 
@@ -1497,7 +1530,12 @@ function fmtTs(ts) {
 }
 async function loadUsageStats() {
     try {
-        var r = await fetch('/api/admin/usage-stats?days=7');
+        var days = document.getElementById('usgFilterDays') ? document.getElementById('usgFilterDays').value : '7';
+        var source = document.getElementById('usgFilterSource') ? document.getElementById('usgFilterSource').value : 'all';
+        var userF = document.getElementById('usgFilterUser') ? document.getElementById('usgFilterUser').value.trim() : '';
+        var qs = 'days=' + encodeURIComponent(days) + '&source=' + encodeURIComponent(source);
+        if (userF) qs += '&user=' + encodeURIComponent(userF);
+        var r = await fetch('/api/admin/usage-stats?' + qs);
         var d = await r.json();
         if (!d.ok) {
             document.getElementById('usgTotalReq').textContent = 'erro';
@@ -1524,8 +1562,27 @@ async function loadUsageStats() {
                 '</tr>';
         }).join('') || '<tr><td colspan="6" style="padding:20px;text-align:center;color:#666;">Nenhum dado ainda.</td></tr>';
 
+        var byUser = s.by_user || [];
+        document.getElementById('usgUserTbody').innerHTML = byUser.map(function(row){
+            var isAuto = row.user && row.user.indexOf('auto:') === 0;
+            var userStr = isAuto
+                ? '<span style="color:#bc8cff;">auto</span> <span style="color:#888;font-size:11px;">(' + row.user.slice(5) + ')</span>'
+                : row.user;
+            var hitPct = row.hits > 0 ? (row.cache_hits / row.hits * 100).toFixed(0) + '%' : '--';
+            return '<tr style="border-top:1px solid #2a2e36;color:#ddd;">' +
+                '<td style="padding:8px 10px;">' + userStr + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;">' + fmtNum(row.hits) + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;color:#ff9558;font-weight:600;">' + fmtNum(row.total_calls) + '</td>' +
+                '<td style="padding:8px 10px;text-align:right;color:#3fdf85;">' + fmtNum(row.cache_hits) + ' (' + hitPct + ')</td>' +
+                '</tr>';
+        }).join('') || '<tr><td colspan="4" style="padding:20px;text-align:center;color:#666;">Nenhum usuario com atividade no filtro.</td></tr>';
+
         var heavy = s.heaviest || [];
         document.getElementById('usgHeaviestTbody').innerHTML = heavy.map(function(row){
+            var isAuto = row.user && row.user.indexOf('auto:') === 0;
+            var userCell = isAuto
+                ? '<span style="color:#bc8cff;">auto</span> <span style="color:#888;font-size:11px;">(' + row.user.slice(5) + ')</span>'
+                : (row.user || '--');
             return '<tr style="border-top:1px solid #2a2e36;color:#ddd;">' +
                 '<td style="padding:8px 10px;color:#888;">' + fmtTs(row.ts) + '</td>' +
                 '<td style="padding:8px 10px;font-family:monospace;font-size:11px;">' + (row.endpoint||'') + '</td>' +
@@ -1533,7 +1590,7 @@ async function loadUsageStats() {
                 '<td style="padding:8px 10px;text-align:right;color:#ff9558;font-weight:600;">' + fmtNum(row.meta_calls) + '</td>' +
                 '<td style="padding:8px 10px;text-align:right;">' + Math.round(row.duration_ms||0) + ' ms</td>' +
                 '<td style="padding:8px 10px;text-align:right;">' + (row.worst_buc_pct!=null?row.worst_buc_pct+'%':'--') + '</td>' +
-                '<td style="padding:8px 10px;color:#888;">' + (row.user||'--') + '</td>' +
+                '<td style="padding:8px 10px;">' + userCell + '</td>' +
                 '</tr>';
         }).join('') || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#666;">Nenhum request pesado registrado.</td></tr>';
     } catch(e) {
@@ -1542,6 +1599,12 @@ async function loadUsageStats() {
 }
 var _btnReloadUsage = document.getElementById('btnReloadUsage');
 if (_btnReloadUsage) _btnReloadUsage.addEventListener('click', loadUsageStats);
+['usgFilterDays', 'usgFilterSource'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('change', loadUsageStats);
+});
+var _usgUserIn = document.getElementById('usgFilterUser');
+if (_usgUserIn) _usgUserIn.addEventListener('keydown', function(e){ if (e.key === 'Enter') loadUsageStats(); });
 
 loadAll();
 </script>

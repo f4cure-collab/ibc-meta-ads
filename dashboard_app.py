@@ -62,7 +62,16 @@ def _usage_after(resp):
         from flask import request as _req
         endpoint = _req.path
         camp_type = _req.args.get("camp_type") or getattr(g, "camp_type", None)
-        user = session.get("username") if "session" in globals() else None
+        # Identificacao do quem triggou:
+        # - Header X-Internal-Scheduler: vem do scheduler/warmup (chamada automatica)
+        # - Senao: usuario logado pela session
+        if _req.headers.get("X-Internal-Scheduler"):
+            user = "auto:" + _req.headers.get("X-Internal-Scheduler", "scheduler")
+        else:
+            try:
+                user = session.get("username") or None
+            except Exception:
+                user = None
         # Pega pior pct atual (post-request) pra ver impacto
         try:
             pct, _ = _worst_usage_pct()
@@ -3811,14 +3820,15 @@ def api_ad_accounts_delete(acc_id):
 @app.route("/api/admin/usage-stats")
 def api_admin_usage_stats():
     """Retorna estatisticas de uso da API dos ultimos N dias.
-    Mostra: top endpoints por chamadas Meta, requests mais pesados,
-    uso por hora nas ultimas 24h, taxa de cache hit."""
+    Query params: days (1-30), source (all|user|auto), user (email filter)."""
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     try:
         days = int(request.args.get("days", "7"))
         days = max(1, min(days, 30))
-        stats = get_usage_stats(days=days)
+        source = request.args.get("source", "all")  # all, user, auto
+        user_filter = request.args.get("user", "").strip()
+        stats = get_usage_stats(days=days, source=source, user_filter=user_filter)
         return jsonify({"ok": True, "data": stats})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400
@@ -4486,7 +4496,7 @@ def _scheduled_refresh():
                 for ct in VALID_CAMP_TYPES:
                     print(f"[SCHEDULER]   Campanhas {ct} {days}d ({dt_from} a {dt_to})")
                     # status=all para cobrir campanhas que tiveram veiculacao mesmo pausadas
-                    client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=all&force=true")
+                    client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=all&force=true", headers={"X-Internal-Scheduler":"daily"})
                     time.sleep(5)
             print("[SCHEDULER] Campanhas OK")
         except Exception as e:
@@ -4502,7 +4512,7 @@ def _scheduled_refresh():
             for days, dt_from in ranges:
                 for ct in VALID_CAMP_TYPES:
                     print(f"[SCHEDULER]   Resumo diario {ct} {days}d")
-                    client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=all")
+                    client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=all", headers={"X-Internal-Scheduler":"daily"})
                     time.sleep(5)
             print("[SCHEDULER] Resumo diario OK")
         except Exception as e:
@@ -4534,7 +4544,7 @@ def _scheduled_refresh():
             for i, (ct, camp) in enumerate(all_camps_list):
                 try:
                     print(f"[SCHEDULER]   Criativos {ct} {i+1}/{len(all_camps_list)}: {camp.get('name', camp['id'])}")
-                    client.get(f"/api/dashboard/campaigns/{camp['id']}/creatives?camp_type={ct}&date_from={dt_from_30}&date_to={dt_to}")
+                    client.get(f"/api/dashboard/campaigns/{camp['id']}/creatives?camp_type={ct}&date_from={dt_from_30}&date_to={dt_to}", headers={"X-Internal-Scheduler":"daily"})
                     time.sleep(10)
                 except Exception as e:
                     print(f"[SCHEDULER]   Erro: {e}")
@@ -4554,7 +4564,7 @@ def _scheduled_refresh():
             for days, dt_from in ranges:
                 for ct in VALID_CAMP_TYPES:
                     print(f"[SCHEDULER]   Breakdowns {ct} {days}d")
-                    client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}")
+                    client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}", headers={"X-Internal-Scheduler":"daily"})
                     time.sleep(10)
             print("[SCHEDULER] Breakdowns OK")
         except Exception as e:
@@ -4569,7 +4579,7 @@ def _scheduled_refresh():
             for days, dt_from in ranges:
                 for ct in VALID_CAMP_TYPES:
                     print(f"[SCHEDULER]   All-creatives {ct} {days}d")
-                    client.get(f"/api/dashboard/all-creatives?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active")
+                    client.get(f"/api/dashboard/all-creatives?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=active", headers={"X-Internal-Scheduler":"daily"})
                     time.sleep(30)
             print("[SCHEDULER] Todos criativos OK")
         except Exception as e:
@@ -4597,21 +4607,22 @@ def _warmup_camp_type(ct, days_list, dt_to):
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
+                hdr = {"X-Internal-Scheduler": "warmup"}
                 if should_refresh(k_camp):
                     print(f"[WARMUP-{ct}] campaigns {days}d")
-                    client.get(f"/api/dashboard/campaigns?{base}&camp_status=all")
+                    client.get(f"/api/dashboard/campaigns?{base}&camp_status=all", headers=hdr)
                     time.sleep(4)
                 if should_refresh(k_daily):
                     print(f"[WARMUP-{ct}] daily_summary {days}d")
-                    client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all")
+                    client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all", headers=hdr)
                     time.sleep(4)
                 if should_refresh(k_bd):
                     print(f"[WARMUP-{ct}] breakdowns {days}d")
-                    client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true")
+                    client.get(f"/api/dashboard/breakdowns?camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true", headers=hdr)
                     time.sleep(4)
                 if should_refresh(k_creat):
                     print(f"[WARMUP-{ct}] all_creatives {days}d")
-                    client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active")
+                    client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active", headers=hdr)
                     time.sleep(6)
             except Exception as e:
                 print(f"[WARMUP-{ct}] Erro {days}d: {e}")
@@ -4668,15 +4679,16 @@ def _refresh_recent_loop():
                             k_creat = f"all_creatives_v2_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
+                            hdr = {"X-Internal-Scheduler": "refresh_loop"}
                             refreshed_any = False
                             if should_refresh(k_camp):
-                                client.get(f"/api/dashboard/campaigns?{base}&camp_status=all")
+                                client.get(f"/api/dashboard/campaigns?{base}&camp_status=all", headers=hdr)
                                 refreshed_any = True; time.sleep(3)
                             if should_refresh(k_daily):
-                                client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all")
+                                client.get(f"/api/dashboard/daily-summary?{base}&camp_status=all", headers=hdr)
                                 refreshed_any = True; time.sleep(3)
                             if should_refresh(k_creat):
-                                client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active")
+                                client.get(f"/api/dashboard/all-creatives?{base}&camp_status=active", headers=hdr)
                                 refreshed_any = True; time.sleep(5)
                             if refreshed_any:
                                 refresh_scheduler_lock("refresh_recent")
