@@ -4817,9 +4817,21 @@ function updateRateBadge() {
         badge.style.display = 'inline-block';
         badge.textContent = 'API: ' + pct + '%';
 
-        // Tooltip detalhado por conta (max de call/cpu/time)
-        var lines = ['Uso da API Meta (pior metrica entre call_count, total_cputime, total_time).'];
+        // Banner so aparece se Meta explicitamente sinalizar bloqueio
+        // (regain_seconds > 0). Caso contrario so mostra o % no badge pequeno.
+        var anyBlock = false;
+        var maxRegain = 0;
         var accIds = Object.keys(accounts);
+        accIds.forEach(function(acc) {
+            var a = accounts[acc];
+            if (a.regain_seconds > 0) {
+                anyBlock = true;
+                if (a.regain_seconds > maxRegain) maxRegain = a.regain_seconds;
+            }
+        });
+
+        // Tooltip detalhado por conta (max de call/cpu/time)
+        var lines = ['Uso da API Meta (BUC: call_count, total_cputime, total_time).'];
         if (!accIds.length) {
             lines.push('Ainda sem dados — faca uma consulta no dashboard.');
         } else {
@@ -4835,26 +4847,26 @@ function updateRateBadge() {
                 }
             });
             lines.push('');
-            lines.push('>80% desacelera +2s/call. >90% pausa 30s automaticamente.');
+            lines.push('O banner so aparece se Meta bloquear de fato (regain > 0).');
         }
         badge.title = lines.join('\n');
 
-        if (pct > 90) {
+        if (anyBlock) {
             badge.style.background = 'rgba(255,107,107,0.2)';
             badge.style.color = '#ff6b6b';
             badge.style.border = '1px solid rgba(255,107,107,0.4)';
             overlay.style.display = 'block';
             overlay.style.background = 'rgba(255,80,80,0.95)';
             document.body.classList.add('has-rate-overlay');
-            document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% (' + worst + ') — Sistema pausado para proteger sua conta. Aguarde...';
+            var mins = Math.ceil(maxRegain / 60);
+            document.getElementById('rateOverlayText').textContent = 'Meta bloqueou temporariamente a API (' + worst + '). Retomando em ~' + mins + 'min.';
         } else if (pct > 80) {
+            // So badge colorido, sem banner intrusivo
             badge.style.background = 'rgba(255,200,87,0.2)';
             badge.style.color = '#ffc857';
             badge.style.border = '1px solid rgba(255,200,87,0.4)';
-            overlay.style.display = 'block';
-            overlay.style.background = 'rgba(255,150,0,0.95)';
-            document.body.classList.add('has-rate-overlay');
-            document.getElementById('rateOverlayText').textContent = 'Uso da API em ' + pct + '% (' + worst + ') — Desacelerando chamadas.';
+            overlay.style.display = 'none';
+            document.body.classList.remove('has-rate-overlay');
         } else {
             badge.style.background = 'rgba(63,223,133,0.15)';
             badge.style.color = '#3fdf85';

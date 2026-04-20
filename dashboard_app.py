@@ -603,26 +603,22 @@ _last_call_time = 0
 
 
 def _decay_usage(u):
-    """Estima uso atual aplicando decay linear desde o ultimo check.
+    """Estima uso atual aplicando decay agressivo desde o ultimo check.
 
-    A janela efetiva da Meta para BUC (ads_insights) e bem mais curta que 1h na
-    pratica — no portal dev a utilizacao cai em poucos minutos apos um burst.
-    Usamos 10min linear como compromisso: nao supoe reset instantaneo mas tambem
-    nao trava em valores altos por 1h inteira quando nao ha mais chamadas.
-    Tambem respeita estimated_time_to_regain_access: se regain_seconds=0, Meta
-    sinaliza que nao estamos sendo bloqueados, entao derrubamos mais agressivo."""
+    Como so READ-only e Meta raramente bloqueia, priorizamos nao assustar
+    o usuario com banner falso. Se Meta nao sinalizou bloqueio (regain=0),
+    decaimos em 2min — o valor armazenado ficou velho, nao reflete o real.
+    Se regain > 0, Meta esta de fato bloqueando; preserva o valor por mais
+    tempo (5min) ate expirar a janela de bloqueio."""
     last = u.get("last_check", 0)
     if not last:
         return 0, 0, 0
     elapsed = time.time() - last
-    DECAY_WINDOW = 600  # 10min
+    has_block = (u.get("regain_seconds", 0) or 0) > 0
+    DECAY_WINDOW = 300 if has_block else 120  # 5min com bloqueio, 2min sem
     if elapsed > DECAY_WINDOW:
         return 0, 0, 0
     factor = max(0.0, 1.0 - (elapsed / DECAY_WINDOW))
-    # Se Meta diz que nao ha bloqueio (regain=0) e ja passou >60s, reduz mais
-    # agressivo — evita banner "64% (stale)" quando Meta ja esta em 3%.
-    if u.get("regain_seconds", 0) == 0 and elapsed > 60:
-        factor *= 0.5
     return (
         int(u.get("call", 0) * factor),
         int(u.get("cpu", 0) * factor),
@@ -645,25 +641,35 @@ def _worst_usage_pct():
 
 
 def _enforce_rate_limit():
-    """Garante delay minimo entre chamadas e pausa se proximo do limite.
-    Usa pct decayed (_worst_usage_pct) pra nao travar por valor obsoleto."""
+    """Garante delay minimo entre chamadas e pausa SO se Meta explicitamente
+    sinaliza bloqueio via estimated_time_to_regain_access > 0.
+
+    Historico: antes pausavamos proativamente com base em % (80-90%), mas isso
+    e pessimista — o painel dev da Meta mostrava ~5% de uso real enquanto
+    nosso dashboard exibia 91%. O app so le dados (nao escreve), entao nao
+    faz sentido desacelerar por palpite. Quando Meta de fato bloqueia, o
+    header regain_seconds vem > 0; so ai a gente respeita a janela dela."""
     global _last_call_time
     now = time.time()
     elapsed = now - _last_call_time
     if elapsed < _MIN_DELAY:
         time.sleep(_MIN_DELAY - elapsed)
 
-    pct, acc = _worst_usage_pct()  # ja aplica decay temporal
-    # Thresholds ajustados: Meta so bloqueia em 100%. Ate 80% trabalhamos normal,
-    # 80-90% desacelera leve, >90% pausa. O portal dev da Meta mostrava ~3% de
-    # uso real enquanto dashboard exibia 64% — banner era pessimista demais.
-    if pct > 90:
-        wait = 30
-        print(f"[RATE LIMIT] {acc}: {pct}% (decayed) — pausando {wait}s")
+    # So pausa se Meta explicitamente sinaliza bloqueio ativo
+    regain = 0
+    acc = None
+    for acc_id, u in _rate_per_account.items():
+        r = u.get("regain_seconds", 0) or 0
+        # Considera regain valido so se recente (headers com >15min sao stale)
+        age = time.time() - u.get("last_check", 0)
+        if r > 0 and age < 900:
+            if r > regain:
+                regain = r
+                acc = acc_id
+    if regain > 0:
+        wait = min(regain, 30)  # cap em 30s por call
+        print(f"[RATE LIMIT] {acc}: Meta bloqueando por {regain}s — pausando {wait}s")
         time.sleep(wait)
-    elif pct > 80:
-        print(f"[RATE LIMIT] {acc}: {pct}% (decayed) — desacelerando")
-        time.sleep(2)
 
     _last_call_time = time.time()
 
