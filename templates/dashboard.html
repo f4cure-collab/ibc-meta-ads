@@ -1809,15 +1809,17 @@ function _renderRankings(evData){
                 return cd*(a.cpl-b.cpl);
             });
         const maxCpl=byCpl.reduce((m,c)=>Math.max(m,c.cpl||0),0);
-        const ct=$('#rank-cpl-title');if(ct)ct.innerHTML=`&#128200; CPL por Evento ${cpla?'&#9650;':'&#9660;'}`;
+        const ct=$('#rank-cpl-title');if(ct)ct.innerHTML=`&#128200; ${labelCPA()} por Evento ${cpla?'&#9650;':'&#9660;'}`;
         const el=document.getElementById('ch-cpl');
         if (el && byCpl.length) {
+            const convLbl = labelConversao().toLowerCase();
+            const cpaLbl = labelCPA();
             el.innerHTML='<div class="rank-list">'+byCpl.map((c,i)=>{
                 const v=c.cpl;
                 const pct=maxCpl>0&&v!=null?Math.max(2,(v/maxCpl)*100):0;
                 const sn=shortEvName(c.name||'');
-                const valHtml=v==null?'<span style="color:var(--t3)">sem leads</span>':fmtM(v);
-                const tip=v==null?`${c.name}: sem leads no periodo (${c._count} campanhas)`:`${c.name}: CPL ${fmtM(v)} (${c._leads} leads, ${c._count} campanhas)`;
+                const valHtml=v==null?`<span style="color:var(--t3)">sem ${convLbl}</span>`:fmtM(v);
+                const tip=v==null?`${c.name}: sem ${convLbl} no periodo (${c._count} campanhas)`:`${c.name}: ${cpaLbl} ${fmtM(v)} (${c._leads} ${convLbl}, ${c._count} campanhas)`;
                 return`<div class="rank-row" data-tip="${tip}"><span class="rank-pos">${i+1}</span><span class="rank-name">${sn}</span><div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}%;background:${cplGrad}"></div></div><span class="rank-val">${valHtml}</span></div>`;
             }).join('')+'</div>';
         } else if (el) {
