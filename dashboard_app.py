@@ -3258,13 +3258,12 @@ def api_crescimento_preview():
         insights_raw = _fetch_insights_for_tagged_campaigns(
             filtered,
             base_params={
-                "fields": "campaign_id,campaign_name,spend,impressions,actions,unique_actions,cost_per_action_type,cost_per_unique_action_type",
+                # Tudo que pode conter follow: actions, unique_actions, conversions, cost_per_*
+                "fields": "campaign_id,campaign_name,spend,impressions,actions,unique_actions,conversions,conversion_values,cost_per_action_type,cost_per_unique_action_type,cost_per_conversion",
                 "time_range": json.dumps({"since": dt_from, "until": dt_to}),
                 "level": "campaign",
-                # action_attribution_windows inclui todas as janelas (padrao 1d_view,7d_click)
                 "action_attribution_windows": json.dumps(["1d_view", "7d_click", "28d_click"]),
                 "use_unified_attribution_setting": "true",
-                "action_breakdowns": json.dumps(["action_destination", "action_type"]),
                 "limit": 500,
             }
         )
@@ -3305,6 +3304,20 @@ def api_crescimento_preview():
 
         total_spend = sum(float(r.get("spend", 0)) for r in insights_raw)
 
+        # Amostra da resposta crua: campanha com maior gasto (pra inspecao rapida)
+        sample_row = None
+        if insights_raw:
+            top = max(insights_raw, key=lambda r: float(r.get("spend", 0)))
+            sample_row = {
+                "campaign_name": top.get("campaign_name", ""),
+                "spend": top.get("spend", ""),
+                "raw_keys": list(top.keys()),
+                "actions_sample": (top.get("actions") or [])[:50],
+                "unique_actions_sample": (top.get("unique_actions") or [])[:50],
+                "conversions_sample": (top.get("conversions") or [])[:50],
+                "cost_per_action_type_sample": (top.get("cost_per_action_type") or [])[:50],
+            }
+
         return jsonify({
             "ok": True,
             "total": len(filtered),
@@ -3313,8 +3326,10 @@ def api_crescimento_preview():
             "current_follow_types": FOLLOW_TYPES,
             "actions": _aggregate("actions"),
             "unique_actions": _aggregate("unique_actions"),
+            "conversions": _aggregate("conversions"),
             "cost_per_action_type": _format_cost("cost_per_action_type"),
             "cost_per_unique_action_type": _format_cost("cost_per_unique_action_type"),
+            "sample_raw_row": sample_row,
         })
     except Exception as e:
         import traceback

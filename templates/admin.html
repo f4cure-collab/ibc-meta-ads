@@ -1098,10 +1098,21 @@ async function loadCrescimentoPreview() {
         });
         html += '</div>';
 
-        html += renderActionsTable('ACTIONS (padrao, com action_breakdowns)', d.actions || [], 'total_value', true);
+        html += renderActionsTable('ACTIONS', d.actions || [], 'total_value', true);
         html += renderActionsTable('UNIQUE_ACTIONS (pessoas unicas)', d.unique_actions || [], 'total_value', true);
+        html += renderActionsTable('CONVERSIONS', d.conversions || [], 'total_value', true);
         html += renderActionsTable('COST_PER_ACTION_TYPE (Meta ja calculou)', d.cost_per_action_type || [], 'avg_cost', false);
         html += renderActionsTable('COST_PER_UNIQUE_ACTION_TYPE', d.cost_per_unique_action_type || [], 'avg_cost', false);
+
+        // Sample raw row para inspecao direta
+        if (d.sample_raw_row) {
+            var sr = d.sample_raw_row;
+            html += '<details style="margin-bottom:14px;"><summary style="cursor:pointer;color:#ec4899;font-size:12px;font-weight:600;padding:6px 0;">Amostra CRUA da API (campanha: '+sr.campaign_name+')</summary>';
+            html += '<div style="background:#0f0f23;padding:10px;border-radius:6px;margin-top:6px;">';
+            html += '<div style="color:#888;font-size:11px;margin-bottom:6px;">Campos retornados: <code style="color:#4caf50;">'+sr.raw_keys.join(', ')+'</code></div>';
+            html += '<pre style="color:#ccc;font-size:10px;white-space:pre-wrap;word-break:break-all;margin:0;max-height:400px;overflow:auto;">'+JSON.stringify(sr, null, 2)+'</pre>';
+            html += '</div></details>';
+        }
 
         html += '<div style="color:#666;font-size:11px;margin-top:10px;padding:10px;background:rgba(255,152,0,0.05);border-left:3px solid #ff9800;border-radius:4px;">'
             + '<strong style="color:#ff9800;">Importante:</strong> se nenhum action_type bater com ~104.894 seguidores, a coluna "Seguidores no..." do Gerenciador pode ser uma coluna <em>customizada</em> que Meta construiu internamente. '
