@@ -340,7 +340,7 @@
     </div>
 
     <!-- Diagnostico de uso da API Meta (historico 7 dias) -->
-    <div class="card" data-adm-section="usage" style="display:none;">
+    <div class="card" id="usageCard" data-adm-section="usage" style="display:none;">
         <h2>Diagnostico de Uso da API</h2>
         <p style="color:#888;font-size:13px;margin-bottom:16px;">
             Historico dos ultimos 7 dias de chamadas ao dashboard — mostra
@@ -557,7 +557,7 @@ async function loadUsers() {
         // Se nao-super esta em aba restrita, volta para Visao Geral
         if (!_isSuper) {
             var tab = document.body.getAttribute('data-adm-active');
-            if (tab === 'system' || tab === 'campaigns') {
+            if (tab === 'system' || tab === 'campaigns' || tab === 'usage') {
                 document.body.setAttribute('data-adm-active', 'overview');
                 document.querySelectorAll('.adm-nav-btn').forEach(function(b){
                     b.classList.toggle('active', b.getAttribute('data-adm-tab') === 'overview');
@@ -582,6 +582,11 @@ async function loadUsers() {
         }
         var pc = document.getElementById('previewCard');
         if (pc) pc.style.display = _isSuper ? 'block' : 'none';
+        var usgCard = document.getElementById('usageCard');
+        if (usgCard) {
+            usgCard.style.display = _isSuper ? 'block' : 'none';
+            if (_isSuper && document.body.getAttribute('data-adm-active') === 'usage') loadUsageStats();
+        }
         if (_isSuper) checkUpdate();
 
         renderUsers();
