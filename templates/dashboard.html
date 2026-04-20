@@ -582,6 +582,19 @@
         body.type-crescimento [data-metric="cost_per_lpv"] {
             display: none !important;
         }
+        /* Nutricao: meta = visualizacoes de video (ThruPlay). Esconde metricas que
+           nao se aplicam a campanhas de video (LPV, checkout, ROAS, seguidores). */
+        .show-nutricao { display: none; }
+        body.type-nutricao .show-nutricao { display: block !important; }
+        body.type-nutricao th.show-nutricao,
+        body.type-nutricao td.show-nutricao { display: table-cell !important; }
+        body.type-nutricao .hide-nutricao,
+        body.type-nutricao [data-metric="lpv"],
+        body.type-nutricao [data-metric="cost_per_lpv"],
+        body.type-nutricao [data-metric="profile_visits"],
+        body.type-nutricao [data-metric="cost_per_profile_visit"] {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -605,6 +618,9 @@
                 </button>
                 <button class="camp-type-opt" data-type="crescimento" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
                     <span style="color:#ec4899;margin-right:6px;">&#128241;</span>Crescimento
+                </button>
+                <button class="camp-type-opt" data-type="nutricao" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
+                    <span style="color:#9b5ee8;margin-right:6px;">&#127909;</span>Nutricao
                 </button>
             </div>
         </div>
@@ -674,6 +690,15 @@
             <div class="scard clickable" data-metric="spend" data-tip="Clique para gr&aacute;fico de gasto di&aacute;rio"><div class="sl">Gasto</div><div class="sv" id="s-spend">--</div></div>
             <div class="scard clickable show-crescimento" data-metric="profile_visits" data-tip="Visitas ao perfil do Instagram — meta principal da campanha"><div class="sl">Visitas Perfil</div><div class="sv" id="s-profile-visits">--</div></div>
             <div class="scard clickable show-crescimento" data-metric="cost_per_profile_visit" data-tip="Custo por visita ao perfil (gasto / visitas)"><div class="sl">Custo/Visita</div><div class="sv" id="s-cost-per-visit">--</div></div>
+            <!-- Nutricao: funil de video -->
+            <div class="scard clickable show-nutricao" data-metric="video_thruplay" data-tip="ThruPlay: visualizacoes completas (ou ate 15s) do video — meta principal"><div class="sl">ThruPlays</div><div class="sv" id="s-thruplay">--</div></div>
+            <div class="scard clickable show-nutricao" data-metric="cost_per_thruplay" data-tip="Custo por ThruPlay (gasto / ThruPlays)"><div class="sl">Custo/ThruPlay</div><div class="sv" id="s-cost-per-thruplay">--</div></div>
+            <div class="scard clickable show-nutricao" data-metric="video_plays" data-tip="Total de plays do video"><div class="sl">Plays</div><div class="sv" id="s-video-plays">--</div></div>
+            <div class="scard clickable show-nutricao" data-metric="video_p25" data-tip="Assistiram ate 25% do video"><div class="sl">25%</div><div class="sv" id="s-video-p25">--</div></div>
+            <div class="scard clickable show-nutricao" data-metric="video_p50" data-tip="Assistiram ate 50% do video"><div class="sl">50%</div><div class="sv" id="s-video-p50">--</div></div>
+            <div class="scard clickable show-nutricao" data-metric="video_p75" data-tip="Assistiram ate 75% do video"><div class="sl">75%</div><div class="sv" id="s-video-p75">--</div></div>
+            <div class="scard clickable show-nutricao" data-metric="video_p95" data-tip="Assistiram ate 95% do video"><div class="sl">95%</div><div class="sv" id="s-video-p95">--</div></div>
+            <div class="scard clickable show-nutricao" data-metric="video_p100" data-tip="Assistiram ate 100% do video (video inteiro)"><div class="sl">100%</div><div class="sv" id="s-video-p100">--</div></div>
             <div class="scard clickable" data-metric="revenue" data-tip="Clique para gr&aacute;fico de receita di&aacute;ria"><div class="sl">Receita</div><div class="sv" id="s-revenue">--</div></div>
             <div class="scard clickable" data-metric="roas" data-tip="Clique para evolu&ccedil;&atilde;o do ROAS"><div class="sl">ROAS</div><div class="sv" id="s-roas">--</div></div>
             <div class="scard clickable" data-metric="purchases" data-tip="Clique para ver por dia"><div class="sl auto-label-conv">Compras</div><div class="sv" id="s-purchases">--</div></div>
@@ -701,10 +726,12 @@
         <div class="cgrid rankings-grid">
             <div class="ccard ccard-rank show-crescimento"><h3 id="rank-visits-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128241; Visitas Perfil por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-visits"></canvas></div></div>
             <div class="ccard ccard-rank show-crescimento"><h3 id="rank-cpv-title" style="cursor:pointer" data-tip="Custo por Visita (menor &harr; maior)">&#128184; Custo/Visita por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpv"></div></div></div>
+            <div class="ccard ccard-rank show-nutricao"><h3 id="rank-thruplay-title" style="cursor:pointer" data-tip="ThruPlays por evento (maior &harr; menor)">&#127909; ThruPlays por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-thruplay"></canvas></div></div>
+            <div class="ccard ccard-rank show-nutricao"><h3 id="rank-ctp-title" style="cursor:pointer" data-tip="Custo por ThruPlay (menor &harr; maior)">&#128184; Custo/ThruPlay por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-ctp"></div></div></div>
             <div class="ccard ccard-rank hide-meteoricos"><h3 id="rank-roas-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (melhor &harr; pior)">&#127942; ROAS por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-roas"></canvas></div></div>
-            <div class="ccard ccard-rank show-meteoricos hide-crescimento"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpl"></div></div></div>
-            <div class="ccard ccard-rank"><h3 id="rank-spend-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128176; Gasto/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-spend"></canvas></div></div>
-            <div class="ccard ccard-rank hide-crescimento"><h3 id="rank-sales-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)"><span class="rank-sales-icon">&#128722;</span> <span class="rank-sales-label">Vendas</span>/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-sales-day"></canvas></div></div>
+            <div class="ccard ccard-rank show-meteoricos hide-crescimento hide-nutricao"><h3 id="rank-cpl-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (menor &harr; maior)">&#128200; CPL por Evento &#9650;</h3><div class="rank-canvas-wrap"><div id="ch-cpl"></div></div></div>
+            <div class="ccard ccard-rank hide-nutricao"><h3 id="rank-spend-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)">&#128176; Gasto/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-spend"></canvas></div></div>
+            <div class="ccard ccard-rank hide-crescimento hide-nutricao"><h3 id="rank-sales-title" style="cursor:pointer" data-tip="Clique para inverter a ordem (maior &harr; menor)"><span class="rank-sales-icon">&#128722;</span> <span class="rank-sales-label">Vendas</span>/Dia por Evento &#9660;</h3><div class="rank-canvas-wrap"><canvas id="ch-sales-day"></canvas></div></div>
         </div>
         <div class="tbl-wrap">
             <div class="tbl-head">
@@ -723,6 +750,9 @@
                     <th data-key="spend" class="tr" data-tip="Total investido no per&iacute;odo">Gasto</th>
                     <th data-key="profile_visits" class="tr show-crescimento" data-tip="Visitas ao perfil do Instagram (meta principal da campanha)">Visitas Perfil</th>
                     <th data-key="cost_per_profile_visit" class="tr show-crescimento" data-tip="Custo por visita ao perfil (gasto / visitas)">Custo/Visita</th>
+                    <th data-key="video_thruplay" class="tr show-nutricao" data-tip="ThruPlay: visualizacoes completas do video — meta principal">ThruPlays</th>
+                    <th data-key="cost_per_thruplay" class="tr show-nutricao" data-tip="Custo por ThruPlay (gasto / ThruPlays)">Custo/ThruPlay</th>
+                    <th data-key="video_p100" class="tr show-nutricao" data-tip="Assistiram 100% do video">100%</th>
                     <th data-key="revenue" data-metric="revenue" class="tr" data-tip="Valor total das compras atribu&iacute;das">Receita</th>
                     <th data-key="roas" data-metric="roas" class="tr" data-tip="Return on Ad Spend (receita/gasto)">ROAS</th>
                     <th data-key="purchases" class="tr" data-tip="N&uacute;mero de compras">Compras</th>
@@ -1142,6 +1172,32 @@
 
 <div id="tooltip-box"></div>
 
+<!-- Popup explicativo de Nutricao: campanha de video com funil de retencao -->
+<div id="nutricao-info-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:10000;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:linear-gradient(160deg,#0f1623 0%,#0a1018 100%);border:1px solid rgba(155,94,232,0.3);border-radius:14px;max-width:480px;width:100%;padding:24px 26px;box-shadow:0 20px 60px rgba(0,0,0,0.6),0 0 40px rgba(155,94,232,0.1);">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+            <div style="font-size:28px;line-height:1;">&#127909;</div>
+            <h3 style="color:#d2a8ff;font-size:17px;font-weight:700;margin:0;">Campanhas de Nutricao</h3>
+        </div>
+        <div style="color:#c8d0db;font-size:13.5px;line-height:1.6;">
+            <p style="margin:0 0 12px 0;">
+                Sao campanhas de <strong>video</strong> (DSP ou SPK). A meta aqui nao e gerar lead nem venda direta — e <strong style="color:#d2a8ff;">manter o publico assistindo o video ate o fim</strong>.
+            </p>
+            <p style="margin:0 0 12px 0;">
+                A metrica principal e <strong>ThruPlay</strong> (visualizacao completa). Mas o que conta mesmo e o funil de retencao: quantos chegam a 25%, 50%, 75%, 95% e 100% do video.
+            </p>
+            <div style="background:rgba(155,94,232,0.08);border-left:3px solid #9b5ee8;padding:10px 12px;border-radius:4px;margin:0;">
+                <p style="margin:0;color:#aab4c2;font-size:12.5px;">
+                    <strong style="color:#d2a8ff;">Dica:</strong> olhe a <strong>taxa de retencao</strong> em cada marco. Queda grande entre 25% e 50% sugere que o gancho do video nao esta prendendo.
+                </p>
+            </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:20px;">
+            <button id="nutricao-info-close" style="background:#9b5ee8;border:none;color:#fff;padding:10px 22px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700;">Entendi</button>
+        </div>
+    </div>
+</div>
+
 <!-- Popup explicativo de Crescimento: aviso simples sobre a metrica principal -->
 <div id="crescimento-info-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:10000;align-items:center;justify-content:center;padding:20px;">
     <div style="background:linear-gradient(160deg,#0f1623 0%,#0a1018 100%);border:1px solid rgba(126,231,135,0.25);border-radius:14px;max-width:480px;width:100%;padding:24px 26px;box-shadow:0 20px 60px rgba(0,0,0,0.6),0 0 40px rgba(126,231,135,0.08);">
@@ -1181,45 +1237,44 @@ var CURRENT_CAMP_TYPE = localStorage.getItem('camp_type') || 'vendas';
 function isMeteoricos() { return CURRENT_CAMP_TYPE === 'meteoricos'; }
 function isComercial() { return CURRENT_CAMP_TYPE === 'comercial'; }
 function isCrescimento() { return CURRENT_CAMP_TYPE === 'crescimento'; }
+function isNutricao() { return CURRENT_CAMP_TYPE === 'nutricao'; }
 // Captura/conversao nao-venda: todos escondem ROAS/Receita e seguem UI similar
-function isLeadCapture() { return isMeteoricos() || isComercial() || isCrescimento(); }
+// Nutricao tambem entra aqui — nao tem ROAS/Receita, mas tem funil proprio (video)
+function isLeadCapture() { return isMeteoricos() || isComercial() || isCrescimento() || isNutricao(); }
 
-// Popup informativo de Crescimento: aparece ao trocar pra esse tipo, uma vez
-// por sessao. O flag 'crescimento_info_shown' e limpo quando o usuario clica
-// pra voltar a esse tipo (handler na troca de opcao).
-(function showCrescimentoInfoOnLoad(){
-    if (CURRENT_CAMP_TYPE !== 'crescimento') return;
-    if (sessionStorage.getItem('crescimento_info_shown') === '1') return;
-    var overlay = document.getElementById('crescimento-info-overlay');
-    var closeBtn = document.getElementById('crescimento-info-close');
+// Popup informativo de Crescimento/Nutricao: aparece ao trocar pra esses tipos,
+// uma vez por sessao. O flag e limpo quando o usuario clica pra voltar pelo menu.
+function _wireInfoPopup(typeName, overlayId, closeId, flagKey) {
+    if (CURRENT_CAMP_TYPE !== typeName) return;
+    if (sessionStorage.getItem(flagKey) === '1') return;
+    var overlay = document.getElementById(overlayId);
+    var closeBtn = document.getElementById(closeId);
     if (!overlay || !closeBtn) return;
-    function show() {
-        overlay.style.display = 'flex';
-    }
-    function hide() {
-        overlay.style.display = 'none';
-        sessionStorage.setItem('crescimento_info_shown', '1');
-    }
+    function show() { overlay.style.display = 'flex'; }
+    function hide() { overlay.style.display = 'none'; sessionStorage.setItem(flagKey, '1'); }
     closeBtn.addEventListener('click', hide);
-    overlay.addEventListener('click', function(e){
-        if (e.target === overlay) hide();
-    });
+    overlay.addEventListener('click', function(e){ if (e.target === overlay) hide(); });
     document.addEventListener('keydown', function(e){
         if (e.key === 'Escape' && overlay.style.display !== 'none') hide();
     });
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', show);
-    } else {
-        show();
-    }
-})();
-// Rotulos adaptativos por tipo: crescimento mede seguidores, demais medem leads/compras
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', show);
+    else show();
+}
+_wireInfoPopup('crescimento', 'crescimento-info-overlay', 'crescimento-info-close', 'crescimento_info_shown');
+_wireInfoPopup('nutricao', 'nutricao-info-overlay', 'nutricao-info-close', 'nutricao_info_shown');
+// Rotulos adaptativos por tipo:
+// - Nutricao: ThruPlay (visualizacao completa do video) / CPTP
+// - Crescimento: Seguidores / CPS
+// - Meteoricos/Comercial: Leads / CPL
+// - Vendas: Compras / CPA
 function labelConversao() {
+    if (isNutricao()) return 'ThruPlays';
     if (isCrescimento()) return 'Seguidores';
     if (isMeteoricos() || isComercial()) return 'Leads';
     return 'Compras';
 }
 function labelCPA() {
+    if (isNutricao()) return 'CPTP';
     if (isCrescimento()) return 'CPS';
     if (isMeteoricos() || isComercial()) return 'CPL';
     return 'CPA';
@@ -1227,13 +1282,14 @@ function labelCPA() {
 
 // Aplica classe no body para CSS poder ocultar ROAS/Receita via regras
 function applyCampTypeClass() {
-    document.body.classList.remove('type-vendas', 'type-meteoricos', 'type-comercial', 'type-crescimento', 'type-leadcapture');
+    document.body.classList.remove('type-vendas', 'type-meteoricos', 'type-comercial', 'type-crescimento', 'type-nutricao', 'type-leadcapture');
     document.body.classList.add('type-' + CURRENT_CAMP_TYPE);
-    // type-leadcapture cobre meteoricos + comercial + crescimento (hide ROAS/Receita)
+    // type-leadcapture cobre meteoricos + comercial + crescimento + nutricao (hide ROAS/Receita)
     if (isLeadCapture()) document.body.classList.add('type-leadcapture');
     var lbl = document.getElementById('campTypeLabel');
     if (lbl) {
-        lbl.textContent = isCrescimento() ? 'Crescimento'
+        lbl.textContent = isNutricao() ? 'Nutricao'
+            : isCrescimento() ? 'Crescimento'
             : isComercial() ? 'Comercial'
             : isMeteoricos() ? 'Meteoricos'
             : 'Vendas';
@@ -1262,7 +1318,8 @@ function adaptStaticLabelsToType() {
     if (rc) rc.innerHTML = '&#128200; ' + cpa0 + ' por Evento &#9650;';
     // Titulo da tabela de campanhas
     document.querySelectorAll('.tbl-camps-label').forEach(function(el){
-        if (isCrescimento()) el.textContent = 'Campanhas de Crescimento';
+        if (isNutricao()) el.textContent = 'Campanhas de Nutricao';
+        else if (isCrescimento()) el.textContent = 'Campanhas de Crescimento';
         else if (isComercial()) el.textContent = 'Campanhas Comerciais';
         else if (isMeteoricos()) el.textContent = 'Campanhas de Meteoricos';
         else el.textContent = 'Campanhas de Vendas';
@@ -1272,7 +1329,11 @@ function adaptStaticLabelsToType() {
     // dataset.tipBase pra conseguir voltar pra Vendas sem perder o texto.
     var convL = conv0.toLowerCase();
     var cpaTip, convTip, revTip;
-    if (isCrescimento()) {
+    if (isNutricao()) {
+        cpaTip = 'Custo por ThruPlay (gasto / visualizacoes completas)';
+        convTip = 'ThruPlays: visualizacoes completas ou ate 15s do video';
+        revTip = 'Nao aplicavel em Nutricao (campanha de video)';
+    } else if (isCrescimento()) {
         cpaTip = 'Custo por seguidor (gasto/seguidores)';
         convTip = 'Numero de seguidores conquistados';
         revTip = 'Nao aplicavel em Crescimento';
@@ -1514,11 +1575,10 @@ applyCampTypeClass();
             if (newType === CURRENT_CAMP_TYPE) { menu.style.display = 'none'; return; }
             CURRENT_CAMP_TYPE = newType;
             localStorage.setItem('camp_type', newType);
-            // Ao trocar PARA Crescimento, limpa o flag pra mostrar o popup
-            // explicativo sobre atribuicao de seguidores apos o reload.
-            if (newType === 'crescimento') {
-                sessionStorage.removeItem('crescimento_info_shown');
-            }
+            // Ao trocar pra Crescimento ou Nutricao, limpa o flag do popup
+            // pra o usuario ver a explicacao na nova aba apos o reload.
+            if (newType === 'crescimento') sessionStorage.removeItem('crescimento_info_shown');
+            if (newType === 'nutricao') sessionStorage.removeItem('nutricao_info_shown');
             // Recarrega a pagina para garantir estado limpo — caches, chips, seleções, etc.
             window.location.reload();
         });
@@ -1639,6 +1699,17 @@ async function loadCamp(force){
             var pvSum = s.total_profile_visits||0;
             $('#s-cost-per-visit').textContent = pvSum>0 ? fmtM(s.total_spend/pvSum) : '--';
         }
+        if($('#s-thruplay')) $('#s-thruplay').textContent=fmt(s.total_thruplay||0);
+        if($('#s-cost-per-thruplay')) {
+            var tpSum = s.total_thruplay||0;
+            $('#s-cost-per-thruplay').textContent = tpSum>0 ? fmtM(s.total_spend/tpSum) : '--';
+        }
+        if($('#s-video-plays')) $('#s-video-plays').textContent=fmt(s.total_video_plays||0);
+        if($('#s-video-p25')) $('#s-video-p25').textContent=fmt(s.total_video_p25||0);
+        if($('#s-video-p50')) $('#s-video-p50').textContent=fmt(s.total_video_p50||0);
+        if($('#s-video-p75')) $('#s-video-p75').textContent=fmt(s.total_video_p75||0);
+        if($('#s-video-p95')) $('#s-video-p95').textContent=fmt(s.total_video_p95||0);
+        if($('#s-video-p100')) $('#s-video-p100').textContent=fmt(s.total_video_p100||0);
         renderCampTbl(campData);renderCampCharts(campData);
 
         showCampLoading(true,'Carregando gráficos...','Etapa 2/3 — Dados diários e frequência');
@@ -1654,7 +1725,7 @@ async function loadCamp(force){
         showCampLoading(false);
     }catch(e){
         showCampLoading(false);
-        $('#camp-tbody').innerHTML=`<tr><td colspan="14" style="text-align:center;padding:32px;color:var(--red)">Erro: ${e.message}</td></tr>`;
+        $('#camp-tbody').innerHTML=`<tr><td colspan="17" style="text-align:center;padding:32px;color:var(--red)">Erro: ${e.message}</td></tr>`;
     }
     btn.disabled=false;btn.textContent='Carregar';
     // Carregar breakdowns automaticamente
@@ -1675,7 +1746,7 @@ function renderCampTbl(data){
         return campName.includes(q)||evName.includes(q)||evShort.includes(q);
     });
     $('#camp-cnt').textContent=`${f.length} de ${data.length}`;
-    if(!f.length){tb.innerHTML='<tr><td colspan="14"><div class="empty"><p>Nenhuma campanha</p></div></td></tr>';return;}
+    if(!f.length){tb.innerHTML='<tr><td colspan="17"><div class="empty"><p>Nenhuma campanha</p></div></td></tr>';return;}
 
     // Agrupar por evento
     const eventMap={};
@@ -1739,6 +1810,9 @@ function renderCampTbl(data){
             <td class="tr" style="font-weight:700">${fmtM(evSpend)}</td>
             <td class="tr show-crescimento" style="font-weight:700">${fmt(evProfVisits)}</td>
             <td class="tr show-crescimento" style="font-weight:700">${fmtM(evProfVisits>0?evSpend/evProfVisits:0)}</td>
+            <td class="tr show-nutricao" style="font-weight:700">${fmt(ev.camps.reduce((s,c)=>s+(c.video_thruplay||0),0))}</td>
+            <td class="tr show-nutricao" style="font-weight:700">${fmtM((()=>{const tp=ev.camps.reduce((s,c)=>s+(c.video_thruplay||0),0);return tp>0?evSpend/tp:0;})())}</td>
+            <td class="tr show-nutricao" style="font-weight:700">${fmt(ev.camps.reduce((s,c)=>s+(c.video_p100||0),0))}</td>
             <td class="tr" data-metric="revenue" style="font-weight:700">${fmtM(evRev)}</td>
             <td class="tr" data-metric="roas" style="font-weight:700;color:${roasC(evRoas)}">${fmtR(evRoas)}</td>
             <td class="tr" style="font-weight:700">${fmt(evPurch)}</td>
@@ -1760,6 +1834,9 @@ function renderCampTbl(data){
                     <td class="tr">${fmtM(c.spend)}</td>
                     <td class="tr show-crescimento">${fmt(c.profile_visits||0)}</td>
                     <td class="tr show-crescimento">${fmtM((c.profile_visits||0)>0?c.spend/c.profile_visits:0)}</td>
+                    <td class="tr show-nutricao">${fmt(c.video_thruplay||0)}</td>
+                    <td class="tr show-nutricao">${fmtM((c.video_thruplay||0)>0?c.spend/c.video_thruplay:0)}</td>
+                    <td class="tr show-nutricao">${fmt(c.video_p100||0)}</td>
                     <td class="tr" data-metric="revenue">${fmtM(c.revenue)}</td>
                     <td class="tr" data-metric="roas" style="color:${roasC(c.roas)};font-weight:600">${fmtR(c.roas)}</td>
                     <td class="tr">${fmt(c.purchases)}</td>
@@ -1874,11 +1951,16 @@ function aggregateByEvent(data){
     const map={};
     data.forEach(c=>{
         const eid=c.event_id||'OUTROS';
-        if(!map[eid])map[eid]={name:c.event_name||'Outros',event_id:eid,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,link_clicks:0,profile_visits:0,active_days:0,period_days:0,_count:0};
+        if(!map[eid])map[eid]={name:c.event_name||'Outros',event_id:eid,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,link_clicks:0,profile_visits:0,
+            video_plays:0,video_thruplay:0,video_p25:0,video_p50:0,video_p75:0,video_p95:0,video_p100:0,
+            active_days:0,period_days:0,_count:0};
         const e=map[eid];
         e.spend+=c.spend||0;e.revenue+=c.revenue||0;e.purchases+=c.purchases||0;
         e.impressions+=c.impressions||0;e.clicks+=c.clicks||0;e.link_clicks+=c.link_clicks||0;
         e.profile_visits+=c.profile_visits||0;
+        e.video_plays+=c.video_plays||0;e.video_thruplay+=c.video_thruplay||0;
+        e.video_p25+=c.video_p25||0;e.video_p50+=c.video_p50||0;e.video_p75+=c.video_p75||0;
+        e.video_p95+=c.video_p95||0;e.video_p100+=c.video_p100||0;
         // active_days: usar o maior entre as campanhas do evento
         if((c.active_days||0)>e.active_days)e.active_days=c.active_days||0;
         if((c.period_days||0)>e.period_days)e.period_days=c.period_days||0;
@@ -1890,18 +1972,19 @@ function aggregateByEvent(data){
         e.ctr=e.impressions>0?(e.clicks/e.impressions)*100:0;
         e.cpm=e.impressions>0?(e.spend/e.impressions)*1000:0;
         e.cost_per_profile_visit=e.profile_visits>0?e.spend/e.profile_visits:0;
+        e.cost_per_thruplay=e.video_thruplay>0?e.spend/e.video_thruplay:0;
         return e;
     });
 }
 
-const rankSortState={roas:true,spend:true,sales:true,visits:true,cpv:true};
+const rankSortState={roas:true,spend:true,sales:true,visits:true,cpv:true,thruplay:true,ctp:true};
 
 function renderCampCharts(data){
 
     // Destruir charts antigos do Chart.js caso existam (legacy)
     dc('rr');dc('sr');dc('sd');
     // Remover canvases antigos e substituir por containers de lista
-    ['ch-roas','ch-spend','ch-sales-day','ch-visits','ch-cpv'].forEach(id=>{
+    ['ch-roas','ch-spend','ch-sales-day','ch-visits','ch-cpv','ch-thruplay','ch-ctp'].forEach(id=>{
         const old=document.getElementById(id);
         if(!old)return;
         if(old.tagName==='CANVAS'){
@@ -1962,6 +2045,44 @@ function _renderRankings(evData){
     const cplGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
     const visitsGrad='linear-gradient(90deg,#0e5a4a,#16a377,#7ee6c5)';
     const cpvGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
+    const thruplayGrad='linear-gradient(90deg,#3b2a7e,#9b5ee8,#d2a8ff)';
+    const ctpGrad='linear-gradient(90deg,#0f4a24,#3fdf85,#7ee787)';
+
+    // Nutricao-only: rankings de ThruPlay e Custo/ThruPlay
+    if (isNutricao()) {
+        const td=rankSortState.thruplay?1:-1;
+        const byTp=evData.map(c=>({...c,tp:c.video_thruplay||0})).sort((a,b)=>td*((b.tp)-(a.tp)));
+        const maxTp=byTp.reduce((m,c)=>Math.max(m,c.tp||0),0);
+        const tpt=$('#rank-thruplay-title');if(tpt)tpt.innerHTML=`&#127909; ThruPlays por Evento ${rankSortState.thruplay?'&#9660;':'&#9650;'}`;
+        renderList('ch-thruplay',byTp,maxTp,c=>c.tp||0,
+            (c,v)=>fmt(v),
+            (c,v)=>`${c.name}: ${fmt(v)} ThruPlays (${c._count} campanhas)`,thruplayGrad);
+
+        const ctpa=rankSortState.ctp;
+        const ctpd=ctpa?1:-1;
+        const byCtp=evData.map(c=>({...c,ctp:(c.video_thruplay||0)>0?c.spend/c.video_thruplay:null}))
+            .sort((a,b)=>{
+                if(a.ctp==null&&b.ctp==null)return 0;
+                if(a.ctp==null)return 1;
+                if(b.ctp==null)return -1;
+                return ctpd*(a.ctp-b.ctp);
+            });
+        const maxCtp=byCtp.reduce((m,c)=>Math.max(m,c.ctp||0),0);
+        const ctpt=$('#rank-ctp-title');if(ctpt)ctpt.innerHTML=`&#128184; Custo/ThruPlay por Evento ${ctpa?'&#9650;':'&#9660;'}`;
+        const elCtp=document.getElementById('ch-ctp');
+        if (elCtp && byCtp.length) {
+            elCtp.innerHTML='<div class="rank-list">'+byCtp.map((c,i)=>{
+                const v=c.ctp;
+                const pct=maxCtp>0&&v!=null?Math.max(2,(v/maxCtp)*100):0;
+                const sn=shortEvName(c.name||'');
+                const valHtml=v==null?'<span style="color:var(--t3)">sem ThruPlay</span>':fmtM(v);
+                const tip=v==null?`${c.name}: sem ThruPlay no periodo (${c._count} campanhas)`:`${c.name}: ${fmtM(v)}/ThruPlay (${fmt(c.video_thruplay||0)} ThruPlays, ${c._count} campanhas)`;
+                return`<div class="rank-row" data-tip="${tip}"><span class="rank-pos">${i+1}</span><span class="rank-name">${sn}</span><div class="rank-bar-wrap"><div class="rank-bar" style="width:${pct}%;background:${ctpGrad}"></div></div><span class="rank-val">${valHtml}</span></div>`;
+            }).join('')+'</div>';
+        } else if (elCtp) {
+            elCtp.innerHTML='<div style="color:var(--t3);text-align:center;padding:40px 20px;font-size:12px">Sem dados no periodo selecionado</div>';
+        }
+    }
 
     // Crescimento-only: rankings de Visitas ao Perfil e Custo/Visita
     if (isCrescimento()) {
@@ -2066,13 +2187,15 @@ function _renderRankings(evData){
 
 // Click nos t&iacute;tulos dos rankings para inverter ordem
 document.addEventListener('click',e=>{
-    const t=e.target.closest('#rank-roas-title,#rank-cpl-title,#rank-spend-title,#rank-sales-title,#rank-visits-title,#rank-cpv-title');
+    const t=e.target.closest('#rank-roas-title,#rank-cpl-title,#rank-spend-title,#rank-sales-title,#rank-visits-title,#rank-cpv-title,#rank-thruplay-title,#rank-ctp-title');
     if(!t||!window._rankEvData)return;
     if(t.id==='rank-roas-title'||t.id==='rank-cpl-title')rankSortState.roas=!rankSortState.roas;
     else if(t.id==='rank-spend-title')rankSortState.spend=!rankSortState.spend;
     else if(t.id==='rank-sales-title')rankSortState.sales=!rankSortState.sales;
     else if(t.id==='rank-visits-title')rankSortState.visits=!rankSortState.visits;
     else if(t.id==='rank-cpv-title')rankSortState.cpv=!rankSortState.cpv;
+    else if(t.id==='rank-thruplay-title')rankSortState.thruplay=!rankSortState.thruplay;
+    else if(t.id==='rank-ctp-title')rankSortState.ctp=!rankSortState.ctp;
     _renderRankings(window._rankEvData);
 });
 
@@ -2087,13 +2210,42 @@ function buildFunnelHTML(t){
     const purch=t.purchases||0;
 
     const meteoricos = isLeadCapture();
+    const nutri = isNutricao();
     // Funil de Meteoricos (captacao de lead): Impressoes -> Cliques -> LPV -> Cadastro (lead)
     // Funil de Crescimento (seguidores): Impressoes -> Cliques -> Visitas no Perfil -> Seguidores
+    // Funil de Nutricao (video): Impressoes -> Plays -> 25% -> 50% -> 75% -> 95% -> 100% -> ThruPlay
     // Funil de Vendas: Impressoes -> Cliques -> LPV -> Checkout -> Compra
     let steps, conversions, totalRate;
     const r1=impr>0?(clicks/impr*100):0;
 
-    if (meteoricos) {
+    if (nutri) {
+        const plays=t.video_plays||0, p25=t.video_p25||0, p50=t.video_p50||0,
+              p75=t.video_p75||0, p95=t.video_p95||0, p100=t.video_p100||0;
+        const rPlay = impr>0 ? (plays/impr*100) : 0;
+        const r25 = plays>0 ? (p25/plays*100) : 0;
+        const r50 = p25>0 ? (p50/p25*100) : 0;
+        const r75 = p50>0 ? (p75/p50*100) : 0;
+        const r95 = p75>0 ? (p95/p75*100) : 0;
+        const r100 = p95>0 ? (p100/p95*100) : 0;
+        totalRate = plays>0 ? (p100/plays*100) : 0;
+        steps = [
+            {label:'Impress&otilde;es',value:impr,icon:'&#128065;',dark:'#0a2d6b',mid:'#1f6feb',light:'#6eb8ff',tip:'Total de vezes que o an&uacute;ncio foi exibido'},
+            {label:'Plays',value:plays,icon:'&#9654;',dark:'#0d4a6b',mid:'#2891d4',light:'#a5d6ff',tip:'Plays do video'},
+            {label:'25% assistiram',value:p25,icon:'&#128338;',dark:'#0e5a4a',mid:'#16a377',light:'#86efac',tip:'Assistiram 25% do video'},
+            {label:'50% assistiram',value:p50,icon:'&#128340;',dark:'#115b2e',mid:'#4ade80',light:'#bbf7d0',tip:'Assistiram 50% do video'},
+            {label:'75% assistiram',value:p75,icon:'&#128342;',dark:'#115b5e',mid:'#22d3ee',light:'#67e8f9',tip:'Assistiram 75% do video'},
+            {label:'95% assistiram',value:p95,icon:'&#128336;',dark:'#3b2a7e',mid:'#818cf8',light:'#a5b4fc',tip:'Assistiram 95% do video'},
+            {label:'100% (completo)',value:p100,icon:'&#127942;',dark:'#5a1d7a',mid:'#9b5ee8',light:'#c084fc',tip:'Assistiram 100% do video'},
+        ];
+        conversions = [
+            {pct:rPlay,label:'impr &rarr; plays'},
+            {pct:r25,label:'play &rarr; 25%'},
+            {pct:r50,label:'25% &rarr; 50%'},
+            {pct:r75,label:'50% &rarr; 75%'},
+            {pct:r95,label:'75% &rarr; 95%'},
+            {pct:r100,label:'95% &rarr; 100%'},
+        ];
+    } else if (meteoricos) {
         const cresc = isCrescimento();
         // Em Crescimento o 3o passo NAO e LPV — e visita ao perfil do Instagram.
         // Metricas distintas: LPV = view de landing page; profile_visit = abrir o perfil IG.
@@ -2141,7 +2293,9 @@ function buildFunnelHTML(t){
 
     // Larguras (raio) das fatias — do topo (largo) ao fundo (estreito).
     // Numero de valores = steps.length + 1 (fence-post)
-    const radii = meteoricos ? [420,340,250,170,100] : [420,360,290,220,150,90];
+    const radii = nutri
+        ? [420,380,340,300,260,210,160,100]  // 7 passos (nutricao: impr + plays + 5 marcos)
+        : meteoricos ? [420,340,250,170,100] : [420,360,290,220,150,90];
     const stepHeight=110;
     const connectorHeight=42;
     const ellipseRy=14; // altura do "achatamento" das elipses (efeito 3D)
@@ -2306,12 +2460,15 @@ function aggregateDaily(camps){
     // Soma todos os daily de v&aacute;rias campanhas em um array de daily com m&eacute;tricas derivadas
     const byDate={};
     camps.forEach(c=>(c.daily||[]).forEach(d=>{
-        if(!byDate[d.date])byDate[d.date]={date:d.date,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,link_clicks:0,lpv:0,profile_visits:0,initiate_checkout:0,_maxReach:0,_freqWSum:0};
+        if(!byDate[d.date])byDate[d.date]={date:d.date,spend:0,revenue:0,purchases:0,impressions:0,clicks:0,link_clicks:0,lpv:0,profile_visits:0,initiate_checkout:0,video_plays:0,video_p25:0,video_p50:0,video_p75:0,video_p95:0,video_p100:0,video_thruplay:0,_maxReach:0,_freqWSum:0};
         const o=byDate[d.date];
         o.spend+=d.spend||0;o.revenue+=d.revenue||0;o.purchases+=d.purchases||0;
         const di=d.impressions||0;
         o.impressions+=di;o.clicks+=d.clicks||0;o.link_clicks+=d.link_clicks||0;
         o.lpv+=d.lpv||0;o.profile_visits+=d.profile_visits||0;o.initiate_checkout+=d.initiate_checkout||0;
+        o.video_plays+=d.video_plays||0;o.video_p25+=d.video_p25||0;o.video_p50+=d.video_p50||0;
+        o.video_p75+=d.video_p75||0;o.video_p95+=d.video_p95||0;o.video_p100+=d.video_p100||0;
+        o.video_thruplay+=d.video_thruplay||0;
         // Reach: guardar o maior (não somar — mesma pessoa conta múltiplas vezes entre campanhas)
         if((d.reach||0)>o._maxReach)o._maxReach=d.reach||0;
         // Frequency: média ponderada por impressões
@@ -2329,12 +2486,16 @@ function aggregateDaily(camps){
 }
 
 function totalsFromDaily(daily){
-    const t={impressions:0,clicks:0,link_clicks:0,lpv:0,profile_visits:0,initiate_checkout:0,purchases:0,spend:0,revenue:0,reach:0,frequency:0};
+    const t={impressions:0,clicks:0,link_clicks:0,lpv:0,profile_visits:0,initiate_checkout:0,purchases:0,spend:0,revenue:0,reach:0,frequency:0,
+             video_plays:0,video_p25:0,video_p50:0,video_p75:0,video_p95:0,video_p100:0,video_thruplay:0};
     let freqSum=0,freqDays=0;
     daily.forEach(x=>{
         t.impressions+=x.impressions||0;t.clicks+=x.clicks||0;t.link_clicks+=x.link_clicks||0;
         t.lpv+=x.lpv||0;t.profile_visits+=x.profile_visits||0;t.initiate_checkout+=x.initiate_checkout||0;t.purchases+=x.purchases||0;
         t.spend+=x.spend||0;t.revenue+=x.revenue||0;
+        t.video_plays+=x.video_plays||0;t.video_p25+=x.video_p25||0;t.video_p50+=x.video_p50||0;
+        t.video_p75+=x.video_p75||0;t.video_p95+=x.video_p95||0;t.video_p100+=x.video_p100||0;
+        t.video_thruplay+=x.video_thruplay||0;
         // Reach e Frequency: usar valores da API (impressions-weighted average)
         if(x.frequency>0&&x.impressions>0){freqSum+=x.frequency*x.impressions;freqDays+=x.impressions;}
         if((x.reach||0)>t.reach)t.reach=x.reach; // maior reach diário como lower bound
@@ -2348,6 +2509,14 @@ function totalsFromDaily(daily){
     t.cost_per_link_click=t.link_clicks>0?t.spend/t.link_clicks:0;
     t.cost_per_lpv=t.lpv>0?t.spend/t.lpv:0;
     t.cost_per_ic=t.initiate_checkout>0?t.spend/t.initiate_checkout:0;
+    t.cost_per_thruplay=t.video_thruplay>0?t.spend/t.video_thruplay:0;
+    t.cost_per_video_play=t.video_plays>0?t.spend/t.video_plays:0;
+    t.rate_play_p25=t.video_plays>0?(t.video_p25/t.video_plays*100):0;
+    t.rate_p25_p50=t.video_p25>0?(t.video_p50/t.video_p25*100):0;
+    t.rate_p50_p75=t.video_p50>0?(t.video_p75/t.video_p50*100):0;
+    t.rate_p75_p95=t.video_p75>0?(t.video_p95/t.video_p75*100):0;
+    t.rate_p95_p100=t.video_p95>0?(t.video_p100/t.video_p95*100):0;
+    t.rate_play_thruplay=t.video_plays>0?(t.video_thruplay/t.video_plays*100):0;
     // Frequency: média ponderada por impressões (mais preciso que média simples)
     t.frequency=freqDays>0?freqSum/freqDays:0;
     // Taxas do funil. Em Crescimento, o passo "intermediario" do funil e
@@ -2377,6 +2546,14 @@ const DETAIL_METRICS={
     clicks:{label:'Cliques',color:'#a5d6ff',fmt:fmt,calc:d=>d.link_clicks||d.clicks||0,axis:'count'},
     profile_visits:{label:'Visitas Perfil',color:'#7ee6c5',fmt:fmt,calc:d=>d.profile_visits||0,axis:'count'},
     cost_per_profile_visit:{label:'Custo/Visita',color:'#16a377',fmt:fmtM,calc:d=>{const pv=d.profile_visits||0;return pv>0?d.spend/pv:0;},axis:'unit_cost'},
+    video_plays:{label:'Plays',color:'#a5d6ff',fmt:fmt,calc:d=>d.video_plays||0,axis:'count'},
+    video_thruplay:{label:'ThruPlays',color:'#d2a8ff',fmt:fmt,calc:d=>d.video_thruplay||0,axis:'count'},
+    cost_per_thruplay:{label:'Custo/ThruPlay',color:'#9b5ee8',fmt:fmtM,calc:d=>{const tp=d.video_thruplay||0;return tp>0?d.spend/tp:0;},axis:'unit_cost'},
+    video_p25:{label:'25%',color:'#86efac',fmt:fmt,calc:d=>d.video_p25||0,axis:'count'},
+    video_p50:{label:'50%',color:'#4ade80',fmt:fmt,calc:d=>d.video_p50||0,axis:'count'},
+    video_p75:{label:'75%',color:'#22d3ee',fmt:fmt,calc:d=>d.video_p75||0,axis:'count'},
+    video_p95:{label:'95%',color:'#818cf8',fmt:fmt,calc:d=>d.video_p95||0,axis:'count'},
+    video_p100:{label:'100%',color:'#c084fc',fmt:fmt,calc:d=>d.video_p100||0,axis:'count'},
     lpv:{label:'LPV',color:'#d2a8ff',fmt:fmt,calc:d=>d.lpv||0,axis:'count'},
     initiate_checkout:{label:'Checkouts',color:'#f0883e',fmt:fmt,calc:d=>d.initiate_checkout||0,axis:'count'},
     // Funil — taxas de conversão
@@ -2414,6 +2591,18 @@ function _syncTopCards(){
         var pv = t.profile_visits||0;
         $('#s-cost-per-visit').textContent = pv>0 ? fmtM(t.spend/pv) : '--';
     }
+    // Nutricao: funil de video
+    if($('#s-thruplay')) $('#s-thruplay').textContent=fmt(t.video_thruplay||0);
+    if($('#s-cost-per-thruplay')) {
+        var tp = t.video_thruplay||0;
+        $('#s-cost-per-thruplay').textContent = tp>0 ? fmtM(t.spend/tp) : '--';
+    }
+    if($('#s-video-plays')) $('#s-video-plays').textContent=fmt(t.video_plays||0);
+    if($('#s-video-p25')) $('#s-video-p25').textContent=fmt(t.video_p25||0);
+    if($('#s-video-p50')) $('#s-video-p50').textContent=fmt(t.video_p50||0);
+    if($('#s-video-p75')) $('#s-video-p75').textContent=fmt(t.video_p75||0);
+    if($('#s-video-p95')) $('#s-video-p95').textContent=fmt(t.video_p95||0);
+    if($('#s-video-p100')) $('#s-video-p100').textContent=fmt(t.video_p100||0);
     $('#s-rate-click-lpv').textContent=fmtP(t.rate_click_lpv||0);
     $('#s-rate-lpv-ic').textContent=fmtP(t.rate_lpv_ic||0);
     $('#s-rate-ic-purchase').textContent=fmtP(t.rate_ic_purchase||0);
@@ -2746,6 +2935,9 @@ const CAMP_METRICS={
     spend:{label:'Gasto',color:'#f85149',fmt:fmtM,key:'spend',axis:'money'},
     profile_visits:{label:'Visitas Perfil',color:'#7ee6c5',fmt:fmt,key:'profile_visits',axis:'count'},
     cost_per_profile_visit:{label:'Custo/Visita',color:'#16a377',fmt:fmtM,key:'cost_per_profile_visit',axis:'unit_cost'},
+    video_plays:{label:'Plays',color:'#a5d6ff',fmt:fmt,key:'video_plays',axis:'count'},
+    video_thruplay:{label:'ThruPlays',color:'#d2a8ff',fmt:fmt,key:'video_thruplay',axis:'count'},
+    cost_per_thruplay:{label:'Custo/ThruPlay',color:'#9b5ee8',fmt:fmtM,key:'cost_per_thruplay',axis:'unit_cost'},
     revenue:{label:'Receita',color:'#3fb950',fmt:fmtM,key:'revenue',axis:'money'},
     roas:{label:'ROAS',color:'#58a6ff',fmt:fmtR,key:'roas',axis:'ratio'},
     purchases:{label:labelConversao(),color:'#56d4dd',fmt:fmt,key:'purchases',axis:'count'},
@@ -3176,6 +3368,16 @@ function renderCards(data){
 // Textos dos tooltips de Desempenho adaptados ao tipo — o criterio de "bom"
 // muda conforme o objetivo da campanha (compras vs leads vs visitas ao perfil).
 function perfTooltips() {
+    if (typeof isNutricao === 'function' && isNutricao()) {
+        return {
+            alto: '&Oacute;timo — top 1 participa&ccedil;&atilde;o total (se ainda top 1 em 7d) OU top 3 em 7d + Custo/ThruPlay &lt;= 110% da campanha',
+            medio: 'Bom — Custo/ThruPlay &lt;= 130% da campanha + 50+ ThruPlays',
+            tendencia: 'Tend&ecirc;ncia — ja gera ThruPlays mas ainda n&atilde;o atinge &Oacute;timo ou Bom',
+            declinando: 'Declinando — perdendo participa&ccedil;&atilde;o (velocity &lt; -30%) ap&oacute;s 7+ dias',
+            ruim: 'Ruim — sem ThruPlays ap&oacute;s 7+ dias ou Custo/ThruPlay muito acima da campanha',
+            baixo: 'Baixo — poucos ThruPlays e menos de 7 dias',
+        };
+    }
     if (typeof isCrescimento === 'function' && isCrescimento()) {
         return {
             alto: '&Oacute;timo — top 1 participa&ccedil;&atilde;o total (se ainda top 1 em 7d) OU top 3 em 7d + Custo/Visita &lt;= 110% da campanha',

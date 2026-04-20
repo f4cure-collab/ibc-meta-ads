@@ -102,6 +102,7 @@ EVENT_TYPE_MAP = {
     "AIE": "Alto Impacto Empresarial",
     "METEORICO": "Meteorico",
     "CRESCIMENTO": "Crescimento",
+    "NUTRICAO": "Nutricao",
 }
 
 # Produtos comerciais (highticket). Usados para agrupar campanhas de leads comerciais.
@@ -195,6 +196,33 @@ def _parse_campaign_name(name):
             return ("CRESCIMENTO", best_key, best_city)
         # Sem cidade -> Brasil geral (campanhas nacionais/regionais)
         return ("CRESCIMENTO", "BRASIL", "Brasil")
+
+    # Nutricao: agrupa por cidade (pode ter sub-evento DSP/SPK mas a cidade
+    # e o principal agrupador — mesma logica de Crescimento).
+    if "NUTRICAO" in tokens_split:
+        name_norm = name_upper.replace("-", "_").replace(".", "_")
+        best_city = None
+        best_key = None
+        for key, full in CITY_MAP.items():
+            if key == "RMKT":
+                continue
+            if key in tokens_split or ("_" in key and key in name_norm):
+                if best_key is None or len(key) > len(best_key):
+                    best_key = key
+                    best_city = full
+        if not best_city:
+            for key, full in CITY_MAP.items():
+                if key == "RMKT" or len(key) <= 3:
+                    continue
+                if key in name_norm:
+                    if best_key is None or len(key) > len(best_key):
+                        best_key = key
+                        best_city = full
+        if best_city:
+            best_key = CITY_KEY_NORMALIZE.get(best_key, best_key)
+            best_city = CITY_MAP.get(best_key, best_city)
+            return ("NUTRICAO", best_key, best_city)
+        return ("NUTRICAO", "BRASIL", "Brasil")
 
     # Meteoricos: qualquer campanha com token METEORICO e agrupada por CIDADE apenas.
     # Ignora DSP/SPK/AIE no nome (todo meteorico e um so tipo de evento).
@@ -370,9 +398,9 @@ def group_campaigns_by_event(campaigns, gap_days=60):
         # Campanhas sem data válida vão para o final (não criam gaps)
         items.sort(key=lambda x: x["start_date"] if x["start_date"] and x["start_date"] > min_valid_date else datetime.max)
 
-        # Grupos perpetuos (comercial e crescimento) nao separam por gap temporal.
+        # Grupos perpetuos (comercial, crescimento, nutricao) nao separam por gap temporal.
         et0 = items[0]["event_type"]
-        is_perpetuo = et0 in COMERCIAL_PRODUCT_MAP or et0 == "CRESCIMENTO"
+        is_perpetuo = et0 in COMERCIAL_PRODUCT_MAP or et0 in ("CRESCIMENTO", "NUTRICAO")
         if is_perpetuo:
             sub_events = [items]
         else:
@@ -431,6 +459,9 @@ def group_campaigns_by_event(campaigns, gap_days=60):
                 # detectado cidade especifica (campanhas nacionais/regionais).
                 event_name = f"Crescimento — {city}"
                 event_id = f"CRESCIMENTO_{city_key}"
+            elif et == "NUTRICAO":
+                event_name = f"Nutricao — {city}"
+                event_id = f"NUTRICAO_{city_key}"
             elif et == "OVERRIDE":
                 # Override manual: event_name veio do JSON direto
                 suffix = f" ({idx + 1})" if len(sub_events) > 1 else ""

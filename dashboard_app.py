@@ -368,7 +368,8 @@ CAMP_TYPE_VENDAS = "vendas"
 CAMP_TYPE_METEORICOS = "meteoricos"
 CAMP_TYPE_COMERCIAL = "comercial"
 CAMP_TYPE_CRESCIMENTO = "crescimento"
-VALID_CAMP_TYPES = (CAMP_TYPE_VENDAS, CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL, CAMP_TYPE_CRESCIMENTO)
+CAMP_TYPE_NUTRICAO = "nutricao"
+VALID_CAMP_TYPES = (CAMP_TYPE_VENDAS, CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL, CAMP_TYPE_CRESCIMENTO, CAMP_TYPE_NUTRICAO)
 
 # Produtos comerciais (highticket). Chave = token no nome da campanha.
 # CSI/PNL estao pausados atualmente mas aparecem quando o filtro de status inclui pausadas.
@@ -424,6 +425,14 @@ def _is_crescimento_campaign(name):
     return "CRESCIMENTO" in tokens
 
 
+def _is_nutricao_campaign(name):
+    """True se o nome contem token NUTRICAO em qualquer posicao.
+    Campanhas NUTRICAO otimizam para video view (ThruPlay), nao gera lead/venda.
+    Padrao: NUTRICAO_<EVENT>_<CIDADE>_<SUFIX> ou M.M_NUTRICAO_<CIDADE>_<EVENT>."""
+    tokens = _name_tokens(name)
+    return "NUTRICAO" in tokens
+
+
 def _is_comercial_campaign(name):
     """True se o nome contem algum token de produto comercial (MTR/PSC/OHIO/CSI/PNL)
     E nao for campanha de nutricao/remarketing (que nao gera lead novo)."""
@@ -466,6 +475,9 @@ def _filter_campaigns_by_type(campaigns, camp_type):
         elif camp_type == CAMP_TYPE_CRESCIMENTO:
             if _is_crescimento_campaign(name):
                 result.append(c)
+        elif camp_type == CAMP_TYPE_NUTRICAO:
+            if _is_nutricao_campaign(name):
+                result.append(c)
         else:
             if c.get("objective") == "OUTCOME_SALES":
                 result.append(c)
@@ -491,6 +503,36 @@ IC_TYPES = [
     "initiate_checkout",
     "offsite_conversion.fb_pixel_initiate_checkout",
 ]
+
+# ── Nutricao: metricas de video ────────────────────────────────────────
+# ThruPlay = visualizacao ate 15s OU video inteiro (se < 15s). Metrica
+# principal das campanhas NUTRICAO que otimizam para video view.
+# Funil: Impressoes -> Plays -> 25% -> 50% -> 75% -> 95% (proxy de 90%+)
+# -> 100% -> ThruPlay. Meta API expoe campos dedicados para cada marco.
+VIDEO_METRIC_FIELDS = (
+    "video_play_actions,"
+    "video_p25_watched_actions,"
+    "video_p50_watched_actions,"
+    "video_p75_watched_actions,"
+    "video_p95_watched_actions,"
+    "video_p100_watched_actions,"
+    "video_thruplay_watched_actions,"
+    "video_avg_time_watched_actions"
+)
+
+
+def _extract_video_metric(row, field):
+    """Extrai valor numerico de um campo de video actions (video_p25_watched_actions, etc).
+    Esses campos vem como [{action_type, value}] e so tem uma entrada para video_view.
+    Retorna soma total."""
+    actions = row.get(field) or []
+    total = 0
+    for a in actions:
+        try:
+            total += int(float(a.get("value", 0) or 0))
+        except Exception:
+            pass
+    return total
 
 
 # ── Auth ───────────────────────────────────────────────────────────────
@@ -1309,6 +1351,25 @@ def parse_insights(row, camp_type=None):
     # (view de landing page). NAO deve ser mapeado em nenhum deles.
     profile_visits = _extract_profile_visits_from_row(row)
 
+    # ── Metricas de video (Nutricao) ──
+    # Funil: Plays -> 25% -> 50% -> 75% -> 95% (proxy de 90%+) -> 100% -> ThruPlay
+    video_plays = _extract_video_metric(row, "video_play_actions")
+    video_p25 = _extract_video_metric(row, "video_p25_watched_actions")
+    video_p50 = _extract_video_metric(row, "video_p50_watched_actions")
+    video_p75 = _extract_video_metric(row, "video_p75_watched_actions")
+    video_p95 = _extract_video_metric(row, "video_p95_watched_actions")
+    video_p100 = _extract_video_metric(row, "video_p100_watched_actions")
+    video_thruplay = _extract_video_metric(row, "video_thruplay_watched_actions")
+    # Custos e taxas de video
+    cost_per_thruplay = spend / video_thruplay if video_thruplay > 0 else 0
+    cost_per_video_play = spend / video_plays if video_plays > 0 else 0
+    rate_play_p25 = (video_p25 / video_plays * 100) if video_plays > 0 else 0
+    rate_p25_p50 = (video_p50 / video_p25 * 100) if video_p25 > 0 else 0
+    rate_p50_p75 = (video_p75 / video_p50 * 100) if video_p50 > 0 else 0
+    rate_p75_p95 = (video_p95 / video_p75 * 100) if video_p75 > 0 else 0
+    rate_p95_p100 = (video_p100 / video_p95 * 100) if video_p95 > 0 else 0
+    rate_play_thruplay = (video_thruplay / video_plays * 100) if video_plays > 0 else 0
+
     # Taxas de conversão do funil
     rate_click_lpv = (lpv / link_clicks * 100) if link_clicks > 0 else 0
     rate_lpv_ic = (initiate_checkout / lpv * 100) if lpv > 0 else 0
@@ -1346,6 +1407,22 @@ def parse_insights(row, camp_type=None):
         "rate_click_purchase": round(rate_click_purchase, 2),
         "cost_per_ic": round(cost_per_ic, 2),
         "cost_per_lpv": round(cost_per_lpv, 2),
+        # Video (Nutricao)
+        "video_plays": video_plays,
+        "video_p25": video_p25,
+        "video_p50": video_p50,
+        "video_p75": video_p75,
+        "video_p95": video_p95,
+        "video_p100": video_p100,
+        "video_thruplay": video_thruplay,
+        "cost_per_thruplay": round(cost_per_thruplay, 2),
+        "cost_per_video_play": round(cost_per_video_play, 2),
+        "rate_play_p25": round(rate_play_p25, 2),
+        "rate_p25_p50": round(rate_p25_p50, 2),
+        "rate_p50_p75": round(rate_p50_p75, 2),
+        "rate_p75_p95": round(rate_p75_p95, 2),
+        "rate_p95_p100": round(rate_p95_p100, 2),
+        "rate_play_thruplay": round(rate_play_thruplay, 2),
     }
 
 
@@ -1388,19 +1465,23 @@ def _default_date_from():
 # Fields padrão para chamadas de /insights — inclui inline_link_clicks e cpc
 INSIGHT_FIELDS_CAMPAIGN = (
     "campaign_id,campaign_name,spend,impressions,clicks,inline_link_clicks,"
-    "reach,frequency,ctr,cpm,cpp,cpc,actions,action_values,purchase_roas,results"
+    "reach,frequency,ctr,cpm,cpp,cpc,actions,action_values,purchase_roas,results,"
+    + VIDEO_METRIC_FIELDS
 )
 INSIGHT_FIELDS_AD = (
     "ad_id,ad_name,spend,impressions,clicks,inline_link_clicks,"
-    "reach,frequency,ctr,cpm,cpc,actions,action_values,purchase_roas,results,date_start"
+    "reach,frequency,ctr,cpm,cpc,actions,action_values,purchase_roas,results,date_start,"
+    + VIDEO_METRIC_FIELDS
 )
 INSIGHT_FIELDS_DAILY = (
     "spend,impressions,clicks,inline_link_clicks,reach,frequency,"
-    "actions,action_values,purchase_roas,results,date_start"
+    "actions,action_values,purchase_roas,results,date_start,"
+    + VIDEO_METRIC_FIELDS
 )
 INSIGHT_FIELDS_DAILY_CAMP = (
     "campaign_id,campaign_name,spend,impressions,clicks,inline_link_clicks,reach,frequency,"
-    "actions,action_values,purchase_roas,results,date_start"
+    "actions,action_values,purchase_roas,results,date_start,"
+    + VIDEO_METRIC_FIELDS
 )
 
 
@@ -1507,6 +1588,13 @@ def api_campaigns():
         total_impressions = 0
         total_clicks = 0
         total_profile_visits = 0
+        total_thruplay = 0
+        total_video_plays = 0
+        total_video_p25 = 0
+        total_video_p50 = 0
+        total_video_p75 = 0
+        total_video_p95 = 0
+        total_video_p100 = 0
 
         # Calcular dias ativos dentro do per&iacute;odo: max(start_time, date_from) at&eacute; date_to
         try:
@@ -1555,6 +1643,13 @@ def api_campaigns():
             total_impressions += metrics.get("impressions", 0)
             total_clicks += metrics.get("clicks", 0)
             total_profile_visits += metrics.get("profile_visits", 0)
+            total_thruplay += metrics.get("video_thruplay", 0)
+            total_video_plays += metrics.get("video_plays", 0)
+            total_video_p25 += metrics.get("video_p25", 0)
+            total_video_p50 += metrics.get("video_p50", 0)
+            total_video_p75 += metrics.get("video_p75", 0)
+            total_video_p95 += metrics.get("video_p95", 0)
+            total_video_p100 += metrics.get("video_p100", 0)
 
         # Ordenar por gasto (maior primeiro)
         result.sort(key=lambda x: x.get("spend", 0), reverse=True)
@@ -1571,6 +1666,13 @@ def api_campaigns():
             "total_impressions": total_impressions,
             "total_clicks": total_clicks,
             "total_profile_visits": total_profile_visits,
+            "total_thruplay": total_thruplay,
+            "total_video_plays": total_video_plays,
+            "total_video_p25": total_video_p25,
+            "total_video_p50": total_video_p50,
+            "total_video_p75": total_video_p75,
+            "total_video_p95": total_video_p95,
+            "total_video_p100": total_video_p100,
         }
 
         # Agrupar por evento
@@ -2066,6 +2168,13 @@ def _aggregate_daily_total(daily_rows):
     view_content = 0
     add_to_cart = 0
     initiate_checkout = 0
+    video_plays = 0
+    video_p25 = 0
+    video_p50 = 0
+    video_p75 = 0
+    video_p95 = 0
+    video_p100 = 0
+    video_thruplay = 0
     for row in daily_rows:
         m = parse_insights(row)
         spend += m.get("spend", 0)
@@ -2086,6 +2195,13 @@ def _aggregate_daily_total(daily_rows):
         view_content += m.get("view_content", 0)
         add_to_cart += m.get("add_to_cart", 0)
         initiate_checkout += m.get("initiate_checkout", 0)
+        video_plays += m.get("video_plays", 0)
+        video_p25 += m.get("video_p25", 0)
+        video_p50 += m.get("video_p50", 0)
+        video_p75 += m.get("video_p75", 0)
+        video_p95 += m.get("video_p95", 0)
+        video_p100 += m.get("video_p100", 0)
+        video_thruplay += m.get("video_thruplay", 0)
 
     roas = revenue / spend if spend > 0 else 0
     cpa = spend / purchases if purchases > 0 else 0
@@ -2100,6 +2216,11 @@ def _aggregate_daily_total(daily_rows):
     cost_per_ic = spend / initiate_checkout if initiate_checkout > 0 else 0
     cost_per_lpv = spend / lpv if lpv > 0 else 0
     cost_per_profile_visit = spend / profile_visits if profile_visits > 0 else 0
+    cost_per_thruplay = spend / video_thruplay if video_thruplay > 0 else 0
+    cost_per_video_play = spend / video_plays if video_plays > 0 else 0
+    rate_play_thruplay = (video_thruplay / video_plays * 100) if video_plays > 0 else 0
+    rate_play_p25 = (video_p25 / video_plays * 100) if video_plays > 0 else 0
+    rate_play_p100 = (video_p100 / video_plays * 100) if video_plays > 0 else 0
 
     return {
         "spend": round(spend, 2), "impressions": impressions, "clicks": clicks,
@@ -2117,6 +2238,19 @@ def _aggregate_daily_total(daily_rows):
         "rate_click_purchase": round(rate_click_purchase, 2),
         "cost_per_ic": round(cost_per_ic, 2),
         "cost_per_lpv": round(cost_per_lpv, 2),
+        # Video (Nutricao)
+        "video_plays": video_plays,
+        "video_p25": video_p25,
+        "video_p50": video_p50,
+        "video_p75": video_p75,
+        "video_p95": video_p95,
+        "video_p100": video_p100,
+        "video_thruplay": video_thruplay,
+        "cost_per_thruplay": round(cost_per_thruplay, 2),
+        "cost_per_video_play": round(cost_per_video_play, 2),
+        "rate_play_thruplay": round(rate_play_thruplay, 2),
+        "rate_play_p25": round(rate_play_p25, 2),
+        "rate_play_p100": round(rate_play_p100, 2),
     }
 
 
