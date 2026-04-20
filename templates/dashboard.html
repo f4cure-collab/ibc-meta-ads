@@ -2658,7 +2658,29 @@ function renderDetailMetricCards(totals){
         rate_lpv_ic:totals.rate_lpv_ic||0,
         rate_ic_purchase:totals.rate_ic_purchase||0,
     };
-    ct.innerHTML=Object.entries(DETAIL_METRICS).map(([key,m])=>{
+    // Metricas mostradas por tipo — evita poluir dashboard com dados zerados
+    // de outros tipos (ex: ThruPlays em Crescimento, Visitas em Nutricao).
+    const nutri = isNutricao();
+    const cresc = isCrescimento();
+    const VIDEO_KEYS = new Set(['video_plays','video_thruplay','cost_per_thruplay','video_p25','video_p50','video_p75','video_p95','video_p100','avg_watched_pct']);
+    const CRESC_KEYS = new Set(['profile_visits','cost_per_profile_visit']);
+    const NON_CRESC_ONLY_KEYS = new Set(['lpv','initiate_checkout','rate_lpv_ic','rate_ic_purchase','cost_per_lpv','cost_per_ic','ticket']);
+    ct.innerHTML=Object.entries(DETAIL_METRICS).filter(([key])=>{
+        // Em Nutricao: so video + basicos (gasto/impressoes/cpm/etc). Esconde profile_visits/LPV/checkout.
+        if (nutri) {
+            if (CRESC_KEYS.has(key)) return false;
+            if (NON_CRESC_ONLY_KEYS.has(key)) return false;
+            return true;
+        }
+        // Em Crescimento: esconde video metrics (nao aplicavel).
+        if (cresc) {
+            if (VIDEO_KEYS.has(key)) return false;
+            return true;
+        }
+        // Outros tipos: esconde video metrics e profile_visits (nao aplicaveis).
+        if (VIDEO_KEYS.has(key) || CRESC_KEYS.has(key)) return false;
+        return true;
+    }).map(([key,m])=>{
         const sel=detailSelectedMetrics.has(key)?'selected':'';
         const v=values[key]||0;
         const color=key==='roas'?roasC(v):'var(--t1)';
