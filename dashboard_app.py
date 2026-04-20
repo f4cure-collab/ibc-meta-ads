@@ -1590,8 +1590,9 @@ def api_campaigns_multi_insights():
         camp_status = request.args.get("camp_status", "all")
         force = request.args.get("force", "false") == "true"
 
-        # v3: attribution diaria usa profile_visits. Cache bumpado.
-        cache_key = f"multi_insights_v4_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
+        # v5: filtra campanhas sem dados quando ids=all (nao polui o seletor
+        # de Projecao com campanhas antigas arquivadas sem impressoes).
+        cache_key = f"multi_insights_v5_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -1694,8 +1695,17 @@ def api_campaigns_multi_insights():
 
         # Ordenar daily por data
         result = []
+        # Quando ids=all (aba Projecao/lista completa): so inclui campanhas com dados.
+        # Quando ids sao especificos (usuario clicou campanhas na tabela): mantem todas
+        # pra mostrar mesmo que zeradas — o usuario escolheu explicitamente.
+        include_empty = ids_param != "all"
         for cid in target_ids:
-            entry = by_camp.get(cid, {"id": cid, "name": sales_map.get(cid, {}).get("name", cid), "daily": []})
+            if cid in by_camp:
+                entry = by_camp[cid]
+            elif include_empty:
+                entry = {"id": cid, "name": sales_map.get(cid, {}).get("name", cid), "daily": []}
+            else:
+                continue
             entry["daily"].sort(key=lambda x: x["date"])
             result.append(entry)
 
