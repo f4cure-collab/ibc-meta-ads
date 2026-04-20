@@ -808,42 +808,57 @@ def _extract_link_clicks_from_row(row):
 def _extract_profile_visits_from_row(row):
     """Extrai VISITAS AO PERFIL do Instagram de uma linha de insights.
 
-    Fontes (em ordem de confiabilidade):
-      1) actions[] com action_type em PROFILE_VISIT_TYPES — granular, mais confiavel
-      2) results[] da API — coluna 'Resultados' do Gerenciador; vem em formato
-         {indicator, values:[{value}]} ou {action_type, value} (API varia)
+    Fontes (ordem de prioridade):
+      1) results[] — coluna 'Resultados' do Gerenciador. PRIMARIO. A API pode
+         retornar varios formatos; este parser cobre todos que ja vimos.
+      2) actions[] com action_type em PROFILE_VISIT_TYPES — fallback quando
+         'results' nao vem populado (algumas edge_table nao expoem o campo).
+      3) conversions[] e unique_actions[] com profile_visit action_types.
 
-    NAO cai em link_click. Click no anuncio != visita ao perfil. Se a API nao
-    expoe nenhum dos dois, retorna 0 — e melhor ver 0 e diagnosticar do que
-    mascarar com um numero errado."""
-    # Fonte 1: actions[] com action_types de profile_visit
-    actions = row.get("actions") or []
-    total_actions = 0
-    for a in actions:
-        if a.get("action_type") in PROFILE_VISIT_TYPES:
-            try:
-                total_actions += int(float(a.get("value", 0) or 0))
-            except Exception:
-                pass
-
-    # Fonte 2: results[] — formato pode variar entre {value} plano e {values:[{value}]}
-    results = row.get("results") or []
+    NAO cai em link_click. Click no anuncio != visita ao perfil."""
+    # Fonte 1: results[] — formato pode variar:
+    #   A) {"value": "123"} (flat)
+    #   B) {"value": 123} (flat numerico)
+    #   C) {"indicator": "...", "values": [{"value": "123"}]} (nested)
+    #   D) {"values": ["123"]} (lista de strings)
     total_results = 0
-    for r in results:
+    for r in (row.get("results") or []):
+        if not isinstance(r, dict):
+            continue
         v = r.get("value")
-        if v is not None:
+        if v is not None and not isinstance(v, (list, dict)):
             try:
                 total_results += int(float(v))
                 continue
             except Exception:
                 pass
-        for vv in (r.get("values") or []):
-            try:
-                total_results += int(float(vv.get("value", 0) or 0))
-            except Exception:
-                pass
+        values = r.get("values")
+        if isinstance(values, list):
+            for vv in values:
+                if isinstance(vv, dict):
+                    inner = vv.get("value", 0)
+                    try:
+                        total_results += int(float(inner or 0))
+                    except Exception:
+                        pass
+                elif isinstance(vv, (int, float, str)):
+                    try:
+                        total_results += int(float(vv))
+                    except Exception:
+                        pass
+    if total_results > 0:
+        return total_results
 
-    return max(total_actions, total_results)
+    # Fonte 2: actions[] / conversions[] / unique_actions[] com action_types de profile_visit
+    total_actions = 0
+    for field in ("actions", "conversions", "unique_actions"):
+        for a in (row.get(field) or []):
+            if a.get("action_type") in PROFILE_VISIT_TYPES:
+                try:
+                    total_actions = max(total_actions, int(float(a.get("value", 0) or 0)))
+                except Exception:
+                    pass
+    return total_actions
 
 
 # Peso relativo de campanhas NAO-Crescimento na atribuicao de seguidores.
@@ -3701,8 +3716,8 @@ def api_crescimento_preview():
         insights_raw = _fetch_insights_for_tagged_campaigns(
             filtered,
             base_params={
-                # Tudo que pode conter follow: actions, unique_actions, conversions, cost_per_*
-                "fields": "campaign_id,campaign_name,spend,impressions,actions,unique_actions,conversions,conversion_values,cost_per_action_type,cost_per_unique_action_type,cost_per_conversion",
+                # 'results' = coluna "Resultados" do Gerenciador. Demais sao pra debug de action_types.
+                "fields": "campaign_id,campaign_name,spend,impressions,actions,unique_actions,conversions,conversion_values,cost_per_action_type,cost_per_unique_action_type,cost_per_conversion,results",
                 "time_range": json.dumps({"since": dt_from, "until": dt_to}),
                 "level": "campaign",
                 "action_attribution_windows": json.dumps(["1d_view", "7d_click", "28d_click"]),
@@ -3755,11 +3770,37 @@ def api_crescimento_preview():
                 "campaign_name": top.get("campaign_name", ""),
                 "spend": top.get("spend", ""),
                 "raw_keys": list(top.keys()),
+                "results_sample": top.get("results"),
                 "actions_sample": (top.get("actions") or [])[:50],
                 "unique_actions_sample": (top.get("unique_actions") or [])[:50],
                 "conversions_sample": (top.get("conversions") or [])[:50],
                 "cost_per_action_type_sample": (top.get("cost_per_action_type") or [])[:50],
             }
+
+        # Agregacao do campo 'results' em todas as campanhas — mostra o que Meta devolve
+        # nesse campo pra facilitar o mapeamento pra profile_visit.
+        results_agg = {}
+        for row in insights_raw:
+            for r in (row.get("results") or []):
+                if not isinstance(r, dict):
+                    continue
+                ind = r.get("indicator") or r.get("action_type") or "(sem indicator)"
+                # Soma valor (tenta todos os formatos)
+                val = 0
+                v = r.get("value")
+                if v is not None and not isinstance(v, (list, dict)):
+                    try: val = int(float(v))
+                    except Exception: pass
+                else:
+                    for vv in (r.get("values") or []):
+                        if isinstance(vv, dict):
+                            try: val += int(float(vv.get("value", 0) or 0))
+                            except Exception: pass
+                prev = results_agg.get(ind, {"indicator": ind, "total": 0, "n_campaigns": 0})
+                prev["total"] += val
+                prev["n_campaigns"] += 1
+                results_agg[ind] = prev
+        results_ranked = sorted(results_agg.values(), key=lambda x: x["total"], reverse=True)[:30]
 
         return jsonify({
             "ok": True,
@@ -3767,6 +3808,8 @@ def api_crescimento_preview():
             "period": f"{dt_from} -> {dt_to}",
             "total_spend": round(total_spend, 2),
             "current_follow_types": FOLLOW_TYPES,
+            "current_profile_visit_types": PROFILE_VISIT_TYPES,
+            "results_aggregated": results_ranked,
             "actions": _aggregate("actions"),
             "unique_actions": _aggregate("unique_actions"),
             "conversions": _aggregate("conversions"),
