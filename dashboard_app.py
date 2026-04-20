@@ -1347,7 +1347,7 @@ def api_campaigns():
 
         # v3: attribution baseada em profile_visits (campo results). Bumpado pra
         # invalidar cache antigo que ainda usava link_click como proxy.
-        cache_key = f"campaigns_v3_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"campaigns_v4_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -1591,7 +1591,7 @@ def api_campaigns_multi_insights():
         force = request.args.get("force", "false") == "true"
 
         # v3: attribution diaria usa profile_visits. Cache bumpado.
-        cache_key = f"multi_insights_v3_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"multi_insights_v4_{camp_type}_{ids_param}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -2219,7 +2219,7 @@ def api_daily_summary():
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_v3_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_v4_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -4422,8 +4422,8 @@ def _refresh_recent_loop():
                         try:
                             # Chaves de cache correspondentes (matching backend logic).
                             # Pula requisicao se cache ainda tem >40% do TTL original.
-                            k_camp = f"campaigns_{ct}_all_{dt_from}_{dt_to}"
-                            k_daily = f"daily_summary_{ct}_all_{dt_from}_{dt_to}"
+                            k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
+                            k_daily = f"daily_summary_v4_{ct}_all_{dt_from}_{dt_to}"
                             k_creat = f"all_creatives_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
