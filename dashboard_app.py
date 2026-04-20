@@ -713,6 +713,163 @@ def meta_get(endpoint, params=None):
     return data
 
 
+# ── Instagram Graph API: ganho de seguidores ──────────────────────────
+# Perfil principal IG associado as campanhas CRESCIMENTO.
+# @joserobertomarques — todas campanhas CRESCIMENTO promovem este perfil.
+IG_PROFILE_ID_JRM = "17841400833978215"
+
+
+def fetch_ig_follower_gain_by_day(ig_user_id, date_from, date_to):
+    """Consulta Instagram Graph API e retorna ganho liquido de seguidores por dia.
+
+    Retorna dict {'YYYY-MM-DD': net_gain_int} onde net_gain = FOLLOWER - NON_FOLLOWER
+    (pessoas que seguiram menos que deixaram de seguir).
+
+    Cache em memoria + SQLite pra nao bater na API toda request."""
+    cache_key = f"ig_follower_gain_{ig_user_id}_{date_from}_{date_to}"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    result = {}
+    # Meta IG Insights exige janela <=30 dias, divide em chunks se preciso
+    from datetime import datetime as _dt
+    try:
+        d_from = _dt.strptime(date_from, "%Y-%m-%d")
+        d_to = _dt.strptime(date_to, "%Y-%m-%d")
+    except Exception:
+        return {}
+
+    # IG API tem limite de 30d por query; loop em chunks
+    chunk_start = d_from
+    while chunk_start <= d_to:
+        chunk_end = min(chunk_start + timedelta(days=29), d_to)
+        try:
+            # Buscamos dia a dia dentro do chunk consultando o periodo todo
+            # (a API retorna total_value por dia quando period=day com since/until)
+            resp = meta_get(f"{ig_user_id}/insights", {
+                "metric": "follows_and_unfollows",
+                "breakdown": "follow_type",
+                "period": "day",
+                "metric_type": "time_series",
+                "since": chunk_start.strftime("%Y-%m-%d"),
+                "until": chunk_end.strftime("%Y-%m-%d"),
+            })
+            # Response: {data:[{name,values:[{value,end_time},...]}]}
+            # Com breakdown, cada value tem breakdowns[{results:[{dimension_values:[FOLLOWER|NON_FOLLOWER],value}]}]
+            for entry in resp.get("data", []):
+                if entry.get("name") != "follows_and_unfollows":
+                    continue
+                for val in entry.get("values", []):
+                    end_time = val.get("end_time", "")  # ISO-8601
+                    date_iso = end_time[:10] if end_time else ""
+                    if not date_iso:
+                        continue
+                    follower = 0
+                    non_follower = 0
+                    breakdowns = (val.get("breakdowns") or [])
+                    for bd in breakdowns:
+                        for r in bd.get("results", []):
+                            dims = r.get("dimension_values") or []
+                            v = int(r.get("value", 0) or 0)
+                            if "FOLLOWER" in dims:
+                                follower = v
+                            elif "NON_FOLLOWER" in dims:
+                                non_follower = v
+                    result[date_iso] = follower - non_follower
+        except Exception as e:
+            print(f"[IG] Erro ganho seguidores {ig_user_id} {chunk_start.date()}-{chunk_end.date()}: {e}")
+        chunk_start = chunk_end + timedelta(days=1)
+
+    # Cache 6h — IG API tem delay de 24-48h no backfill dos valores
+    set_cached(cache_key, result, ttl_hours=6)
+    return result
+
+
+def _extract_link_clicks_from_row(row):
+    """Extrai link_clicks de um row de insights (usa inline_link_clicks se presente,
+    senao busca em actions[link_click])."""
+    lc = row.get("inline_link_clicks")
+    try:
+        lc = int(float(lc)) if lc else 0
+    except Exception:
+        lc = 0
+    if lc > 0:
+        return lc
+    for a in (row.get("actions") or []):
+        if a.get("action_type") == "link_click":
+            try:
+                return int(float(a.get("value", 0) or 0))
+            except Exception:
+                return 0
+    return 0
+
+
+def compute_crescimento_follower_attribution(daily_rows, ig_gains_by_day):
+    """Atribuicao de seguidores a campanhas proporcional a link_clicks.
+
+    Para cada dia:
+      seguidores_campanha = ganho_dia_IG * (link_clicks_campanha / total_link_clicks_dia)
+
+    Args:
+        daily_rows: rows da Meta Marketing API com time_increment=1, cada row = 1 (campanha,dia)
+        ig_gains_by_day: dict {date_str: ganho_liquido_seguidores} da IG API
+
+    Returns:
+        dict {(campaign_id, date): seguidores_atribuidos_float}
+    """
+    # Agrupa por data
+    by_date = {}
+    for row in daily_rows:
+        d = row.get("date_start", "")
+        cid = row.get("campaign_id", "")
+        if not d or not cid:
+            continue
+        by_date.setdefault(d, []).append(row)
+
+    attribution = {}
+    for date, rows in by_date.items():
+        gain = ig_gains_by_day.get(date, 0)
+        if gain <= 0:
+            continue
+        click_by_cid = {r.get("campaign_id"): _extract_link_clicks_from_row(r) for r in rows}
+        total_clicks = sum(click_by_cid.values())
+        if total_clicks <= 0:
+            continue
+        for cid, clicks in click_by_cid.items():
+            if clicks > 0:
+                attribution[(cid, date)] = gain * (clicks / total_clicks)
+    return attribution
+
+
+def fetch_ig_follower_gain_total(ig_user_id, date_from, date_to):
+    """Fallback/diagnostico: retorna (follower_total, non_follower_total) agregado."""
+    try:
+        resp = meta_get(f"{ig_user_id}/insights", {
+            "metric": "follows_and_unfollows",
+            "breakdown": "follow_type",
+            "period": "day",
+            "metric_type": "total_value",
+            "since": date_from,
+            "until": date_to,
+        })
+        follower = non_follower = 0
+        for entry in resp.get("data", []):
+            tv = entry.get("total_value") or {}
+            for bd in tv.get("breakdowns", []):
+                for r in bd.get("results", []):
+                    dims = r.get("dimension_values") or []
+                    v = int(r.get("value", 0) or 0)
+                    if "FOLLOWER" in dims:
+                        follower = v
+                    elif "NON_FOLLOWER" in dims:
+                        non_follower = v
+        return follower, non_follower
+    except Exception as e:
+        print(f"[IG] Erro total seguidores {ig_user_id}: {e}")
+        return 0, 0
+
+
 class RateLimitError(Exception):
     """Erro de rate limit da Meta API."""
     pass
@@ -1090,6 +1247,37 @@ def api_campaigns():
         for row in insights_data:
             insights_map[row.get("campaign_id")] = parse_insights(row, camp_type=camp_type)
 
+        # 2b. Crescimento: sobrescreve 'purchases' com seguidores atribuidos do IG
+        # (Meta Marketing API nao expoe follow por campanha — usamos IG Graph API
+        # com atribuicao proporcional por link_click)
+        if camp_type == CAMP_TYPE_CRESCIMENTO:
+            try:
+                ig_gains = fetch_ig_follower_gain_by_day(IG_PROFILE_ID_JRM, date_from, date_to)
+                if ig_gains:
+                    daily_rows = _fetch_insights_for_tagged_campaigns(
+                        sales_campaigns,
+                        base_params={
+                            "fields": "campaign_id,date_start,inline_link_clicks,actions,spend",
+                            "time_range": json.dumps({"since": date_from, "until": date_to}),
+                            "time_increment": 1,
+                            "level": "campaign",
+                            "limit": 500,
+                        }
+                    )
+                    attribution = compute_crescimento_follower_attribution(daily_rows, ig_gains)
+                    # Agrega por campanha e injeta em insights_map
+                    total_by_camp = {}
+                    for (cid, _d), v in attribution.items():
+                        total_by_camp[cid] = total_by_camp.get(cid, 0) + v
+                    for cid, total in total_by_camp.items():
+                        if cid in insights_map:
+                            insights_map[cid]["purchases"] = int(round(total))
+                            # Recalcula CPS (usa campo cpa)
+                            sp = insights_map[cid].get("spend", 0)
+                            insights_map[cid]["cpa"] = round(sp / total, 2) if total > 0 else 0
+            except Exception as e:
+                print(f"[CRESCIMENTO] Falha atribuicao de seguidores: {e}")
+
         # 3. Montar resposta
         result = []
         total_spend = 0
@@ -1312,6 +1500,16 @@ def api_campaigns_multi_insights():
             extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
         )
 
+        # Crescimento: calcula atribuicao diaria de seguidores (IG API + link_click)
+        crescimento_attr = {}
+        if camp_type == CAMP_TYPE_CRESCIMENTO:
+            try:
+                ig_gains = fetch_ig_follower_gain_by_day(IG_PROFILE_ID_JRM, date_from, date_to)
+                if ig_gains:
+                    crescimento_attr = compute_crescimento_follower_attribution(rows, ig_gains)
+            except Exception as e:
+                print(f"[CRESCIMENTO multi-insights] Falha: {e}")
+
         # Agrupar por campaign_id
         by_camp = {}
         for row in rows:
@@ -1326,6 +1524,14 @@ def api_campaigns_multi_insights():
                 }
             parsed = parse_insights(row)
             parsed["date"] = row.get("date_start", "")
+            # Sobrescreve purchases com seguidores atribuidos do dia (crescimento)
+            if crescimento_attr:
+                attr_val = crescimento_attr.get((cid, parsed["date"]), 0)
+                parsed["purchases"] = int(round(attr_val))
+                if parsed.get("spend", 0) > 0 and parsed["purchases"] > 0:
+                    parsed["cpa"] = round(parsed["spend"] / parsed["purchases"], 2)
+                else:
+                    parsed["cpa"] = 0
             by_camp[cid]["daily"].append(parsed)
 
         # Ordenar daily por data
@@ -1882,6 +2088,14 @@ def api_daily_summary():
             extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
         )
 
+        # Crescimento: sobrescreve purchases com ganho de seguidores do dia da IG API
+        ig_gains = {}
+        if camp_type == CAMP_TYPE_CRESCIMENTO:
+            try:
+                ig_gains = fetch_ig_follower_gain_by_day(IG_PROFILE_ID_JRM, date_from, date_to)
+            except Exception as e:
+                print(f"[CRESCIMENTO daily-summary] Falha IG API: {e}")
+
         # Agregar por dia
         by_date = {}
         for row in rows:
@@ -1901,6 +2115,13 @@ def api_daily_summary():
             by_date[d]["link_clicks"] += parsed.get("link_clicks", 0)
             by_date[d]["lpv"] += parsed.get("lpv", 0)
             by_date[d]["initiate_checkout"] += parsed.get("initiate_checkout", 0)
+
+        # Crescimento: substitui purchases agregado pelo ganho IG do dia
+        # (soma dos atribuidos = total de seguidores do dia no perfil)
+        if camp_type == CAMP_TYPE_CRESCIMENTO and ig_gains:
+            for d, row in by_date.items():
+                gain = ig_gains.get(d, 0)
+                row["purchases"] = max(0, int(round(gain)))
 
         # Calcular m&eacute;tricas derivadas por dia
         daily = []
