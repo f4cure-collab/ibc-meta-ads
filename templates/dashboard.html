@@ -577,7 +577,11 @@
         body.type-crescimento th.show-crescimento,
         body.type-crescimento td.show-crescimento { display: table-cell !important; }
         /* Elementos que NAO devem aparecer em Crescimento (meta = visitas, nao seguidores) */
-        body.type-crescimento .hide-crescimento { display: none !important; }
+        body.type-crescimento .hide-crescimento,
+        body.type-crescimento [data-metric="lpv"],
+        body.type-crescimento [data-metric="cost_per_lpv"] {
+            display: none !important;
+        }
     </style>
 </head>
 <body>
@@ -4433,14 +4437,19 @@ function renderBdCharts(d) {
     var weekdaySorted = sortArr(d.weekday, _bdSorts.weekday.key, _bdSorts.weekday.asc);
 
     // ── Sexo: Doughnut ──
-    var convWord = isLeadCapture() ? labelConversao().toLowerCase() : 'vendas';
-    var cpaLbl = labelCPA();
+    // Em Crescimento a metrica primaria e Visitas ao Perfil; nos outros tipos,
+    // eh a conversao do tipo (compras/leads).
+    var cresc = typeof isCrescimento === 'function' && isCrescimento();
+    var primaryKey = cresc ? 'profile_visits' : 'conversions';
+    var primaryWord = cresc ? 'visitas' : (isLeadCapture() ? labelConversao().toLowerCase() : 'vendas');
+    var costKey = cresc ? 'cost_per_profile_visit' : 'cpa';
+    var costLbl = cresc ? 'Custo/Visita' : labelCPA();
     _bdCharts.gender = new Chart($('#chart-gender'), {
         type: 'doughnut',
         data: {
-            labels: genderSorted.map(function(g){ return g.gender + ' (' + g.conversions + ' ' + convWord + ')'; }),
+            labels: genderSorted.map(function(g){ return g.gender + ' (' + (g[primaryKey]||0).toLocaleString('pt-BR') + ' ' + primaryWord + ')'; }),
             datasets: [{
-                data: genderSorted.map(function(g){ return g.conversions; }),
+                data: genderSorted.map(function(g){ return g[primaryKey]||0; }),
                 backgroundColor: ['rgba(88,166,255,.8)', 'rgba(255,107,107,.8)', 'rgba(108,92,231,.8)'],
                 borderColor: ['rgba(88,166,255,1)', 'rgba(255,107,107,1)', 'rgba(108,92,231,1)'],
                 borderWidth: 2,
@@ -4462,7 +4471,7 @@ function renderBdCharts(d) {
                     callbacks: {
                         afterLabel: function(ctx) {
                             var g = genderSorted[ctx.dataIndex];
-                            return 'Gasto: R$ ' + g.spend.toLocaleString('pt-BR') + '\n' + cpaLbl + ': R$ ' + g.cpa.toLocaleString('pt-BR');
+                            return 'Gasto: R$ ' + g.spend.toLocaleString('pt-BR') + '\n' + costLbl + ': R$ ' + (g[costKey]||0).toLocaleString('pt-BR');
                         }
                     }
                 }
@@ -4470,15 +4479,15 @@ function renderBdCharts(d) {
         }
     });
 
-    // ── Idade: Barras conversões + linha CPA ──
+    // ── Idade: Barras (metrica principal) + linha custo unitario ──
     _bdCharts.age = new Chart($('#chart-age'), {
         type: 'bar',
         data: {
             labels: ageSorted.map(function(a){ return a.age; }),
             datasets: [
                 {
-                    label: 'Conversoes',
-                    data: ageSorted.map(function(a){ return a.conversions; }),
+                    label: cresc ? 'Visitas Perfil' : 'Conversoes',
+                    data: ageSorted.map(function(a){ return a[primaryKey]||0; }),
                     backgroundColor: ageSorted.map(function(a,i){
                         var colors = ['rgba(88,166,255,.7)','rgba(86,212,221,.7)','rgba(126,231,135,.7)','rgba(188,140,255,.7)','rgba(255,126,182,.7)','rgba(255,200,87,.7)','rgba(255,149,88,.7)'];
                         return colors[i % colors.length];
@@ -4487,8 +4496,8 @@ function renderBdCharts(d) {
                     borderSkipped: false
                 },
                 {
-                    label: cpaLbl,
-                    data: ageSorted.map(function(a){ return a.cpa; }),
+                    label: costLbl,
+                    data: ageSorted.map(function(a){ return a[costKey]||0; }),
                     type: 'line',
                     borderColor: 'rgba(255,200,87,1)',
                     backgroundColor: 'rgba(255,200,87,.1)',
@@ -4519,17 +4528,20 @@ function renderBdCharts(d) {
 
     // ── Dia da semana: Barras + Linha de ROAS (vendas) ou Linha de CPL (leadcapture) ──
     var isLead = isLeadCapture();
-    var maxConv = weekdaySorted.reduce(function(m,w){ return Math.max(m, w.conv_avg||0); }, 0) || 1;
-    // Calcula CPL para cada dia (usado em leadcapture)
+    // Em Crescimento a barra e Visitas/dia e a linha e Custo/Visita.
+    var weekdayBarKey = cresc ? 'profile_visits_avg' : 'conv_avg';
+    var weekdayBarLbl = cresc ? 'Visitas/dia' : 'Conv/dia';
+    var maxConv = weekdaySorted.reduce(function(m,w){ return Math.max(m, w[weekdayBarKey]||0); }, 0) || 1;
+    // Calcula CPL para cada dia (usado em leadcapture nao-crescimento)
     var weekdayCpl = weekdaySorted.map(function(w){ return (w.conv_avg||0) > 0 ? (w.spend_avg||0) / w.conv_avg : 0; });
 
     var weekdayDatasets = [
         {
-            label: 'Conv/dia',
-            data: weekdaySorted.map(function(w){ return w.conv_avg; }),
+            label: weekdayBarLbl,
+            data: weekdaySorted.map(function(w){ return w[weekdayBarKey]||0; }),
             backgroundColor: weekdaySorted.map(function(w){
                 if (isLead) {
-                    var pct = (w.conv_avg||0) / maxConv;
+                    var pct = (w[weekdayBarKey]||0) / maxConv;
                     return pct >= 0.85 ? 'rgba(63,223,133,.6)' : pct >= 0.65 ? 'rgba(255,200,87,.6)' : 'rgba(255,107,107,.6)';
                 }
                 return w.roas >= 1 ? 'rgba(63,223,133,.6)' : w.roas >= 0.7 ? 'rgba(255,200,87,.6)' : 'rgba(255,107,107,.6)';
@@ -4538,7 +4550,22 @@ function renderBdCharts(d) {
             borderSkipped: false
         }
     ];
-    if (isLead) {
+    if (cresc) {
+        weekdayDatasets.push({
+            label: 'Custo/Visita',
+            data: weekdaySorted.map(function(w){ return w.cost_per_profile_visit||0; }),
+            type: 'line',
+            borderColor: 'rgba(126,231,135,1)',
+            backgroundColor: 'rgba(126,231,135,.1)',
+            pointBackgroundColor: 'rgba(126,231,135,1)',
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            borderWidth: 2,
+            fill: true,
+            tension: 0.3,
+            yAxisID: 'y1'
+        });
+    } else if (isLead) {
         weekdayDatasets.push({
             label: labelCPA(),
             data: weekdayCpl,
@@ -4572,7 +4599,7 @@ function renderBdCharts(d) {
     var weekdayScales = {
         x: { ticks: { color: '#6e7886', font: { size: 11 } }, grid: { display: false } },
         y: { ticks: { color: '#6e7886', font: { size: 10 } }, grid: { color: 'rgba(99,131,196,.08)' } },
-        y1: isLead
+        y1: (cresc || isLead)
             ? { position: 'right', ticks: { color: '#7ee787', font: { size: 10 }, callback: function(v){ return 'R$'+v; } }, grid: { display: false } }
             : { position: 'right', ticks: { color: '#58a6ff', font: { size: 10 }, callback: function(v){ return v+'x'; } }, grid: { display: false } }
     };

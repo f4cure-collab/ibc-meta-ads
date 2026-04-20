@@ -2790,7 +2790,7 @@ def api_breakdowns():
             return blocked
         campaign_id = request.args.get("campaign_id", "")
 
-        cache_key = f"breakdowns_v2_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"breakdowns_v3_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         cached = get_cached(cache_key)
         if cached:
             return jsonify(cached)
@@ -2872,6 +2872,37 @@ def api_breakdowns():
             total_revenue += rev
         ticket_medio = total_revenue / total_conv if total_conv > 0 else 0
 
+        # Crescimento: breakdowns da API Meta nao entregam profile_visits nem follows
+        # por demografia. Distribuimos o total proporcional ao gasto de cada bucket.
+        crescimento_total_pv = 0
+        crescimento_total_seguidores = 0
+        if camp_type == CAMP_TYPE_CRESCIMENTO and total_spend > 0:
+            crescimento_total_pv = sum(_extract_profile_visits_from_row(r) for r in totals_data)
+            try:
+                ig_follower, ig_non = fetch_ig_follower_gain_total(IG_PROFILE_ID_JRM, date_from, date_to)
+                ig_net = max(0, ig_follower - ig_non)
+                if ig_net > 0:
+                    accounts = _get_accounts_for_type(camp_type)
+                    total_acc_spend = _fetch_total_spend_all_accounts(accounts, date_from, date_to)
+                    other_spend = max(0, total_acc_spend - total_spend)
+                    share = compute_crescimento_share(total_spend, other_spend)
+                    crescimento_total_seguidores = int(round(ig_net * share))
+            except Exception as e:
+                print(f"[BREAKDOWNS crescimento] Falha IG API: {e}")
+
+        def _attrib_crescimento(spend, default_conv, default_pv):
+            """Para Crescimento, distribui totais proporcional ao gasto do bucket.
+            Caso os valores nativos da linha ja venham populados (ex: Meteoricos),
+            usa-os direto. Retorna (conv, profile_visits)."""
+            if camp_type != CAMP_TYPE_CRESCIMENTO:
+                return default_conv, default_pv
+            if total_spend <= 0:
+                return 0, default_pv
+            share = spend / total_spend
+            seguidores = int(round(crescimento_total_seguidores * share))
+            pv = default_pv if default_pv > 0 else int(round(crescimento_total_pv * share))
+            return seguidores, pv
+
         # 1. Por idade
         _enforce_rate_limit()
         age_data = meta_get_all_pages(endpoint, {
@@ -2913,7 +2944,8 @@ def api_breakdowns():
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
             roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
-            pv = _extract_profile_visits_from_row(row)
+            pv_raw = _extract_profile_visits_from_row(row)
+            conv, pv = _attrib_crescimento(spend, conv, pv_raw)
             age_result.append({
                 "age": row.get("age", "?"),
                 "spend": round(spend, 2),
@@ -2934,7 +2966,8 @@ def api_breakdowns():
             conv, revenue, roas = extract_purchase(row)
             spend = float(row.get("spend", 0))
             roas, revenue = calc_roas_fallback(conv, revenue, roas, spend)
-            pv = _extract_profile_visits_from_row(row)
+            pv_raw = _extract_profile_visits_from_row(row)
+            conv, pv = _attrib_crescimento(spend, conv, pv_raw)
             gender_result.append({
                 "gender": gender_labels.get(row.get("gender", ""), row.get("gender", "?")),
                 "spend": round(spend, 2),
@@ -2978,14 +3011,14 @@ def api_breakdowns():
             rev = t["revenue"]
             if rev == 0 and t["conversions"] > 0:
                 rev = t["conversions"] * ticket_medio
-            pv = t["profile_visits"]
+            conv, pv = _attrib_crescimento(t["spend"], t["conversions"], t["profile_visits"])
             weekday_result.append({
                 "day": weekdays[i],
                 "day_num": i,
                 "spend": round(t["spend"], 2),
                 "spend_avg": round(t["spend"] / days_count, 2),
-                "conversions": t["conversions"],
-                "conv_avg": round(t["conversions"] / days_count, 1),
+                "conversions": conv,
+                "conv_avg": round(conv / days_count, 1),
                 "revenue": round(rev, 2),
                 "roas": round(rev / t["spend"], 2) if t["spend"] > 0 else 0,
                 "impressions": t["impressions"],
