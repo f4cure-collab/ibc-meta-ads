@@ -2650,41 +2650,51 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
             print(f"[ERROR] agg {label} falhou em {acc_id}: {e}")
             return []
 
+    # Chunk de campanhas por batch: Meta rejeita "Please reduce the amount of
+    # data you're asking for" quando o response do /ads com filter IN [...] fica
+    # muito grande. 50 campanhas por batch e conservador — cabe mesmo em contas
+    # grandes de Vendas (cada campanha tem ~10-30 ads ativos).
+    CAMP_BATCH = 50
+
+    def _chunks(lst, n):
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
     for acc_id, ids_in_acc in by_account.items():
         camp_ids_active = [cid for cid in ids_in_acc if cid in camps_with_data]
         if not camp_ids_active:
             continue
 
-        # Call 1: ads (nome, criativo, status)
-        try:
-            acc_ads = meta_get_all_pages(
-                f"{acc_id}/ads",
-                {
-                    "fields": "id,name,status,created_time,campaign_id,creative{id,name,thumbnail_url}",
-                    "filtering": json.dumps([
-                        {"field": "campaign.id", "operator": "IN", "value": camp_ids_active}
-                    ]),
-                    "limit": 500,
-                }
-            )
-        except Exception as e:
-            warnings.append({"step": "fetch_ads_batch", "account_id": acc_id, "error": str(e)})
-            print(f"[ERROR] batch ads falhou em {acc_id}: {e}")
-            acc_ads = []
+        # Call 1: ads (nome, criativo, status) — batched
+        acc_ads = []
+        for batch_idx, id_batch in enumerate(_chunks(camp_ids_active, CAMP_BATCH)):
+            try:
+                rows = meta_get_all_pages(
+                    f"{acc_id}/ads",
+                    {
+                        "fields": "id,name,status,created_time,campaign_id,creative{id,name,thumbnail_url}",
+                        "filtering": json.dumps([
+                            {"field": "campaign.id", "operator": "IN", "value": id_batch}
+                        ]),
+                        "limit": 500,
+                    }
+                )
+                acc_ads.extend(rows)
+            except Exception as e:
+                warnings.append({"step": f"fetch_ads_batch_{batch_idx}", "account_id": acc_id, "error": str(e)})
+                print(f"[ERROR] batch ads {batch_idx} falhou em {acc_id}: {e}")
 
-        # Calls 2-4: agregados totais / 7d / 3d
-        for row in _fetch_agg(acc_id, camp_ids_active, date_from, date_to, "total"):
-            ad_id = row.get("ad_id")
-            if ad_id:
-                totals_by_ad[ad_id] = parse_insights(row)
-        for row in _fetch_agg(acc_id, camp_ids_active, dt_7d_from, date_to, "7d"):
-            ad_id = row.get("ad_id")
-            if ad_id:
-                totals_7d_by_ad[ad_id] = parse_insights(row)
-        for row in _fetch_agg(acc_id, camp_ids_active, dt_3d_from, date_to, "3d"):
-            ad_id = row.get("ad_id")
-            if ad_id:
-                totals_3d_by_ad[ad_id] = parse_insights(row)
+        # Calls 2-4: agregados totais / 7d / 3d — batched tambem
+        def _collect_agg(d_from, d_to, label, target_dict):
+            for batch_idx, id_batch in enumerate(_chunks(camp_ids_active, CAMP_BATCH)):
+                for row in _fetch_agg(acc_id, id_batch, d_from, d_to, f"{label}_{batch_idx}"):
+                    ad_id = row.get("ad_id")
+                    if ad_id:
+                        target_dict[ad_id] = parse_insights(row)
+
+        _collect_agg(date_from, date_to, "total", totals_by_ad)
+        _collect_agg(dt_7d_from, date_to, "7d", totals_7d_by_ad)
+        _collect_agg(dt_3d_from, date_to, "3d", totals_3d_by_ad)
 
         # Agrupa ads por campanha e processa
         ads_by_camp_local = {}
