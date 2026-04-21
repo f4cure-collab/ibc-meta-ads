@@ -359,20 +359,25 @@ _scheduler_running = False
 
 
 def _run_daily_update(app_context_func):
-    """Thread que roda às 2h todo dia para atualizar o cache."""
+    """Thread que roda às 2h (horario de Sao Paulo) todo dia para atualizar o cache.
+
+    Importante: o agendamento e feito em BR timezone porque o servidor
+    em producao roda em UTC — se usassemos datetime.now() sem fuso, o
+    "2am" virava 23h BRT do dia anterior, e as caches eram populadas com
+    dt_to=ontem-1 (desalinhado do que o usuario pede de manha seguinte)."""
     global _scheduler_running
     _scheduler_running = True
-    print("[SCHEDULER] Iniciado — atualização diária às 2:00")
+    print("[SCHEDULER] Iniciado — atualizacao diaria as 2:00 (America/Sao_Paulo)")
 
     while _scheduler_running:
-        now = datetime.now()
-        # Próxima execução às 2:00
-        target = now.replace(hour=2, minute=0, second=0, microsecond=0)
-        if now >= target:
+        now_br = datetime.now(_BR_TZ)
+        # Proxima execucao as 2:00 BRT
+        target = now_br.replace(hour=2, minute=0, second=0, microsecond=0)
+        if now_br >= target:
             target += timedelta(days=1)
 
-        wait_seconds = (target - now).total_seconds()
-        print(f"[SCHEDULER] Próxima atualização em {wait_seconds/3600:.1f}h ({target.strftime('%Y-%m-%d %H:%M')})")
+        wait_seconds = (target - now_br).total_seconds()
+        print(f"[SCHEDULER] Proxima atualizacao em {wait_seconds/3600:.1f}h ({target.strftime('%Y-%m-%d %H:%M %Z')})")
 
         # Dormir em intervalos curtos para poder parar
         for _ in range(int(wait_seconds)):
