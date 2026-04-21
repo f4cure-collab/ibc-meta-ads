@@ -445,6 +445,21 @@ def _is_comercial_campaign(name):
     return any(k in tokens for k in COMERCIAL_PRODUCTS)
 
 
+def _is_vendas_campaign_by_name(name):
+    """Fallback de Vendas por NOME — detecta campanhas legacy de Vendas cujo
+    objective nao eh OUTCOME_SALES (objetivos antigos tipo CONVERSIONS).
+    So retorna True se o nome tem VENDAS e nao bate com nenhum outro tipo
+    (evita double-classify, que bagunca a conta total do Resumo)."""
+    tokens = _name_tokens(name)
+    if "VENDAS" not in tokens:
+        return False
+    if _is_meteoricos_campaign(name): return False
+    if _is_crescimento_campaign(name): return False
+    if _is_nutricao_campaign(name): return False
+    if _is_comercial_campaign(name): return False
+    return True
+
+
 def _filter_campaigns_by_type(campaigns, camp_type):
     """Filtra campanhas conforme o tipo selecionado no dashboard.
     Overrides manuais (campaign_overrides.json) tem precedencia sobre o
@@ -479,7 +494,11 @@ def _filter_campaigns_by_type(campaigns, camp_type):
             if _is_nutricao_campaign(name):
                 result.append(c)
         else:
+            # Vendas: objective OUTCOME_SALES OU fallback por nome (campanhas
+            # legacy arquivadas com objetivo antigo — o nome ainda tem VENDAS)
             if c.get("objective") == "OUTCOME_SALES":
+                result.append(c)
+            elif _is_vendas_campaign_by_name(name):
                 result.append(c)
     return result
 
@@ -1546,7 +1565,7 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
 
     Retorna (sales_campaigns, daily_rows).
     """
-    cache_key = f"shared_daily_v1_{camp_type}_{camp_status}_{date_from}_{date_to}"
+    cache_key = f"shared_daily_v2_{camp_type}_{camp_status}_{date_from}_{date_to}"
     cached = get_cached(cache_key)
     if cached is not None:
         return cached.get("campaigns", []), cached.get("rows", [])
@@ -2956,7 +2975,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v3_{date_from}_{date_to}"
+        cache_key = f"resumo_v4_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -5016,6 +5035,8 @@ def api_unidentified_campaigns():
             elif _is_crescimento_campaign(name):
                 auto_type = CAMP_TYPE_CRESCIMENTO
             elif c.get("objective") == "OUTCOME_SALES":
+                auto_type = CAMP_TYPE_VENDAS
+            elif _is_vendas_campaign_by_name(name):
                 auto_type = CAMP_TYPE_VENDAS
 
             parsed = _parse_name(name) if auto_type else None
