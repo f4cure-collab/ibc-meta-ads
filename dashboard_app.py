@@ -2956,7 +2956,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v2_{date_from}_{date_to}"
+        cache_key = f"resumo_v3_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3001,8 +3001,13 @@ def api_resumo():
         }
 
         def _aggregate_type(ct, d_from, d_to, want_detail=True):
-            """Agrega totais + serie diaria + top campanhas de 1 tipo."""
-            camps, rows = _get_shared_daily_insights(ct, d_from, d_to, "active")
+            """Agrega totais + serie diaria + top campanhas de 1 tipo.
+
+            Usa 'all' (ACTIVE+PAUSED+ARCHIVED): campanhas arquivadas de eventos
+            passados ainda tem gasto no periodo e devem ser atribuidas ao tipo
+            correto — nao cair em 'Outros'. Cache e warmup do scheduler usam
+            camp_status=all, entao essa chamada e cache-hit."""
+            camps, rows = _get_shared_daily_insights(ct, d_from, d_to, "all")
             kpi_field = type_meta[ct]["kpi"]
             tot_spend = 0.0
             tot_kpi = 0.0
@@ -3100,8 +3105,12 @@ def api_resumo():
         try:
             mapped_ids = set()
             overrides = _load_overrides()
+            # Inclui ARCHIVED: campanhas de eventos encerrados ja foram
+            # arquivadas na Meta mas ainda tem gasto no periodo (ex: VENDAS_SPK_BH
+            # de evento passado). Sem isso, caiam todas em 'Outros' mesmo sendo
+            # Vendas legitimas.
             for ct in VALID_CAMP_TYPES:
-                for c in _fetch_type_campaigns(ct, "id", '["ACTIVE","PAUSED"]'):
+                for c in _fetch_type_campaigns(ct, "id", '["ACTIVE","PAUSED","ARCHIVED"]'):
                     mapped_ids.add(c["id"])
             for acc in all_accounts:
                 try:
