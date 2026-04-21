@@ -5242,8 +5242,27 @@ def admin_update_token():
 
 # ── Scheduled refresh ──────────────────────────────────────────────────
 
+def _sleep_with_heartbeat(seconds, lock_name):
+    """Dorme em blocos de 5min renovando o lock a cada bloco.
+
+    Impede que outro worker roube o lock durante uma pausa longa entre
+    etapas do scheduler. Antes, o lock ficava com idade > 15min durante
+    os sleep(1800), e outro worker podia assumir e rodar o scheduler em
+    paralelo, duplicando chamadas Meta e poluindo logs."""
+    remaining = seconds
+    step = 300
+    while remaining > 0:
+        chunk = min(step, remaining)
+        time.sleep(chunk)
+        remaining -= chunk
+        try:
+            refresh_scheduler_lock(lock_name)
+        except Exception:
+            pass
+
+
 def _scheduled_refresh():
-    """Pre-carrega campanhas e criativos em etapas uma vez por dia (2am).
+    """Pre-carrega campanhas e criativos em etapas uma vez por dia (2am BRT).
 
     Escopo enxuto pra nao sobrecarregar BUC da Meta:
       - Apenas 30d e 7d (ranges mais usados no dashboard)
@@ -5255,6 +5274,7 @@ def _scheduled_refresh():
 
     refresh_scheduler_lock("daily_scheduler")
     now_br = _now_br()
+    print(f"[SCHEDULER] DISPAROU as {now_br.strftime('%Y-%m-%d %H:%M:%S')} BRT (PID {os.getpid()})")
     dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
     # Ranges prioritarios: 30d (default do dashboard) + 7d (secundario mais comum)
     preload_ranges = [30, 7]
@@ -5287,7 +5307,7 @@ def _scheduled_refresh():
 
         # Pausa de 30 min entre etapas
         print("[SCHEDULER] Aguardando 30 min antes da proxima etapa...")
-        time.sleep(1800)
+        _sleep_with_heartbeat(1800, "daily_scheduler")
 
         # ── ETAPA 2 (2:30): Resumo diario (todos os ranges, ambos tipos) ──
         try:
@@ -5303,7 +5323,7 @@ def _scheduled_refresh():
 
         # Pausa
         print("[SCHEDULER] Aguardando 30 min...")
-        time.sleep(1800)
+        _sleep_with_heartbeat(1800, "daily_scheduler")
 
         # ── ETAPA 3 (3:00): Criativos de cada campanha (apenas 30d — aba campanha individual) ──
         try:
@@ -5339,7 +5359,7 @@ def _scheduled_refresh():
 
         # Pausa
         print("[SCHEDULER] Aguardando 30 min...")
-        time.sleep(1800)
+        _sleep_with_heartbeat(1800, "daily_scheduler")
 
         # ── ETAPA 4 (3:30): Breakdowns SO no range principal (30d) ──
         # Breakdowns faz 4+ queries Meta (totals/age/gender/weekday) — pesado.
@@ -5356,7 +5376,7 @@ def _scheduled_refresh():
             print(f"[SCHEDULER] Erro breakdowns: {e}")
 
         print("[SCHEDULER] Aguardando 30 min...")
-        time.sleep(1800)
+        _sleep_with_heartbeat(1800, "daily_scheduler")
 
         # ── ETAPA 5 (4:00): all-creatives SO no range principal (30d) e ativas ──
         # Antes rodava em todos os ranges x todos os tipos (10 calls pesadas com
