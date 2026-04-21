@@ -2996,7 +2996,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v6_{date_from}_{date_to}"
+        cache_key = f"resumo_v7_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3094,11 +3094,21 @@ def api_resumo():
             for r in daily_list:
                 r["spend"] = round(r["spend"], 2)
                 r["kpi"] = round(r["kpi"], 2)
-            top_camps = sorted(
-                [{**c, "spend": round(c["spend"], 2), "kpi": round(c["kpi"], 2)}
-                 for c in by_campaign.values()],
-                key=lambda x: x["spend"], reverse=True
-            )[:5]
+            # Lista completa (ate 50) pra suportar drill-down por tipo no frontend.
+            # Cada item ganha custo_kpi individual: ROAS pra Vendas, spend/kpi
+            # pros demais (CPL/CPS/CPTP/Custo-Visita).
+            full_camps = []
+            for c in by_campaign.values():
+                cspend = round(c["spend"], 2)
+                ckpi = round(c["kpi"], 2)
+                if ct == CAMP_TYPE_VENDAS:
+                    # ROAS precisa da receita da campanha, nao so do kpi
+                    ccost = round(ckpi / cspend, 2) if cspend > 0 else 0
+                else:
+                    ccost = round(cspend / ckpi, 2) if ckpi > 0 else 0
+                full_camps.append({**c, "spend": cspend, "kpi": ckpi, "kpi_cost": ccost})
+            full_camps.sort(key=lambda x: x["spend"], reverse=True)
+            top_camps = full_camps[:50]
 
             return {
                 "type": ct,

@@ -1184,10 +1184,8 @@
                                 <th style="padding:8px 6px;text-align:right">% Total</th>
                                 <th style="padding:8px 6px;text-align:right">vs Periodo Anterior</th>
                                 <th style="padding:8px 6px;text-align:right">Campanhas</th>
-                                <th style="padding:8px 6px">KPI</th>
-                                <th style="padding:8px 6px;text-align:right">Valor KPI</th>
-                                <th style="padding:8px 6px">Custo</th>
-                                <th style="padding:8px 6px;text-align:right">Valor Custo</th>
+                                <th style="padding:8px 6px;text-align:right">Resultados</th>
+                                <th style="padding:8px 6px;text-align:right">Custo/Resultado</th>
                             </tr>
                         </thead>
                         <tbody id="rs-type-tbody"></tbody>
@@ -5487,6 +5485,16 @@ function renderResumoTypeTable(perType){
         if (b.type === 'outros') return -1;
         return (b.spend || 0) - (a.spend || 0);
     });
+    // Helper de formato para valores de KPI (unidade, moeda, ROAS)
+    function _fmtKpi(v, fmtType){
+        if (v == null) return '--';
+        if (fmtType === 'currency') return fmtM(v);
+        if (fmtType === 'roas') return fmtR(v);
+        return fmt(v);
+    }
+
+    var totalSpend = rows.reduce(function(a,t){ return a + (t.spend || 0); }, 0);
+
     tb.innerHTML = rows.map(function(t){
         var color = RS_TYPE_COLORS[t.type] || '#888';
         var prev = t.spend_prev || 0;
@@ -5494,23 +5502,23 @@ function renderResumoTypeTable(perType){
         var pct = prev > 0 ? (delta / prev * 100) : (t.spend > 0 ? 100 : 0);
         var deltaColor = delta >= 0 ? '#7ee787' : '#f85149';
         var deltaArrow = delta >= 0 ? '&#9650;' : '&#9660;';
-        var kpiValue = t.kpi_value;
-        var kpiFmt = t.kpi_fmt;
-        var kpiDisplay = '--';
-        if (kpiValue != null) {
-            kpiDisplay = kpiFmt === 'currency' ? fmtM(kpiValue) : fmt(kpiValue);
-        }
-        var costValue = t.kpi_cost_value;
-        var costDisplay = '--';
-        if (costValue != null && t.kpi_cost_label) {
-            costDisplay = t.kpi_cost_fmt === 'currency' ? fmtM(costValue) : (t.kpi_cost_fmt === 'roas' ? fmtR(costValue) : fmt(costValue));
-        }
-        var campsCell = t.campaigns_active != null ? fmt(t.campaigns_active) : '--';
         var isOutros = t.type === 'outros';
-        var hasUnmapped = isOutros && Array.isArray(t.top_unmapped) && t.top_unmapped.length > 0;
+        var kpiDisplay = isOutros ? '--' : _fmtKpi(t.kpi_value, t.kpi_fmt);
+        var costDisplay = isOutros ? '--' : _fmtKpi(t.kpi_cost_value, t.kpi_cost_fmt);
+        var kpiHeader = isOutros ? '--' : (t.kpi_label || '--');
+        var costHeader = isOutros ? '--' : (t.kpi_cost_label || '--');
+        var campsCell = t.campaigns_active != null ? fmt(t.campaigns_active) : '--';
+
+        // Lista de campanhas pra drill-down: top_campaigns pros tipos mapeados,
+        // top_unmapped pra 'Outros' (mesma estrutura visual).
+        var drillList = isOutros
+            ? (Array.isArray(t.top_unmapped) ? t.top_unmapped : [])
+            : (Array.isArray(t.top_campaigns) ? t.top_campaigns : []);
+        var hasDrill = drillList.length > 0;
+
         var labelHtml = '<strong style="color:var(--t1)">' + t.label + '</strong>';
-        if (hasUnmapped) {
-            labelHtml = '<span class="rs-outros-toggle" data-tip="Clique para ver campanhas nao mapeadas" style="cursor:pointer;user-select:none"><span class="rs-outros-arrow" style="display:inline-block;margin-right:4px;transition:transform .15s;font-size:10px;color:var(--t3)">&#9654;</span>' + labelHtml + '</span>';
+        if (hasDrill) {
+            labelHtml = '<span class="rs-type-toggle" data-tip="Clique para ver campanhas" style="cursor:pointer;user-select:none"><span class="rs-type-arrow" style="display:inline-block;margin-right:4px;transition:transform .15s;font-size:10px;color:var(--t3)">&#9654;</span>' + labelHtml + '</span>';
         }
         var mainRow = '<tr class="rs-type-row" data-type="' + t.type + '" style="border-bottom:1px solid rgba(255,255,255,.04)">'
             + '<td style="padding:10px 6px"><span style="display:inline-block;width:10px;height:10px;background:' + color + ';border-radius:50%;margin-right:8px;vertical-align:middle"></span>' + labelHtml + '</td>'
@@ -5518,38 +5526,62 @@ function renderResumoTypeTable(perType){
             + '<td style="padding:10px 6px;text-align:right">' + (t.spend_pct || 0) + '%</td>'
             + '<td style="padding:10px 6px;text-align:right;color:' + deltaColor + '">' + deltaArrow + ' ' + Math.abs(pct).toFixed(1) + '%</td>'
             + '<td style="padding:10px 6px;text-align:right">' + campsCell + '</td>'
-            + '<td style="padding:10px 6px;color:var(--t3)">' + (t.kpi_label || '--') + '</td>'
-            + '<td style="padding:10px 6px;text-align:right;font-weight:600">' + kpiDisplay + '</td>'
-            + '<td style="padding:10px 6px;color:var(--t3)">' + (t.kpi_cost_label || '--') + '</td>'
-            + '<td style="padding:10px 6px;text-align:right;font-weight:600">' + costDisplay + '</td>'
+            + '<td style="padding:10px 6px;text-align:right;font-weight:600" data-tip="' + kpiHeader + '">' + kpiDisplay + '</td>'
+            + '<td style="padding:10px 6px;text-align:right;font-weight:600" data-tip="' + costHeader + '">' + costDisplay + '</td>'
             + '</tr>';
 
-        // Linha expandida de 'Outros' com top unmapped campaigns
-        if (hasUnmapped) {
-            var unmappedHtml = t.top_unmapped.map(function(u){
-                return '<tr style="background:rgba(255,255,255,.02)">'
-                    + '<td style="padding:6px 6px 6px 40px;font-size:11px;color:var(--t2);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (u.name||'').replace(/"/g,'&quot;') + '">' + (u.name || '(sem nome)') + '</td>'
-                    + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t2)">' + fmtM(u.spend || 0) + '</td>'
-                    + '<td colspan="7" style="padding:6px 6px;font-size:10px;color:var(--t3)">' + (u.account_id || '') + '</td>'
-                    + '</tr>';
-            }).join('');
-            var hintRow = '<tr style="background:rgba(255,255,255,.02)"><td colspan="9" style="padding:8px 6px 8px 40px;font-size:11px;color:var(--t3);font-style:italic">Top ' + t.top_unmapped.length + ' campanhas com gasto no periodo que nao bateram com nenhum tipo mapeado. Use /admin para adicionar overrides.</td></tr>';
-            mainRow += '<tr class="rs-outros-detail" data-parent="' + t.type + '" style="display:none">'
-                + '<td colspan="9" style="padding:0"><table style="width:100%;border-collapse:collapse">'
-                + hintRow + unmappedHtml
+        if (hasDrill) {
+            var drillHtml;
+            if (isOutros) {
+                // Outros: campanhas nao mapeadas — sem resultados (nao sabemos o tipo)
+                drillHtml = drillList.map(function(u){
+                    var uPct = totalSpend > 0 ? ((u.spend || 0) / totalSpend * 100).toFixed(1) : '0.0';
+                    return '<tr class="rs-drill-row">'
+                        + '<td style="padding:6px 6px 6px 40px;font-size:11px;color:var(--t2);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (u.name||'').replace(/"/g,'&quot;') + '">' + (u.name || '(sem nome)') + '</td>'
+                        + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t2)">' + fmtM(u.spend || 0) + '</td>'
+                        + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t3)">' + uPct + '%</td>'
+                        + '<td colspan="2" style="padding:6px 6px;font-size:10px;color:var(--t3)">' + (u.account_id || '') + '</td>'
+                        + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t3)">--</td>'
+                        + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t3)">--</td>'
+                        + '</tr>';
+                }).join('');
+                var hint = '<tr class="rs-drill-hint"><td colspan="7" style="padding:8px 6px 8px 40px;font-size:11px;color:var(--t3);font-style:italic">Top ' + drillList.length + ' campanhas sem tipo mapeado. Use /admin para adicionar overrides.</td></tr>';
+                drillHtml = hint + drillHtml;
+            } else {
+                // Tipos mapeados: mostra gasto + %, resultados (kpi), custo/resultado
+                drillHtml = drillList.map(function(c){
+                    var cPct = totalSpend > 0 ? ((c.spend || 0) / totalSpend * 100).toFixed(1) : '0.0';
+                    var cKpi = _fmtKpi(c.kpi, t.kpi_fmt);
+                    var cCost = _fmtKpi(c.kpi_cost, t.kpi_cost_fmt);
+                    return '<tr class="rs-drill-row">'
+                        + '<td style="padding:6px 6px 6px 40px;font-size:11px;color:var(--t2);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (c.name||'').replace(/"/g,'&quot;') + '">' + (c.name || '(sem nome)') + '</td>'
+                        + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t2)">' + fmtM(c.spend || 0) + '</td>'
+                        + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t3)">' + cPct + '%</td>'
+                        + '<td colspan="2"></td>'
+                        + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t2)">' + cKpi + '</td>'
+                        + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t2)">' + cCost + '</td>'
+                        + '</tr>';
+                }).join('');
+                if (drillList.length >= 50) {
+                    drillHtml += '<tr class="rs-drill-hint"><td colspan="7" style="padding:6px 6px 6px 40px;font-size:10px;color:var(--t3);font-style:italic">Mostrando top 50 campanhas por gasto.</td></tr>';
+                }
+            }
+            mainRow += '<tr class="rs-type-detail" data-parent="' + t.type + '" style="display:none">'
+                + '<td colspan="7" style="padding:0;background:rgba(255,255,255,.02)"><table style="width:100%;border-collapse:collapse">'
+                + drillHtml
                 + '</table></td></tr>';
         }
         return mainRow;
     }).join('');
 
-    // Click handler para expandir 'Outros'
-    tb.querySelectorAll('.rs-outros-toggle').forEach(function(tog){
+    // Click handler para expandir qualquer tipo
+    tb.querySelectorAll('.rs-type-toggle').forEach(function(tog){
         tog.addEventListener('click', function(e){
             e.stopPropagation();
             var row = tog.closest('tr');
             var parent = row.getAttribute('data-type');
-            var detail = tb.querySelector('.rs-outros-detail[data-parent="' + parent + '"]');
-            var arrow = tog.querySelector('.rs-outros-arrow');
+            var detail = tb.querySelector('.rs-type-detail[data-parent="' + parent + '"]');
+            var arrow = tog.querySelector('.rs-type-arrow');
             if (detail) {
                 var open = detail.style.display !== 'none';
                 detail.style.display = open ? 'none' : '';
