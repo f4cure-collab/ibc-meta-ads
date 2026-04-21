@@ -2629,32 +2629,67 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
     totals_7d_by_ad = {}
     totals_3d_by_ad = {}
 
-    def _fetch_agg(acc_id, camp_ids_active, d_from, d_to, label):
+    # Chunking adaptativo: comeca em 20 campanhas por batch. Se algum batch
+    # falhar ("Please reduce the amount of data"), divide ao meio e tenta
+    # recursivamente ate batch=1. Antes usavamos tamanho fixo (50) e batch
+    # inteiro falhava sem refinar — agora o sistema achou sozinho o limite real
+    # da conta. Depth max 5 cobre 20 -> 10 -> 5 -> 3 -> 2 -> 1.
+    CAMP_BATCH_INITIAL = 20
+
+    def _fetch_ads_with_split(acc_id, id_batch, depth=0, batch_label="0"):
+        """Fetcha /ads pros ids do batch. Em caso de erro de volume, divide ao meio."""
         try:
-            rows = meta_get_all_pages(
+            return meta_get_all_pages(
+                f"{acc_id}/ads",
+                {
+                    "fields": "id,name,status,created_time,campaign_id,creative{id,name,thumbnail_url}",
+                    "filtering": json.dumps([
+                        {"field": "campaign.id", "operator": "IN", "value": id_batch}
+                    ]),
+                    "limit": 500,
+                }
+            )
+        except Exception as e:
+            msg = str(e)
+            is_volume_err = "reduce the amount of data" in msg or "(#100)" in msg or "(#613)" in msg
+            if is_volume_err and len(id_batch) > 1 and depth < 5:
+                mid = len(id_batch) // 2
+                print(f"[ADS-SPLIT] batch {batch_label} de {len(id_batch)} falhou por volume, divide em {mid} + {len(id_batch)-mid}")
+                left = _fetch_ads_with_split(acc_id, id_batch[:mid], depth + 1, batch_label + "L")
+                right = _fetch_ads_with_split(acc_id, id_batch[mid:], depth + 1, batch_label + "R")
+                return left + right
+            warnings.append({"step": f"fetch_ads_batch_{batch_label}", "account_id": acc_id, "error": msg})
+            print(f"[ERROR] batch ads {batch_label} falhou em {acc_id}: {e}")
+            return []
+
+    def _fetch_agg_with_split(acc_id, id_batch, d_from, d_to, label, depth=0):
+        """Fetcha /insights agregado pros ids do batch. Split em caso de volume."""
+        try:
+            return meta_get_all_pages(
                 f"{acc_id}/insights",
                 {
                     "fields": insight_fields,
                     "time_range": json.dumps({"since": d_from, "until": d_to}),
                     "level": "ad",
                     "filtering": json.dumps([
-                        {"field": "campaign.id", "operator": "IN", "value": camp_ids_active},
+                        {"field": "campaign.id", "operator": "IN", "value": id_batch},
                         {"field": "impressions", "operator": "GREATER_THAN", "value": 0},
                     ]),
                     "limit": 500,
                 }
             )
-            return rows
         except Exception as e:
-            warnings.append({"step": f"fetch_agg_{label}", "account_id": acc_id, "error": str(e)})
+            msg = str(e)
+            is_volume_err = "reduce the amount of data" in msg or "(#100)" in msg or "(#613)" in msg
+            if is_volume_err and len(id_batch) > 1 and depth < 5:
+                mid = len(id_batch) // 2
+                print(f"[AGG-SPLIT] {label} de {len(id_batch)} falhou por volume, divide em {mid} + {len(id_batch)-mid}")
+                left = _fetch_agg_with_split(acc_id, id_batch[:mid], d_from, d_to, label + "L", depth + 1)
+                right = _fetch_agg_with_split(acc_id, id_batch[mid:], d_from, d_to, label + "R", depth + 1)
+                return left + right
+            warnings.append({"step": f"fetch_agg_{label}", "account_id": acc_id, "error": msg})
             print(f"[ERROR] agg {label} falhou em {acc_id}: {e}")
             return []
-
-    # Chunk de campanhas por batch: Meta rejeita "Please reduce the amount of
-    # data you're asking for" quando o response do /ads com filter IN [...] fica
-    # muito grande. 50 campanhas por batch e conservador — cabe mesmo em contas
-    # grandes de Vendas (cada campanha tem ~10-30 ads ativos).
-    CAMP_BATCH = 50
 
     def _chunks(lst, n):
         for i in range(0, len(lst), n):
@@ -2665,29 +2700,16 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
         if not camp_ids_active:
             continue
 
-        # Call 1: ads (nome, criativo, status) — batched
+        # Call 1: ads — batches de 20 com auto-split se necessario
         acc_ads = []
-        for batch_idx, id_batch in enumerate(_chunks(camp_ids_active, CAMP_BATCH)):
-            try:
-                rows = meta_get_all_pages(
-                    f"{acc_id}/ads",
-                    {
-                        "fields": "id,name,status,created_time,campaign_id,creative{id,name,thumbnail_url}",
-                        "filtering": json.dumps([
-                            {"field": "campaign.id", "operator": "IN", "value": id_batch}
-                        ]),
-                        "limit": 500,
-                    }
-                )
-                acc_ads.extend(rows)
-            except Exception as e:
-                warnings.append({"step": f"fetch_ads_batch_{batch_idx}", "account_id": acc_id, "error": str(e)})
-                print(f"[ERROR] batch ads {batch_idx} falhou em {acc_id}: {e}")
+        for batch_idx, id_batch in enumerate(_chunks(camp_ids_active, CAMP_BATCH_INITIAL)):
+            acc_ads.extend(_fetch_ads_with_split(acc_id, id_batch, 0, str(batch_idx)))
 
-        # Calls 2-4: agregados totais / 7d / 3d — batched tambem
-        def _collect_agg(d_from, d_to, label, target_dict):
-            for batch_idx, id_batch in enumerate(_chunks(camp_ids_active, CAMP_BATCH)):
-                for row in _fetch_agg(acc_id, id_batch, d_from, d_to, f"{label}_{batch_idx}"):
+        # Calls 2-4: agregados totais / 7d / 3d
+        def _collect_agg(d_from, d_to, base_label, target_dict):
+            for batch_idx, id_batch in enumerate(_chunks(camp_ids_active, CAMP_BATCH_INITIAL)):
+                rows = _fetch_agg_with_split(acc_id, id_batch, d_from, d_to, f"{base_label}_{batch_idx}")
+                for row in rows:
                     ad_id = row.get("ad_id")
                     if ad_id:
                         target_dict[ad_id] = parse_insights(row)
