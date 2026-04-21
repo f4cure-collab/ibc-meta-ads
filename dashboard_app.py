@@ -2956,7 +2956,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v1_{date_from}_{date_to}"
+        cache_key = f"resumo_v2_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3093,6 +3093,47 @@ def api_resumo():
         outros_spend = max(0.0, round(total_acc_spend - typed_spend, 2))
         outros_spend_prev = max(0.0, round(total_acc_spend_prev - prev_typed_spend, 2))
 
+        # Breakdown de 'Outros': lista das campanhas nao mapeadas com mais gasto
+        # no periodo. Util pra user identificar campanhas com naming irregular
+        # ou legacy que poderiam ser mapeadas via override em /admin.
+        top_unmapped = []
+        try:
+            mapped_ids = set()
+            overrides = _load_overrides()
+            for ct in VALID_CAMP_TYPES:
+                for c in _fetch_type_campaigns(ct, "id", '["ACTIVE","PAUSED"]'):
+                    mapped_ids.add(c["id"])
+            for acc in all_accounts:
+                try:
+                    rows = meta_get_all_pages(f"{acc}/insights", {
+                        "fields": "campaign_id,campaign_name,spend",
+                        "time_range": json.dumps({"since": date_from, "until": date_to}),
+                        "level": "campaign",
+                        "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
+                        "limit": 500,
+                    })
+                    for r in rows:
+                        cid = r.get("campaign_id")
+                        if not cid or cid in mapped_ids:
+                            continue
+                        if cid in overrides:  # admin ja mapeou manualmente
+                            continue
+                        sp = float(r.get("spend", 0) or 0)
+                        if sp <= 0:
+                            continue
+                        top_unmapped.append({
+                            "id": cid,
+                            "name": r.get("campaign_name", ""),
+                            "spend": round(sp, 2),
+                            "account_id": acc,
+                        })
+                except Exception as e:
+                    print(f"[RESUMO] Erro fetch unmapped {acc}: {e}")
+            top_unmapped.sort(key=lambda x: x["spend"], reverse=True)
+            top_unmapped = top_unmapped[:20]
+        except Exception as e:
+            print(f"[RESUMO] Erro montando top_unmapped: {e}")
+
         total_spend_curr = round(typed_spend + outros_spend, 2)
         total_spend_prev = round(prev_typed_spend + outros_spend_prev, 2)
 
@@ -3107,11 +3148,12 @@ def api_resumo():
             "spend": outros_spend,
             "spend_prev": outros_spend_prev,
             "spend_pct": round((outros_spend / total_spend_curr) * 100, 1) if total_spend_curr > 0 else 0,
-            "campaigns_active": None,
+            "campaigns_active": len(top_unmapped) if top_unmapped else None,
             "kpi_label": None, "kpi_value": None, "kpi_fmt": None,
             "kpi_cost_label": None, "kpi_cost_value": None, "kpi_cost_fmt": None,
             "revenue": 0, "purchases": 0,
             "daily": [], "top_campaigns": [],
+            "top_unmapped": top_unmapped,
         })
 
         # Top 10 campanhas globais (so dos tipos mapeados — 'outros' nao tem breakdown)
