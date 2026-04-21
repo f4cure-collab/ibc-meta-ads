@@ -131,6 +131,24 @@
             background:linear-gradient(135deg,rgba(88,166,255,.2) 0%,rgba(126,231,135,.15) 100%);
             box-shadow:inset 0 0 0 1px rgba(88,166,255,.4),0 0 20px rgba(88,166,255,.15);
         }
+
+        /* Main nav no header: Inicio + tipos de campanha */
+        .main-nav{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+        .nav-btn{
+            background:transparent;border:1px solid transparent;color:var(--t3);
+            padding:7px 14px;font-size:13px;font-weight:600;
+            cursor:pointer;border-radius:8px;
+            transition:all .18s;letter-spacing:.2px;
+            display:inline-flex;align-items:center;gap:7px;font-family:inherit;
+        }
+        .nav-btn:hover{color:var(--t1);background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.06)}
+        .nav-btn.active{
+            color:#fff;
+            background:linear-gradient(135deg,rgba(88,166,255,.18) 0%,rgba(126,231,135,.12) 100%);
+            border-color:rgba(88,166,255,.35);
+            box-shadow:0 0 18px rgba(88,166,255,.12);
+        }
+        .nav-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
         .tab-content{display:none}.tab-content.active{display:block;animation:fadeIn .35s ease}
         @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 
@@ -607,29 +625,14 @@
 <div class="header">
     <div class="header-left">
         <div style="height:36px;width:65px;overflow:hidden;display:flex;align-items:center;" data-tip="Dashboard de performance das campanhas Meta Ads do IBC Eventos"><img src="/static/Logo_ibc.svg" alt="IBC" style="height:36px;"></div>
-        <div class="camp-type-switcher" style="position:relative;">
-            <button id="campTypeBtn" class="badge" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:none;font:inherit;" data-tip="Alternar entre tipos de campanha">
-                <span id="campTypeLabel">Vendas</span>
-                <span style="font-size:9px;opacity:.7;">&#9660;</span>
-            </button>
-            <div id="campTypeMenu" style="display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--bg2,#1a1a3e);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:4px;z-index:1000;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,0.4);">
-                <button class="camp-type-opt" data-type="vendas" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
-                    <span style="color:#4caf50;margin-right:6px;">&#128722;</span>Vendas
-                </button>
-                <button class="camp-type-opt" data-type="meteoricos" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
-                    <span style="color:#ff9800;margin-right:6px;">&#9733;</span>Meteoricos
-                </button>
-                <button class="camp-type-opt" data-type="comercial" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
-                    <span style="color:#58a6ff;margin-right:6px;">&#128188;</span>Comercial
-                </button>
-                <button class="camp-type-opt" data-type="crescimento" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
-                    <span style="color:#ec4899;margin-right:6px;">&#128241;</span>Crescimento
-                </button>
-                <button class="camp-type-opt" data-type="nutricao" style="width:100%;text-align:left;padding:8px 12px;background:none;border:none;color:#ccc;font-size:13px;border-radius:6px;cursor:pointer;">
-                    <span style="color:#9b5ee8;margin-right:6px;">&#127909;</span>Nutricao
-                </button>
-            </div>
-        </div>
+        <nav class="main-nav">
+            <button class="nav-btn" data-view="inicio" data-tip="Vis&atilde;o consolidada de toda a conta">&#127968; In&iacute;cio</button>
+            <button class="nav-btn" data-type="vendas" data-tip="Campanhas de Vendas (ROAS, Receita, Compras)"><span class="nav-dot" style="background:#4caf50"></span>Vendas</button>
+            <button class="nav-btn" data-type="meteoricos" data-tip="Campanhas Meteoricos (captura de Leads)"><span class="nav-dot" style="background:#ff9800"></span>Meteoricos</button>
+            <button class="nav-btn" data-type="comercial" data-tip="Campanhas Comercial (captura de Leads)"><span class="nav-dot" style="background:#58a6ff"></span>Comercial</button>
+            <button class="nav-btn" data-type="crescimento" data-tip="Campanhas de Crescimento (Visitas ao Perfil, Seguidores)"><span class="nav-dot" style="background:#ec4899"></span>Crescimento</button>
+            <button class="nav-btn" data-type="nutricao" data-tip="Campanhas de Nutricao (ThruPlays de video)"><span class="nav-dot" style="background:#9b5ee8"></span>Nutricao</button>
+        </nav>
     </div>
     <div class="header-right" style="display:flex;align-items:center;gap:12px;">
         <span id="rateBadge" style="display:none;font-size:11px;padding:3px 10px;border-radius:6px;cursor:help;transition:all .3s;"></span>
@@ -653,7 +656,6 @@
         {% if role != 'viewer' %}
         <button class="tab-btn active" data-tab="campaigns" data-tip="Vis&atilde;o geral das campanhas com funil agregado e gr&aacute;ficos di&aacute;rios">Campanhas</button>
         <button class="tab-btn" data-tab="creatives" data-tip="An&aacute;lise individual de cada criativo (an&uacute;ncio) com m&eacute;tricas avan&ccedil;adas">Criativos</button>
-        <button class="tab-btn" data-tab="resumo" data-tip="Vis&atilde;o consolidada da conta inteira: investimento e KPIs por tipo de campanha">Resumo</button>
         {% else %}
         <button class="tab-btn active" data-tab="creatives" data-tip="An&aacute;lise individual de cada criativo (an&uacute;ncio) com m&eacute;tricas avan&ccedil;adas">Criativos</button>
         {% endif %}
@@ -1595,32 +1597,63 @@ function dAgo(n){const d=new Date();d.setDate(d.getDate()-1-n);return toYMD(d);}
 function initD(){const t=yesterday(),f=dAgo(29);['#date-from','#cr-df','#an-df'].forEach(s=>{if($(s))$(s).value=f;});['#date-to','#cr-dt','#an-dt'].forEach(s=>{if($(s))$(s).value=t;});}
 initD();
 
-// Aplica classe do tipo de campanha no body e vincula o dropdown
+// Aplica classe do tipo de campanha no body e vincula a nav do header
 applyCampTypeClass();
-(function bindCampTypeSwitcher(){
-    var btn = document.getElementById('campTypeBtn');
-    var menu = document.getElementById('campTypeMenu');
-    if (!btn || !menu) return;
-    btn.addEventListener('click', function(e){
-        e.stopPropagation();
-        menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
-    });
-    document.addEventListener('click', function(e){
-        if (!menu.contains(e.target) && e.target !== btn) menu.style.display = 'none';
-    });
-    document.querySelectorAll('.camp-type-opt').forEach(function(opt){
-        opt.addEventListener('mouseenter', function(){ opt.style.background = 'rgba(255,255,255,0.06)'; });
-        opt.addEventListener('mouseleave', function(){ opt.style.background = 'none'; });
-        opt.addEventListener('click', function(){
-            var newType = opt.getAttribute('data-type');
-            if (newType === CURRENT_CAMP_TYPE) { menu.style.display = 'none'; return; }
-            CURRENT_CAMP_TYPE = newType;
-            localStorage.setItem('camp_type', newType);
-            // Ao trocar pra Crescimento, limpa o flag do popup explicativo
-            // (Nutricao nao tem popup — funil de video e autoexplicativo).
-            if (newType === 'crescimento') sessionStorage.removeItem('crescimento_info_shown');
-            // Recarrega a pagina para garantir estado limpo — caches, chips, seleções, etc.
-            window.location.reload();
+(function bindMainNav(){
+    var nav = document.querySelector('.main-nav');
+    if (!nav) return;
+    var tabsRow = document.querySelector('.main .tabs');
+    var resumoTab = document.getElementById('tab-resumo');
+    var allTabContents = document.querySelectorAll('.main .tab-content');
+    var isInicio = localStorage.getItem('nav_view') === 'inicio';
+
+    function showInicio(){
+        localStorage.setItem('nav_view', 'inicio');
+        if (tabsRow) tabsRow.style.display = 'none';
+        allTabContents.forEach(function(el){ el.classList.remove('active'); });
+        if (resumoTab) resumoTab.classList.add('active');
+        nav.querySelectorAll('.nav-btn').forEach(function(b){
+            b.classList.toggle('active', b.getAttribute('data-view') === 'inicio');
+        });
+        if (typeof loadResumo === 'function' && !rsLoaded) loadResumo();
+    }
+
+    function showTypeView(){
+        // Marca o botao do tipo atual como ativo na nav
+        localStorage.removeItem('nav_view');
+        if (tabsRow) tabsRow.style.display = '';
+        if (resumoTab) resumoTab.classList.remove('active');
+        nav.querySelectorAll('.nav-btn').forEach(function(b){
+            b.classList.toggle('active', b.getAttribute('data-type') === CURRENT_CAMP_TYPE);
+        });
+        // Re-ativa a sub-tab "campaigns" (ou mantem a que estava)
+        var anyActive = document.querySelector('.main .tab-content.active');
+        if (!anyActive) {
+            var firstTab = document.querySelector('#tab-campaigns');
+            if (firstTab) firstTab.classList.add('active');
+        }
+    }
+
+    // Estado inicial
+    if (isInicio) showInicio();
+    else showTypeView();
+
+    nav.querySelectorAll('.nav-btn').forEach(function(btn){
+        btn.addEventListener('click', function(){
+            var view = btn.getAttribute('data-view');
+            var newType = btn.getAttribute('data-type');
+            if (view === 'inicio') { showInicio(); return; }
+            if (newType) {
+                if (newType === CURRENT_CAMP_TYPE && !isInicio) {
+                    showTypeView();
+                    return;
+                }
+                CURRENT_CAMP_TYPE = newType;
+                localStorage.setItem('camp_type', newType);
+                localStorage.removeItem('nav_view');
+                if (newType === 'crescimento') sessionStorage.removeItem('crescimento_info_shown');
+                window.location.reload();
+            }
         });
     });
 })();
