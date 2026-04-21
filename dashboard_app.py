@@ -2996,7 +2996,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v8_{date_from}_{date_to}"
+        cache_key = f"resumo_v9_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3043,72 +3043,94 @@ def api_resumo():
         def _aggregate_type(ct, d_from, d_to, want_detail=True):
             """Agrega totais + serie diaria + top campanhas de 1 tipo.
 
-            Usa 'active' (rapido, cache warm do scheduler). O gasto das archived
-            eh somado depois via account-level insights (1 call por conta), que
-            eh muito mais leve que expandir shared_daily pra centenas de ids
-            archived (quebrava timeout do NGINX)."""
-            camps, rows = _get_shared_daily_insights(ct, d_from, d_to, "active")
+            Reusa o cache das tabs (campaigns_v4 + daily_summary_v6, ambos
+            'all'): totais por campanha ja incluem archived e sao warmados
+            pelo scheduler ou pela 1a visita na tab. Evita fetch duplicado.
+            Se cache frio, cai no fallback de fetch interno (populando cache
+            das duas tabs no caminho — Resumo+Tab dividem o custo)."""
             kpi_field = type_meta[ct]["kpi"]
-            tot_spend = 0.0
-            tot_kpi = 0.0
-            tot_revenue = 0.0
-            tot_purchases = 0
-            by_date = {}
-            by_campaign = {}
+            key_camp = f"campaigns_v4_{ct}_all_{d_from}_{d_to}"
+            key_daily = f"daily_summary_v6_{ct}_all_{d_from}_{d_to}"
+            camp_cached = get_cached(key_camp)
+            daily_cached = get_cached(key_daily) if want_detail else None
 
-            for row in rows:
-                parsed = parse_insights(row)
-                sp = parsed.get("spend", 0)
-                kv = parsed.get(kpi_field, 0) or 0
-                tot_spend += sp
-                tot_kpi += kv
-                tot_revenue += parsed.get("revenue", 0)
-                tot_purchases += parsed.get("purchases", 0)
-                if want_detail:
-                    d = row.get("date_start", "")
-                    cid = row.get("campaign_id", "")
-                    if d:
-                        if d not in by_date:
-                            by_date[d] = {"date": d, "spend": 0.0, "kpi": 0.0}
-                        by_date[d]["spend"] += sp
-                        by_date[d]["kpi"] += kv
-                    if cid:
-                        if cid not in by_campaign:
-                            by_campaign[cid] = {
-                                "id": cid,
-                                "name": row.get("campaign_name", ""),
-                                "spend": 0.0,
-                                "kpi": 0.0,
-                            }
-                        by_campaign[cid]["spend"] += sp
-                        by_campaign[cid]["kpi"] += kv
+            # Cold cache fallback: chama o endpoint internamente pra popular
+            # (serve ao Resumo E a tab correspondente na proxima visita)
+            if not camp_cached or (want_detail and not daily_cached):
+                try:
+                    with app.test_client() as client:
+                        with client.session_transaction() as sess:
+                            sess["logged_in"] = True
+                            sess["username"] = SUPER_ADMIN_EMAIL
+                            sess["role"] = "super_admin"
+                        hdr = {"X-Internal-Scheduler": "resumo"}
+                        if not camp_cached:
+                            client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={d_from}&date_to={d_to}&camp_status=all", headers=hdr)
+                            camp_cached = get_cached(key_camp)
+                        if want_detail and not daily_cached:
+                            client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={d_from}&date_to={d_to}&camp_status=all", headers=hdr)
+                            daily_cached = get_cached(key_daily)
+                except Exception as e:
+                    print(f"[RESUMO] Falha warmup cache tab {ct}: {e}")
 
-            # KPI de custo: ROAS (revenue/spend) para Vendas, spend/KPI para os demais
+            campaigns_data = (camp_cached or {}).get("data", []) or []
+            summary = (camp_cached or {}).get("summary", {}) or {}
+
+            tot_spend = float(summary.get("total_spend", 0) or 0)
+            tot_revenue = float(summary.get("total_revenue", 0) or 0)
+            tot_purchases = int(summary.get("total_purchases", 0) or 0)
+
+            # Mapeia KPI summary conforme o tipo
+            summary_kpi_map = {
+                "revenue": "total_revenue",
+                "purchases": "total_purchases",
+                "profile_visits": "total_profile_visits",
+                "video_thruplay": "total_thruplay",
+            }
+            tot_kpi = float(summary.get(summary_kpi_map.get(kpi_field, ""), 0) or 0)
+
             if ct == CAMP_TYPE_VENDAS:
                 kpi_cost = round(tot_revenue / tot_spend, 2) if tot_spend > 0 else 0
             else:
                 kpi_cost = round(tot_spend / tot_kpi, 2) if tot_kpi > 0 else 0
 
-            active_count = len([c for c in by_campaign.values() if c["spend"] > 0])
-            daily_list = sorted(by_date.values(), key=lambda x: x["date"])
-            for r in daily_list:
-                r["spend"] = round(r["spend"], 2)
-                r["kpi"] = round(r["kpi"], 2)
-            # Lista completa (ate 50) pra suportar drill-down por tipo no frontend.
-            # Cada item ganha custo_kpi individual: ROAS pra Vendas, spend/kpi
-            # pros demais (CPL/CPS/CPTP/Custo-Visita).
+            # Top campanhas (ate 50) a partir do campaigns_data que ja vem
+            # ordenado por spend desc pela tab
             full_camps = []
-            for c in by_campaign.values():
-                cspend = round(c["spend"], 2)
-                ckpi = round(c["kpi"], 2)
+            for c in campaigns_data:
+                cid = c.get("id") or ""
+                if not cid:
+                    continue
+                cspend = float(c.get("spend", 0) or 0)
+                ckpi = float(c.get(kpi_field, 0) or 0)
                 if ct == CAMP_TYPE_VENDAS:
-                    # ROAS precisa da receita da campanha, nao so do kpi
-                    ccost = round(ckpi / cspend, 2) if cspend > 0 else 0
+                    crev = float(c.get("revenue", 0) or 0)
+                    ccost = round(crev / cspend, 2) if cspend > 0 else 0
+                    # Pra Vendas, o KPI e receita — usa revenue direto
+                    ckpi = crev
                 else:
                     ccost = round(cspend / ckpi, 2) if ckpi > 0 else 0
-                full_camps.append({**c, "spend": cspend, "kpi": ckpi, "kpi_cost": ccost})
+                full_camps.append({
+                    "id": cid,
+                    "name": c.get("name", ""),
+                    "spend": round(cspend, 2),
+                    "kpi": round(ckpi, 2),
+                    "kpi_cost": ccost,
+                })
             full_camps.sort(key=lambda x: x["spend"], reverse=True)
             top_camps = full_camps[:50]
+
+            # Daily series — usa daily_summary cache (campo corresponde ao kpi_field)
+            daily_list = []
+            if daily_cached:
+                for r in daily_cached.get("data", []) or []:
+                    daily_list.append({
+                        "date": r.get("date", ""),
+                        "spend": round(float(r.get("spend", 0) or 0), 2),
+                        "kpi": round(float(r.get(kpi_field, 0) or 0), 2),
+                    })
+
+            active_count = len([c for c in campaigns_data if (c.get("spend", 0) or 0) > 0])
 
             return {
                 "type": ct,
@@ -3126,9 +3148,9 @@ def api_resumo():
                 "purchases": tot_purchases,
                 "daily": daily_list,
                 "top_campaigns": top_camps,
-                # Usado server-side pra evitar double-count de archived spend.
-                # Nao exposto na UI (apagado antes do jsonify abaixo).
-                "_active_ids": set(by_campaign.keys()),
+                # IDs completos de campanhas do tipo — usado pra dedupe no passo
+                # de classificacao Outros (apagado antes do jsonify).
+                "_active_ids": set(c.get("id", "") for c in campaigns_data if c.get("id")),
             }
 
         per_type = [_aggregate_type(ct, date_from, date_to) for ct in VALID_CAMP_TYPES]
