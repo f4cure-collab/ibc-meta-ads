@@ -209,26 +209,47 @@ def _fetch_type_campaigns(camp_type, fields, effective_status):
 def _fetch_insights_for_tagged_campaigns(campaigns, base_params, extra_filters=None):
     """Busca insights para campanhas taggueadas com _account_id, agrupando as chamadas
     por conta. base_params deve ter fields, time_range, level, limit, etc. mas NAO
-    filtering por campaign.id (sera injetado automaticamente)."""
+    filtering por campaign.id (sera injetado automaticamente).
+
+    Chunking adaptativo: se a lista de IDs for muito grande (muitas archived),
+    a Meta rejeita com 'Please reduce the amount of data'. Divide em batches
+    de 30 e auto-split em caso de erro de volume. Sem isso, o Resumo com
+    camp_status='all' falhava silencioso pra Vendas (retornando listas vazias)."""
     by_acc = {}
     for c in campaigns:
         acc = c.get("_account_id") or ACCOUNT_ID
         by_acc.setdefault(acc, []).append(c["id"])
 
-    all_rows = []
-    for acc, ids in by_acc.items():
-        if not acc or not ids:
-            continue
+    INITIAL_BATCH = 30
+
+    def _try_fetch(acc, ids, depth=0, label="0"):
         filters = [{"field": "campaign.id", "operator": "IN", "value": ids}]
         if extra_filters:
             filters.extend(extra_filters)
         params = dict(base_params)
         params["filtering"] = json.dumps(filters)
         try:
-            rows = meta_get_all_pages(f"{acc}/insights", params)
-            all_rows.extend(rows)
+            return meta_get_all_pages(f"{acc}/insights", params)
         except Exception as e:
-            print(f"[MULTI-ACCT] Falha insights {acc}: {e}")
+            msg = str(e)
+            is_vol = "reduce the amount of data" in msg or "(#100)" in msg or "(#613)" in msg
+            if is_vol and len(ids) > 1 and depth < 5:
+                mid = len(ids) // 2
+                print(f"[INSIGHTS-SPLIT] {acc} batch {label} de {len(ids)} falhou por volume, divide em {mid} + {len(ids)-mid}")
+                return _try_fetch(acc, ids[:mid], depth + 1, label + "L") + _try_fetch(acc, ids[mid:], depth + 1, label + "R")
+            print(f"[MULTI-ACCT] Falha insights {acc} batch {label}: {e}")
+            return []
+
+    def _chunks(lst, n):
+        for i in range(0, len(lst), n):
+            yield lst[i:i + n]
+
+    all_rows = []
+    for acc, ids in by_acc.items():
+        if not acc or not ids:
+            continue
+        for batch_idx, id_batch in enumerate(_chunks(ids, INITIAL_BATCH)):
+            all_rows.extend(_try_fetch(acc, id_batch, 0, str(batch_idx)))
     return all_rows
 
 SUPER_ADMIN_EMAIL = "f4cure@gmail.com"  # Admin principal — invisível e intocável
@@ -1565,7 +1586,7 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
 
     Retorna (sales_campaigns, daily_rows).
     """
-    cache_key = f"shared_daily_v2_{camp_type}_{camp_status}_{date_from}_{date_to}"
+    cache_key = f"shared_daily_v3_{camp_type}_{camp_status}_{date_from}_{date_to}"
     cached = get_cached(cache_key)
     if cached is not None:
         return cached.get("campaigns", []), cached.get("rows", [])
@@ -2975,7 +2996,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v5_{date_from}_{date_to}"
+        cache_key = f"resumo_v6_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3022,11 +3043,11 @@ def api_resumo():
         def _aggregate_type(ct, d_from, d_to, want_detail=True):
             """Agrega totais + serie diaria + top campanhas de 1 tipo.
 
-            Usa 'active': tentar 'all' trouxe centenas de archived Vendas e o
-            _fetch_insights_for_tagged_campaigns nao suporta filter IN [500+ ids]
-            (Meta rejeita 'reduce the amount of data'). O fallback de subtracao
-            em 'Outros' cobre archived via total_acc_spend - typed_spend."""
-            camps, rows = _get_shared_daily_insights(ct, d_from, d_to, "active")
+            Usa 'all' (ACTIVE+PAUSED+ARCHIVED): campanhas arquivadas de eventos
+            passados ainda tem gasto no periodo e devem ser atribuidas ao tipo
+            correto. Agora _fetch_insights_for_tagged_campaigns faz chunking
+            adaptativo, entao centenas de IDs nao quebram mais a chamada."""
+            camps, rows = _get_shared_daily_insights(ct, d_from, d_to, "all")
             kpi_field = type_meta[ct]["kpi"]
             tot_spend = 0.0
             tot_kpi = 0.0
