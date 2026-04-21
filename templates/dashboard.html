@@ -3229,18 +3229,27 @@ async function loadCr(force){
         crData=r.data||[];activeChips.clear();
         buildStableCampaignOrder();
         buildChips();renderCr();
-        // Banner de warnings se alguma campanha falhou
+        // Banner de warnings: mostra a falha real (step/conta/erro) em vez de
+        // "campanha: vazio". Backend emite warning em nivel de STEP (fetch_agg_7d,
+        // fetch_ads_batch) com account_id + error — nunca em nivel de campanha.
         const warns=r.warnings||[];
         if(warns.length>0){
-            const campNames=warns.map(w=>w.campaign_name||w.campaign_id).join(', ');
+            console.warn('[CREATIVES] warnings do backend:', warns);
+            const itemsHtml = warns.map(function(w){
+                var label = w.step || 'fetch';
+                var acc = w.account_id ? ' (' + w.account_id + ')' : '';
+                var err = w.error ? ': ' + String(w.error).slice(0,140) : '';
+                return '<li style="margin:3px 0"><code style="font-size:11px;color:#ff9999">' + label + acc + '</code>' + err + '</li>';
+            }).join('');
             const banner=document.createElement('div');
             banner.id='cr-warnings';
-            banner.style.cssText='background:linear-gradient(135deg,rgba(255,107,107,.12),rgba(255,107,107,.04));border:1px solid rgba(255,107,107,.3);color:var(--red);padding:14px 18px;border-radius:10px;margin-bottom:14px;font-size:13px;display:flex;align-items:center;gap:12px;box-shadow:0 0 20px rgba(255,107,107,.1)';
+            banner.style.cssText='background:linear-gradient(135deg,rgba(255,107,107,.12),rgba(255,107,107,.04));border:1px solid rgba(255,107,107,.3);color:var(--red);padding:14px 18px;border-radius:10px;margin-bottom:14px;font-size:13px;display:flex;align-items:flex-start;gap:12px;box-shadow:0 0 20px rgba(255,107,107,.1)';
             banner.innerHTML=`
                 <span style="font-size:24px">&#9888;</span>
                 <div style="flex:1">
-                    <strong style="color:var(--red);font-size:14px;display:block;margin-bottom:4px">Dados incompletos</strong>
-                    <span style="color:var(--t2)">${warns.length} campanha(s) n&atilde;o carregaram corretamente: <strong>${campNames}</strong>. Os dados dessas campanhas podem estar zerados. Clique em Carregar Criativos novamente em alguns segundos (pode ser rate limit da Meta API).</span>
+                    <strong style="color:var(--red);font-size:14px;display:block;margin-bottom:4px">Dados incompletos (${warns.length} falha${warns.length>1?'s':''})</strong>
+                    <span style="color:var(--t2);display:block;margin-bottom:8px">Alguma etapa da busca na Meta API falhou. Clique em Carregar Criativos novamente em alguns segundos.</span>
+                    <details style="margin-top:4px"><summary style="cursor:pointer;color:var(--t3);font-size:12px">Detalhes tecnicos</summary><ul style="margin:6px 0 0;padding-left:18px;color:var(--t2)">${itemsHtml}</ul></details>
                 </div>
                 <button onclick="this.parentElement.remove()" style="background:transparent;border:1px solid var(--red);color:var(--red);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600">Fechar</button>
             `;

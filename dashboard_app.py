@@ -3377,14 +3377,22 @@ def api_all_creatives():
         warnings = []
         result = _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings)
         response = {"ok": True, "data": result, "warnings": warnings}
-        # Cacheia sempre — se teve warnings, usa TTL menor (1/3 do normal)
-        # pra revalidar mais cedo. Antes a gente NAO cacheava com warnings,
-        # entao em tipos com muitas campanhas (Nutricao: 52 campanhas x 2 contas)
-        # qualquer erro esporadico em 1 fetch impedia o cache — primeiro load
-        # ficava sempre lento porque nunca persistia.
+
+        # Politica de cache:
+        # - Sucesso total (sem warnings): cacheia com TTL normal
+        # - Sucesso parcial (teve warnings mas result > 0): cacheia com TTL/3
+        #   pra dar chance de revalidar cedo. Melhor ter dados parciais em cache
+        #   do que fazer todas as calls de novo na proxima abertura.
+        # - Falha total (warnings E result vazio): NAO cacheia. Antes cacheava
+        #   cache vazio com TTL/3 = 6h+ — usuario via tela em branco por
+        #   horas ate a proxima revalidacao. Agora a proxima tentativa forca
+        #   refetch direto.
+        if warnings and not result:
+            print(f"[ALL-CREATIVES] Pulando cache: {len(warnings)} warnings + 0 resultados (forca refetch na proxima)")
+            return jsonify(response)
         ttl = _cache_ttl_for_range(date_from, date_to)
         if warnings:
-            ttl = max(0.5, ttl / 3)  # revalida mais cedo se teve problema
+            ttl = max(0.5, ttl / 3)
         set_cached(cache_key, response, ttl_hours=ttl)
         return jsonify(response)
 
