@@ -2996,7 +2996,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v9_{date_from}_{date_to}"
+        cache_key = f"resumo_v10_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3094,31 +3094,63 @@ def api_resumo():
             else:
                 kpi_cost = round(tot_spend / tot_kpi, 2) if tot_kpi > 0 else 0
 
-            # Top campanhas (ate 50) a partir do campaigns_data que ja vem
-            # ordenado por spend desc pela tab
-            full_camps = []
+            # Agrupa campanhas por evento/produto/cidade. Usa event_name como base
+            # removendo sufixo " (N)" que o event_grouper adiciona quando divide
+            # um mesmo produto em sub-eventos por gap de datas. Ex:
+            # "Professional & Self Coaching (1)" e "Professional & Self Coaching (2)"
+            # viram um so "Professional & Self Coaching".
+            import re as _re
+            def _norm_event_name(nm):
+                if not nm:
+                    return "Outros"
+                return _re.sub(r"\s*\(\d+\)\s*$", "", nm).strip() or "Outros"
+
+            by_event = {}
             for c in campaigns_data:
                 cid = c.get("id") or ""
                 if not cid:
                     continue
+                base_name = _norm_event_name(c.get("event_name", ""))
                 cspend = float(c.get("spend", 0) or 0)
-                ckpi = float(c.get(kpi_field, 0) or 0)
+                ckpi_raw = float(c.get(kpi_field, 0) or 0)
+                crev = float(c.get("revenue", 0) or 0)
+                if base_name not in by_event:
+                    by_event[base_name] = {
+                        "id": base_name,
+                        "name": base_name,
+                        "spend": 0.0,
+                        "kpi_raw": 0.0,
+                        "revenue": 0.0,
+                        "campaign_count": 0,
+                    }
+                e = by_event[base_name]
+                e["spend"] += cspend
+                e["kpi_raw"] += ckpi_raw
+                e["revenue"] += crev
+                e["campaign_count"] += 1
+
+            full_events = []
+            for e in by_event.values():
+                espend = round(e["spend"], 2)
+                erev = round(e["revenue"], 2)
                 if ct == CAMP_TYPE_VENDAS:
-                    crev = float(c.get("revenue", 0) or 0)
-                    ccost = round(crev / cspend, 2) if cspend > 0 else 0
-                    # Pra Vendas, o KPI e receita — usa revenue direto
-                    ckpi = crev
+                    # Pra Vendas o KPI exibido eh Receita; custo eh ROAS
+                    ekpi = erev
+                    ecost = round(erev / espend, 2) if espend > 0 else 0
                 else:
-                    ccost = round(cspend / ckpi, 2) if ckpi > 0 else 0
-                full_camps.append({
-                    "id": cid,
-                    "name": c.get("name", ""),
-                    "spend": round(cspend, 2),
-                    "kpi": round(ckpi, 2),
-                    "kpi_cost": ccost,
+                    ekpi = round(e["kpi_raw"], 2)
+                    ecost = round(espend / ekpi, 2) if ekpi > 0 else 0
+                display_name = e["name"] + (" · " + str(e["campaign_count"]) + " camps" if e["campaign_count"] > 1 else "")
+                full_events.append({
+                    "id": e["id"],
+                    "name": display_name,
+                    "spend": espend,
+                    "kpi": ekpi,
+                    "kpi_cost": ecost,
+                    "campaign_count": e["campaign_count"],
                 })
-            full_camps.sort(key=lambda x: x["spend"], reverse=True)
-            top_camps = full_camps[:50]
+            full_events.sort(key=lambda x: x["spend"], reverse=True)
+            top_camps = full_events[:50]
 
             # Daily series — usa daily_summary cache (campo corresponde ao kpi_field)
             daily_list = []
