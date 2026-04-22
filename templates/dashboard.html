@@ -641,12 +641,12 @@
     <div class="header-left">
         <div style="height:36px;width:65px;overflow:hidden;display:flex;align-items:center;"><img src="/static/Logo_ibc.svg" alt="IBC" style="height:36px;"></div>
         <nav class="main-nav">
-            <button class="nav-btn" data-view="inicio" data-tip="Vis&atilde;o consolidada de toda a conta">&#127968; In&iacute;cio</button>
+            {% if role != 'viewer' %}<button class="nav-btn" data-view="inicio" data-tip="Vis&atilde;o consolidada de toda a conta">&#127968; In&iacute;cio</button>{% endif %}
             <button class="nav-btn" data-type="vendas" data-tip="Campanhas de Vendas (ROAS, Receita, Compras)"><span class="nav-dot" style="background:#4caf50"></span>Vendas</button>
-            <button class="nav-btn" data-type="meteoricos" data-tip="Campanhas Meteoricos (captura de Leads)"><span class="nav-dot" style="background:#ff9800"></span>Meteoricos</button>
+            <button class="nav-btn" data-type="meteoricos" data-tip="Campanhas Mete&oacute;ricos (captura de Leads)"><span class="nav-dot" style="background:#ff9800"></span>Mete&oacute;ricos</button>
             <button class="nav-btn" data-type="comercial" data-tip="Campanhas Comercial (captura de Leads)"><span class="nav-dot" style="background:#58a6ff"></span>Comercial</button>
             <button class="nav-btn" data-type="crescimento" data-tip="Campanhas de Crescimento (Visitas ao Perfil, Seguidores)"><span class="nav-dot" style="background:#ec4899"></span>Crescimento</button>
-            <button class="nav-btn" data-type="nutricao" data-tip="Campanhas de Nutricao (ThruPlays de video)"><span class="nav-dot" style="background:#9b5ee8"></span>Nutricao</button>
+            <button class="nav-btn" data-type="nutricao" data-tip="Campanhas de Nutri&ccedil;&atilde;o (ThruPlays de v&iacute;deo)"><span class="nav-dot" style="background:#9b5ee8"></span>Nutri&ccedil;&atilde;o</button>
         </nav>
     </div>
     <div class="header-right" style="display:flex;align-items:center;gap:12px;">
