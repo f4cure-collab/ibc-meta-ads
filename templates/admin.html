@@ -368,63 +368,119 @@
             </div>
         </div>
 
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
-            <label style="color:#aaa;font-size:12px;margin:0;">Periodo:</label>
-            <select id="usgFilterDays" style="background:#1a1d24;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;">
-                <option value="1">1 dia</option>
-                <option value="3">3 dias</option>
-                <option value="7" selected>7 dias</option>
-                <option value="14">14 dias</option>
-                <option value="30">30 dias</option>
-            </select>
-            <label style="color:#aaa;font-size:12px;margin:0 0 0 10px;">Fonte:</label>
-            <select id="usgFilterSource" style="background:#1a1d24;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;">
-                <option value="all" selected>Todas</option>
-                <option value="user">Apenas usuarios</option>
-                <option value="auto">Apenas automaticas (scheduler)</option>
-            </select>
-            <label style="color:#aaa;font-size:12px;margin:0 0 0 10px;">Usuario:</label>
-            <input type="text" id="usgFilterUser" placeholder="email ou parte" style="background:#1a1d24;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:180px;">
-            <button class="btn" id="btnReloadUsage" style="margin:0;">Aplicar</button>
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:16px;">
+            <div style="color:#aaa;font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;font-weight:600;">Filtros</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
+                <div>
+                    <label style="color:#888;font-size:11px;display:block;margin-bottom:3px;">Desde</label>
+                    <input type="datetime-local" id="usgFilterFrom" style="background:#0e1017;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="color:#888;font-size:11px;display:block;margin-bottom:3px;">Ate</label>
+                    <input type="datetime-local" id="usgFilterTo" style="background:#0e1017;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="color:#888;font-size:11px;display:block;margin-bottom:3px;">Fonte</label>
+                    <select id="usgFilterSource" style="background:#0e1017;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:100%;">
+                        <option value="all" selected>Todas</option>
+                        <option value="user">Apenas usuarios</option>
+                        <option value="auto">Apenas scheduler (auto)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="color:#888;font-size:11px;display:block;margin-bottom:3px;">Usuario/Fonte (contem)</label>
+                    <input type="text" id="usgFilterUser" placeholder="ex: f4cure, auto:daily" style="background:#0e1017;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="color:#888;font-size:11px;display:block;margin-bottom:3px;">Endpoint (contem)</label>
+                    <input type="text" id="usgFilterEndpoint" placeholder="ex: campaigns, resumo" style="background:#0e1017;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="color:#888;font-size:11px;display:block;margin-bottom:3px;">Tipo de campanha</label>
+                    <select id="usgFilterCampType" style="background:#0e1017;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:100%;">
+                        <option value="">Todos</option>
+                        <option value="vendas">Vendas</option>
+                        <option value="meteoricos">Meteoricos</option>
+                        <option value="comercial">Comercial</option>
+                        <option value="crescimento">Crescimento</option>
+                        <option value="nutricao">Nutricao</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="color:#888;font-size:11px;display:block;margin-bottom:3px;">Cache</label>
+                    <select id="usgFilterCache" style="background:#0e1017;color:#ddd;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:12px;width:100%;">
+                        <option value="">Todos</option>
+                        <option value="hit">Soh cache hit</option>
+                        <option value="miss">Soh cache miss (chamou Meta)</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+                <button onclick="applyUsageFilter()" style="background:#1f6feb;color:#fff;border:none;padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Aplicar Filtros</button>
+                <button onclick="resetUsageFilter()" style="background:#2a2e36;color:#ccc;border:none;padding:8px 16px;border-radius:6px;font-size:12px;cursor:pointer;">Limpar</button>
+                <button onclick="presetLastHours(2)" style="background:#0e1017;color:#58a6ff;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer;">Ultimas 2h</button>
+                <button onclick="presetLastHours(12)" style="background:#0e1017;color:#58a6ff;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer;">Ultimas 12h</button>
+                <button onclick="presetHoje()" style="background:#0e1017;color:#58a6ff;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer;">Hoje</button>
+                <button onclick="presetMadrugada()" style="background:#0e1017;color:#bc8cff;border:1px solid #2a2e36;padding:6px 10px;border-radius:6px;font-size:11px;cursor:pointer;">Madrugada (01:00-07:00 hoje)</button>
+                <span id="usgRecentCount" style="color:#888;font-size:11px;margin-left:auto;"></span>
+            </div>
         </div>
 
-        <h3 style="color:#fff;font-size:15px;margin:20px 0 10px;">Top Endpoints por Chamadas Meta</h3>
-        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                <thead style="background:#1a1d24;">
+        <h3 style="color:#fff;font-size:15px;margin:20px 0 10px;">Eventos
+            <span style="color:#888;font-size:12px;font-weight:400;margin-left:8px;">(ate 2000, timeline descendente)</span>
+        </h3>
+        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;max-height:600px;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
+                <thead style="background:#1a1d24;position:sticky;top:0;z-index:1;">
                     <tr style="color:#aaa;text-align:left;">
+                        <th style="padding:10px;white-space:nowrap;">Quando (BRT)</th>
                         <th style="padding:10px;">Endpoint</th>
-                        <th style="padding:10px;text-align:right;">Hits</th>
-                        <th style="padding:10px;text-align:right;">Calls Meta</th>
-                        <th style="padding:10px;text-align:right;">Cache Hits</th>
-                        <th style="padding:10px;text-align:right;">Media (ms)</th>
-                        <th style="padding:10px;text-align:right;">Max (ms)</th>
+                        <th style="padding:10px;white-space:nowrap;">Tipo</th>
+                        <th style="padding:10px;text-align:center;white-space:nowrap;">Cache</th>
+                        <th style="padding:10px;text-align:right;white-space:nowrap;">Meta Calls</th>
+                        <th style="padding:10px;text-align:right;white-space:nowrap;">Duracao</th>
+                        <th style="padding:10px;text-align:right;white-space:nowrap;">BUC%</th>
+                        <th style="padding:10px;white-space:nowrap;">Usuario / Fonte</th>
                     </tr>
                 </thead>
-                <tbody id="usgEndpointTbody"></tbody>
+                <tbody id="usgRecentTbody"></tbody>
             </table>
         </div>
 
-        <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">Top Usuarios / Fontes</h3>
-        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                <thead style="background:#1a1d24;">
-                    <tr style="color:#aaa;text-align:left;">
+        <details style="margin-top:14px;">
+            <summary style="color:#888;font-size:12px;cursor:pointer;padding:6px 0;">Agregados (top endpoints, top usuarios, top pesados)</summary>
+            <h3 style="color:#fff;font-size:15px;margin:16px 0 10px;">Top Endpoints por Chamadas Meta</h3>
+            <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead style="background:#1a1d24;">
+                        <tr style="color:#aaa;text-align:left;">
+                            <th style="padding:10px;">Endpoint</th>
+                            <th style="padding:10px;text-align:right;">Hits</th>
+                            <th style="padding:10px;text-align:right;">Calls Meta</th>
+                            <th style="padding:10px;text-align:right;">Cache Hits</th>
+                            <th style="padding:10px;text-align:right;">Media (ms)</th>
+                            <th style="padding:10px;text-align:right;">Max (ms)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usgEndpointTbody"></tbody>
+                </table>
+            </div>
+            <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">Top Usuarios / Fontes</h3>
+            <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                    <thead style="background:#1a1d24;"><tr style="color:#aaa;text-align:left;">
                         <th style="padding:10px;">Usuario / Fonte</th>
                         <th style="padding:10px;text-align:right;">Requests</th>
                         <th style="padding:10px;text-align:right;">Calls Meta</th>
                         <th style="padding:10px;text-align:right;">Cache Hits</th>
-                    </tr>
-                </thead>
-                <tbody id="usgUserTbody"></tbody>
-            </table>
-        </div>
-
-        <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">Requests Mais Pesados (cache miss)</h3>
-        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
-                <thead style="background:#1a1d24;">
-                    <tr style="color:#aaa;text-align:left;">
+                    </tr></thead>
+                    <tbody id="usgUserTbody"></tbody>
+                </table>
+            </div>
+            <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">Requests Mais Pesados (cache miss)</h3>
+            <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
+                    <thead style="background:#1a1d24;"><tr style="color:#aaa;text-align:left;">
                         <th style="padding:10px;white-space:nowrap;">Quando</th>
                         <th style="padding:10px;">Endpoint</th>
                         <th style="padding:10px;white-space:nowrap;">Tipo</th>
@@ -432,39 +488,11 @@
                         <th style="padding:10px;text-align:right;white-space:nowrap;">Duracao</th>
                         <th style="padding:10px;text-align:right;white-space:nowrap;">BUC%</th>
                         <th style="padding:10px;white-space:nowrap;">Usuario</th>
-                    </tr>
-                </thead>
-                <tbody id="usgHeaviestTbody"></tbody>
-            </table>
-        </div>
-
-        <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">
-            Atividade Recente
-            <span style="color:#888;font-size:12px;font-weight:400;margin-left:8px;">(timeline descendente, ate 200 eventos)</span>
-        </h3>
-        <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">
-            <label style="color:#aaa;font-size:12px;">Desde:</label>
-            <input type="datetime-local" id="usgRecentFrom" style="background:#1a1d24;border:1px solid #2a2e36;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;">
-            <button onclick="filterRecent()" style="background:#1f6feb;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;">Filtrar</button>
-            <button onclick="document.getElementById('usgRecentFrom').value='';filterRecent()" style="background:#2a2e36;color:#ccc;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;">Limpar</button>
-            <span id="usgRecentCount" style="color:#888;font-size:11px;margin-left:auto;"></span>
-        </div>
-        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;max-height:500px;overflow-y:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
-                <thead style="background:#1a1d24;position:sticky;top:0;">
-                    <tr style="color:#aaa;text-align:left;">
-                        <th style="padding:10px;white-space:nowrap;">Quando (BRT)</th>
-                        <th style="padding:10px;">Endpoint</th>
-                        <th style="padding:10px;white-space:nowrap;">Tipo</th>
-                        <th style="padding:10px;text-align:center;white-space:nowrap;">Cache</th>
-                        <th style="padding:10px;text-align:right;white-space:nowrap;">Calls</th>
-                        <th style="padding:10px;text-align:right;white-space:nowrap;">Duracao</th>
-                        <th style="padding:10px;white-space:nowrap;">Usuario / Fonte</th>
-                    </tr>
-                </thead>
-                <tbody id="usgRecentTbody"></tbody>
-            </table>
-        </div>
+                    </tr></thead>
+                    <tbody id="usgHeaviestTbody"></tbody>
+                </table>
+            </div>
+        </details>
     </div>
 
     <!-- Instrucoes -->
@@ -1614,13 +1642,17 @@ function fmtTs(ts) {
         return d.toLocaleDateString('pt-BR') + ' ' + d.toTimeString().slice(0,5);
     } catch(e) { return ts; }
 }
+// Estado dos filtros e sort da tabela unica de eventos
+var _usgSort = { col: 'ts', dir: 'desc' };
+
 async function loadUsageStats() {
     try {
-        var days = document.getElementById('usgFilterDays') ? document.getElementById('usgFilterDays').value : '7';
+        var fromVal = document.getElementById('usgFilterFrom') ? document.getElementById('usgFilterFrom').value : '';
+        var fromTs = fromVal ? fromVal.replace('T', ' ') + ':00' : '';
+        // Server-side filter: from_ts (se fornecido) ou ultimos 7 dias
+        var qs = fromTs ? 'from_ts=' + encodeURIComponent(fromTs) : 'days=7';
         var source = document.getElementById('usgFilterSource') ? document.getElementById('usgFilterSource').value : 'all';
-        var userF = document.getElementById('usgFilterUser') ? document.getElementById('usgFilterUser').value.trim() : '';
-        var qs = 'days=' + encodeURIComponent(days) + '&source=' + encodeURIComponent(source);
-        if (userF) qs += '&user=' + encodeURIComponent(userF);
+        if (source && source !== 'all') qs += '&source=' + encodeURIComponent(source);
         var r = await fetch('/api/admin/usage-stats?' + qs);
         var d = await r.json();
         if (!d.ok) {
@@ -1690,40 +1722,143 @@ async function loadUsageStats() {
 
 function renderRecent(){
     var raw = window._usgRecentRaw || [];
-    var fromInput = document.getElementById('usgRecentFrom');
-    var fromVal = fromInput ? fromInput.value : '';
+    // Filtros client-side (os server-side sao from_ts e source)
+    var fromVal = document.getElementById('usgFilterFrom') ? document.getElementById('usgFilterFrom').value : '';
+    var toVal = document.getElementById('usgFilterTo') ? document.getElementById('usgFilterTo').value : '';
+    var userF = (document.getElementById('usgFilterUser')||{}).value || '';
+    var endpointF = (document.getElementById('usgFilterEndpoint')||{}).value || '';
+    var campTypeF = (document.getElementById('usgFilterCampType')||{}).value || '';
+    var cacheF = (document.getElementById('usgFilterCache')||{}).value || '';
+
     var fromTs = fromVal ? fromVal.replace('T', ' ') : '';
-    var filtered = fromTs ? raw.filter(function(r){ return (r.ts||'') >= fromTs; }) : raw;
-    document.getElementById('usgRecentCount').textContent = filtered.length + ' evento(s)' + (fromTs ? ' desde ' + fromTs : '');
+    var toTs = toVal ? toVal.replace('T', ' ') : '';
+    var userLc = userF.toLowerCase().trim();
+    var endpointLc = endpointF.toLowerCase().trim();
+
+    var filtered = raw.filter(function(r){
+        if (fromTs && (r.ts||'') < fromTs) return false;
+        if (toTs && (r.ts||'') > toTs + ':59') return false;
+        if (userLc && !(r.user||'').toLowerCase().includes(userLc)) return false;
+        if (endpointLc && !(r.endpoint||'').toLowerCase().includes(endpointLc)) return false;
+        if (campTypeF && (r.camp_type||'') !== campTypeF) return false;
+        if (cacheF === 'hit' && !r.cache_hit) return false;
+        if (cacheF === 'miss' && r.cache_hit) return false;
+        return true;
+    });
+
+    // Sort
+    var col = _usgSort.col, dir = _usgSort.dir === 'asc' ? 1 : -1;
+    filtered.sort(function(a,b){
+        var av = a[col], bv = b[col];
+        if (av == null) av = '';
+        if (bv == null) bv = '';
+        // numeric cols
+        if (col === 'meta_calls' || col === 'duration_ms' || col === 'worst_buc_pct' || col === 'cache_hit') {
+            av = Number(av)||0; bv = Number(bv)||0;
+            return (av - bv) * dir;
+        }
+        return String(av).localeCompare(String(bv)) * dir;
+    });
+
+    document.getElementById('usgRecentCount').textContent = filtered.length + ' evento(s) apos filtros';
     document.getElementById('usgRecentTbody').innerHTML = filtered.map(function(row){
         var isAuto = row.user && row.user.indexOf('auto:') === 0;
         var userCell = isAuto
-            ? '<span style="color:#bc8cff;">auto</span> <span style="color:#888;font-size:11px;">(' + row.user.slice(5) + ')</span>'
+            ? '<span style="background:rgba(188,140,255,0.15);color:#bc8cff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">auto:' + row.user.slice(5) + '</span>'
             : (row.user || '--');
         var cacheIcon = row.cache_hit
-            ? '<span style="color:#3fdf85;" title="Cache hit">&#10003;</span>'
-            : '<span style="color:#ff9558;" title="Cache miss — buscou na Meta">MISS</span>';
+            ? '<span style="color:#3fdf85;font-weight:700;" title="Cache hit — resposta instantanea">HIT</span>'
+            : '<span style="color:#ff9558;font-weight:700;" title="Cache miss — chamou Meta API">MISS</span>';
         return '<tr style="border-top:1px solid #2a2e36;color:#ddd;">' +
             '<td style="padding:6px 10px;color:#aaa;white-space:nowrap;font-family:monospace;font-size:11px;">' + (row.ts||'') + '</td>' +
             '<td style="padding:6px 10px;font-family:monospace;font-size:11px;">' + (row.endpoint||'') + '</td>' +
             '<td style="padding:6px 10px;">' + (row.camp_type||'--') + '</td>' +
             '<td style="padding:6px 10px;text-align:center;">' + cacheIcon + '</td>' +
-            '<td style="padding:6px 10px;text-align:right;color:' + ((row.meta_calls||0)>0?'#ff9558':'#666') + ';">' + fmtNum(row.meta_calls) + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;color:' + ((row.meta_calls||0)>0?'#ff9558':'#666') + ';font-weight:600;">' + fmtNum(row.meta_calls) + '</td>' +
             '<td style="padding:6px 10px;text-align:right;color:#888;">' + Math.round(row.duration_ms||0) + ' ms</td>' +
+            '<td style="padding:6px 10px;text-align:right;color:#888;">' + (row.worst_buc_pct!=null?row.worst_buc_pct+'%':'--') + '</td>' +
             '<td style="padding:6px 10px;white-space:nowrap;">' + userCell + '</td>' +
             '</tr>';
-    }).join('') || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#666;">Nenhum evento no filtro.</td></tr>';
+    }).join('') || '<tr><td colspan="8" style="padding:20px;text-align:center;color:#666;">Nenhum evento no filtro.</td></tr>';
 }
 
-window.filterRecent = renderRecent;
-var _btnReloadUsage = document.getElementById('btnReloadUsage');
-if (_btnReloadUsage) _btnReloadUsage.addEventListener('click', loadUsageStats);
-['usgFilterDays', 'usgFilterSource'].forEach(function(id){
-    var el = document.getElementById(id);
-    if (el) el.addEventListener('change', loadUsageStats);
+// Handlers
+window.applyUsageFilter = function(){
+    loadUsageStats();  // Refaz fetch caso from_ts ou source tenha mudado
+};
+window.resetUsageFilter = function(){
+    ['usgFilterFrom','usgFilterTo','usgFilterUser','usgFilterEndpoint'].forEach(function(id){
+        var el = document.getElementById(id); if (el) el.value = '';
+    });
+    ['usgFilterSource','usgFilterCampType','usgFilterCache'].forEach(function(id){
+        var el = document.getElementById(id); if (el) el.value = id==='usgFilterSource'?'all':'';
+    });
+    loadUsageStats();
+};
+function _toLocalInput(d){
+    // YYYY-MM-DDTHH:MM no fuso local
+    var pad = function(n){ return (n<10?'0':'')+n; };
+    return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'T'+pad(d.getHours())+':'+pad(d.getMinutes());
+}
+window.presetLastHours = function(h){
+    var now = new Date();
+    var from = new Date(now.getTime() - h*3600*1000);
+    document.getElementById('usgFilterFrom').value = _toLocalInput(from);
+    document.getElementById('usgFilterTo').value = '';
+    loadUsageStats();
+};
+window.presetHoje = function(){
+    var now = new Date();
+    var from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0);
+    document.getElementById('usgFilterFrom').value = _toLocalInput(from);
+    document.getElementById('usgFilterTo').value = '';
+    loadUsageStats();
+};
+window.presetMadrugada = function(){
+    var now = new Date();
+    var from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 1, 0);
+    var to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 7, 0);
+    document.getElementById('usgFilterFrom').value = _toLocalInput(from);
+    document.getElementById('usgFilterTo').value = _toLocalInput(to);
+    loadUsageStats();
+};
+
+// Column sort — clica no th pra alternar asc/desc
+document.addEventListener('DOMContentLoaded', function(){
+    var cols = {'Quando (BRT)':'ts', 'Endpoint':'endpoint', 'Tipo':'camp_type', 'Cache':'cache_hit', 'Meta Calls':'meta_calls', 'Duracao':'duration_ms', 'BUC%':'worst_buc_pct', 'Usuario / Fonte':'user'};
+    var headers = document.querySelectorAll('#usgRecentTbody');
+    var tbl = document.getElementById('usgRecentTbody');
+    if (!tbl) return;
+    var theadRow = tbl.closest('table').querySelector('thead tr');
+    if (!theadRow) return;
+    theadRow.querySelectorAll('th').forEach(function(th){
+        var label = th.textContent.trim();
+        var col = cols[label];
+        if (!col) return;
+        th.style.cursor = 'pointer';
+        th.style.userSelect = 'none';
+        th.setAttribute('data-col', col);
+        th.addEventListener('click', function(){
+            if (_usgSort.col === col) _usgSort.dir = _usgSort.dir === 'asc' ? 'desc' : 'asc';
+            else { _usgSort.col = col; _usgSort.dir = 'desc'; }
+            theadRow.querySelectorAll('th').forEach(function(x){
+                var c = x.getAttribute('data-col');
+                var base = x.textContent.replace(/\s*[\u25B2\u25BC]\s*$/,'').trim();
+                x.textContent = base + (c === _usgSort.col ? (_usgSort.dir === 'asc' ? ' \u25B2' : ' \u25BC') : '');
+            });
+            renderRecent();
+        });
+    });
 });
-var _usgUserIn = document.getElementById('usgFilterUser');
-if (_usgUserIn) _usgUserIn.addEventListener('keydown', function(e){ if (e.key === 'Enter') loadUsageStats(); });
+
+// Filtros client-side re-renderizam sem refetch
+['usgFilterUser','usgFilterEndpoint','usgFilterCampType','usgFilterCache','usgFilterTo'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) {
+        if (el.tagName === 'INPUT') el.addEventListener('input', function(){ renderRecent(); });
+        else el.addEventListener('change', function(){ renderRecent(); });
+    }
+});
 
 loadAll();
 </script>

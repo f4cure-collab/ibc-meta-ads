@@ -4868,7 +4868,8 @@ def api_admin_usage_stats():
         days = max(1, min(days, 30))
         source = request.args.get("source", "all")  # all, user, auto
         user_filter = request.args.get("user", "").strip()
-        stats = get_usage_stats(days=days, source=source, user_filter=user_filter)
+        from_ts = request.args.get("from_ts", "").strip()
+        stats = get_usage_stats(days=days, source=source, user_filter=user_filter, from_ts=from_ts)
         return jsonify({"ok": True, "data": stats})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 400

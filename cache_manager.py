@@ -117,16 +117,22 @@ def clear_old_usage_logs(days=7):
         return 0
 
 
-def get_usage_stats(days=7, source="all", user_filter=""):
+def get_usage_stats(days=7, source="all", user_filter="", from_ts=""):
     """Retorna estatisticas agregadas dos ultimos N dias.
 
     Args:
         days: janela em dias (1-30)
         source: 'all' | 'user' (apenas humanos) | 'auto' (apenas scheduler)
         user_filter: substring pra filtrar por email do usuario
+        from_ts: ISO timestamp de inicio (opcional, sobrescreve days).
+                 Usado pra debug com janela curta (ex: ver se o scheduler
+                 rodou entre 02:00-06:00 BRT hoje).
     """
     try:
-        cutoff = (datetime.now(_BR_TZ).replace(tzinfo=None) - timedelta(days=days)).isoformat()
+        if from_ts:
+            cutoff = from_ts
+        else:
+            cutoff = (datetime.now(_BR_TZ).replace(tzinfo=None) - timedelta(days=days)).isoformat()
         # Monta clausulas WHERE extras baseado nos filtros
         extra_where = []
         extra_params = []
@@ -188,12 +194,14 @@ def get_usage_stats(days=7, source="all", user_filter=""):
 
         # Atividade recente (timeline crono descendente) — usado pra verificar
         # se o scheduler rodou em horarios especificos (ex: 02:00 BRT).
+        # Limit alto (2000) pra cobrir janelas com muito trafico. Se o usuario
+        # usar from_ts com janela curta (ex: 01:00-06:00), pega tudo.
         recent = conn.execute(f"""
             SELECT ts, endpoint, camp_type, meta_calls, duration_ms, cache_hit, user, worst_buc_pct
             FROM api_usage_log
             WHERE ts >= ?{where_extra}
             ORDER BY ts DESC
-            LIMIT 200
+            LIMIT 2000
         """, (cutoff, *extra_params)).fetchall()
 
         conn.close()
