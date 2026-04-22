@@ -380,13 +380,20 @@ _scheduler_running = False
 def _run_daily_update(app_context_func):
     """Thread que roda às 2h (horario de Sao Paulo) todo dia para atualizar o cache.
 
-    Importante: o agendamento e feito em BR timezone porque o servidor
-    em producao roda em UTC — se usassemos datetime.now() sem fuso, o
-    "2am" virava 23h BRT do dia anterior, e as caches eram populadas com
-    dt_to=ontem-1 (desalinhado do que o usuario pede de manha seguinte)."""
+    TODOS os workers do gunicorn iniciam essa thread. Na hora de disparar
+    (2am BRT), o primeiro worker a chamar try_acquire_scheduler_lock vence
+    e executa; os outros dormem ate o proximo dia. Isso sobrevive a crash
+    de worker: mesmo que o 'dono' atual morra, outro worker ainda roda
+    quando o horario chegar.
+
+    Antes, soh 1 worker startava a thread no boot (com try_acquire_lock no
+    boot). Se aquele worker morresse, ninguem mais rodava o scheduler e o
+    lock ficava preso com idade <15min — morning-slowness bug."""
     global _scheduler_running
     _scheduler_running = True
-    print("[SCHEDULER] Iniciado — atualizacao diaria as 2:00 (America/Sao_Paulo)")
+    import os as _os
+    pid = _os.getpid()
+    print(f"[SCHEDULER] Thread iniciada (PID {pid}) — dispara 2:00 BRT")
 
     while _scheduler_running:
         now_br = datetime.now(_BR_TZ)
@@ -396,25 +403,30 @@ def _run_daily_update(app_context_func):
             target += timedelta(days=1)
 
         wait_seconds = (target - now_br).total_seconds()
-        print(f"[SCHEDULER] Proxima atualizacao em {wait_seconds/3600:.1f}h ({target.strftime('%Y-%m-%d %H:%M %Z')})")
-
         # Dormir em intervalos curtos para poder parar
         for _ in range(int(wait_seconds)):
             if not _scheduler_running:
                 return
             time.sleep(1)
 
-        # Hora de atualizar
-        print(f"[SCHEDULER] Iniciando atualização automática — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        # Hora de disparar — tenta pegar o lock. Se outro worker ja pegou,
+        # desiste desta rodada (nao duplica trabalho).
+        if not try_acquire_scheduler_lock("daily_scheduler"):
+            print(f"[SCHEDULER] PID {pid}: outro worker ja assumiu — skipping esta rodada")
+            # Sleep 60s pra nao competir de novo imediatamente
+            time.sleep(60)
+            continue
+
+        print(f"[SCHEDULER] DISPAROU PID {pid} — {datetime.now(_BR_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')}")
         try:
-            # Limpar cache expirado
             clear_expired()
-            # Chamar a função de atualização passada pelo app
             if app_context_func:
                 app_context_func()
-            print(f"[SCHEDULER] Atualização concluída — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"[SCHEDULER] Atualizacao concluida — {datetime.now(_BR_TZ).strftime('%H:%M:%S %Z')}")
         except Exception as e:
-            print(f"[SCHEDULER] Erro na atualização: {e}")
+            import traceback
+            print(f"[SCHEDULER] ERRO na atualizacao: {e}")
+            traceback.print_exc()
 
 
 def start_scheduler(app_context_func=None):

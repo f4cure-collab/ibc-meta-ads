@@ -5700,19 +5700,26 @@ def _warmup_camp_type(ct, days_list, dt_to):
 def _refresh_recent_loop():
     """Thread leve que revalida o cache so quando necessario.
 
-    Historico: antes rodava ciclos de 30min, mesmo com cache fresco, e a
-    cada 4 ciclos (2h) refazia TODOS os ranges de TODOS os tipos — causava
-    BUC alto sem ganho. Agora:
-
-    - Warmup inicial so 30d de 1 tipo na primeira iteracao (nao 5 tipos)
-    - Ciclo principal de 2h (antes 30min)
-    - Cada ciclo refresca APENAS caches que estao prestes a expirar
-      (should_refresh retorna True se TTL < 40%)
-    - Ranges cobertos: 30d (principal) e 7d (secundario); outros sob demanda
-    """
+    Todos os workers iniciam essa thread. O primeiro a chamar
+    try_acquire_scheduler_lock("refresh_recent") vence e segue; os outros
+    pulam. Isso sobrevive a crash de worker — se o dono atual morrer,
+    outro assume na proxima iteracao (dentro de ~2h)."""
+    import os as _os
+    pid = _os.getpid()
     now_br = _now_br
     # Warmup apos boot — aguarda 30s pra garantir que o app estabilizou
     time.sleep(30)
+
+    # Tenta pegar o lock; se outro worker ja pegou, entra em modo standby
+    # (loop de 1min checando). Assim, se o dono atual morrer, este worker
+    # assume em ate 1min.
+    if not try_acquire_scheduler_lock("refresh_recent"):
+        print(f"[REFRESH-LOOP] PID {pid}: standby (outro worker detem o lock)")
+        while True:
+            time.sleep(60)
+            if try_acquire_scheduler_lock("refresh_recent"):
+                print(f"[REFRESH-LOOP] PID {pid}: assumindo lock")
+                break
     try:
         refresh_scheduler_lock("refresh_recent")
         dt_to = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
@@ -5778,19 +5785,19 @@ def _refresh_recent_loop():
 
 
 # ── Bootstrap dos schedulers (roda tanto em `python` quanto em `gunicorn`) ───
-# Em producao o gunicorn importa o modulo e nao executa o bloco __main__.
-# O lock em SQLite garante que so um worker de fato rode o scheduler.
-if try_acquire_scheduler_lock("daily_scheduler"):
-    start_scheduler(_scheduled_refresh)
-    print("[BOOT] Scheduler diario (2:00) iniciado neste worker")
-else:
-    print("[BOOT] Outro worker ja esta rodando o scheduler diario")
+# Cada worker do gunicorn inicia AMBAS as threads. A disputa pelo lock acontece
+# na HORA de disparar (nao no boot). Assim, se o worker dono do lock morrer
+# antes do horario, outro worker ainda roda na proxima janela.
+#
+# Antes: soh 1 worker startava a thread no boot. Se ele morresse, ninguem mais
+# rodava o scheduler ate a proxima reboot — e a lock em SQLite ficava com idade
+# < 15min, bloqueando qualquer tentativa de takeover. Era o bug reportado de
+# morning-slowness todo dia.
+start_scheduler(_scheduled_refresh)
+print("[BOOT] Scheduler diario (2:00 BRT) iniciado")
 
-if try_acquire_scheduler_lock("refresh_recent"):
-    threading.Thread(target=_refresh_recent_loop, daemon=True).start()
-    print("[BOOT] Loop de refresh recente (1d/7d a cada 2h) iniciado neste worker")
-else:
-    print("[BOOT] Outro worker ja esta rodando o loop de refresh recente")
+threading.Thread(target=_refresh_recent_loop, daemon=True).start()
+print("[BOOT] Loop de refresh recente (1d/7d a cada 2h) iniciado")
 
 
 # ── Run ────────────────────────────────────────────────────────────────
