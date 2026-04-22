@@ -2996,7 +2996,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v10_{date_from}_{date_to}"
+        cache_key = f"resumo_v11_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3015,8 +3015,8 @@ def api_resumo():
         type_meta = {
             CAMP_TYPE_VENDAS: {
                 "label": "Vendas", "icon": "V",
-                "kpi": "revenue", "kpi_label": "Receita", "kpi_fmt": "currency",
-                "kpi_cost_label": "ROAS", "kpi_cost_fmt": "roas",
+                "kpi": "purchases", "kpi_label": "Compras", "kpi_fmt": "int",
+                "kpi_cost_label": "CPA", "kpi_cost_fmt": "currency",
             },
             CAMP_TYPE_METEORICOS: {
                 "label": "Meteoricos", "icon": "M",
@@ -3089,10 +3089,8 @@ def api_resumo():
             }
             tot_kpi = float(summary.get(summary_kpi_map.get(kpi_field, ""), 0) or 0)
 
-            if ct == CAMP_TYPE_VENDAS:
-                kpi_cost = round(tot_revenue / tot_spend, 2) if tot_spend > 0 else 0
-            else:
-                kpi_cost = round(tot_spend / tot_kpi, 2) if tot_kpi > 0 else 0
+            # Custo/Resultado: spend/kpi pra todos os tipos (CPA/CPL/CPS/CPTP/Custo-Visita)
+            kpi_cost = round(tot_spend / tot_kpi, 2) if tot_kpi > 0 else 0
 
             # Agrupa campanhas por evento/produto/cidade. Usa event_name como base
             # removendo sufixo " (N)" que o event_grouper adiciona quando divide
@@ -3132,14 +3130,8 @@ def api_resumo():
             full_events = []
             for e in by_event.values():
                 espend = round(e["spend"], 2)
-                erev = round(e["revenue"], 2)
-                if ct == CAMP_TYPE_VENDAS:
-                    # Pra Vendas o KPI exibido eh Receita; custo eh ROAS
-                    ekpi = erev
-                    ecost = round(erev / espend, 2) if espend > 0 else 0
-                else:
-                    ekpi = round(e["kpi_raw"], 2)
-                    ecost = round(espend / ekpi, 2) if ekpi > 0 else 0
+                ekpi = round(e["kpi_raw"], 2)
+                ecost = round(espend / ekpi, 2) if ekpi > 0 else 0
                 display_name = e["name"] + (" · " + str(e["campaign_count"]) + " camps" if e["campaign_count"] > 1 else "")
                 full_events.append({
                     "id": e["id"],
