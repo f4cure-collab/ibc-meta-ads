@@ -349,6 +349,22 @@
             Registros antigos sao apagados automaticamente.
         </p>
 
+        <div style="background:rgba(188,140,255,0.08);border:1px solid rgba(188,140,255,0.25);border-radius:8px;padding:14px;margin-bottom:16px;">
+            <div style="color:#bc8cff;font-size:13px;font-weight:600;margin-bottom:6px;">Testar Scheduler (disparar warmup manualmente)</div>
+            <div style="color:#aaa;font-size:12px;margin-bottom:10px;">
+                Roda uma versao enxuta (so campaigns + daily-summary, 30d, 5 tipos). Leva ~2-3min.
+                Aparece nos Eventos como <code style="color:#bc8cff;">auto:test_warmup</code>.
+                Use pra validar que o mecanismo funciona antes de confiar no agendamento automatico de 2am.
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button onclick="fireSchedTest(0)" style="background:#bc8cff;color:#0a1018;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">Disparar Agora</button>
+                <button onclick="fireSchedTest(60)" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:8px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Em 1 minuto</button>
+                <button onclick="fireSchedTest(600)" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:8px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Em 10 minutos</button>
+                <button onclick="fireSchedTest(1800)" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:8px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Em 30 minutos</button>
+                <span id="schedTestStatus" style="color:#888;font-size:11px;margin-left:auto;"></span>
+            </div>
+        </div>
+
         <div id="usageOverview" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;">
             <div class="stat-card" style="background:#1a1d24;padding:14px;border-radius:8px;border:1px solid #2a2e36;">
                 <div style="color:#888;font-size:11px;text-transform:uppercase;">Total Requests</div>
@@ -1631,6 +1647,32 @@ function hide(id) { document.getElementById(id).style.display='none'; }
         });
     });
 })();
+
+// ── Disparar scheduler de teste ──
+window.fireSchedTest = async function(delay){
+    var status = document.getElementById('schedTestStatus');
+    var msg = delay > 0 ? ('Agendando pra ' + delay + 's...') : 'Disparando agora...';
+    if (status) status.textContent = msg;
+    try {
+        var r = await fetch('/api/admin/scheduler-test-fire', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({delay_seconds: delay||0})
+        });
+        var d = await r.json();
+        if (!d.ok) {
+            if (status) status.textContent = 'Erro: ' + (d.error||'?');
+            alert('Erro: ' + (d.error||'desconhecido'));
+            return;
+        }
+        if (status) status.textContent = d.message || 'OK';
+        var when = delay > 0 ? ('daqui a ' + Math.round(delay/60) + 'min') : 'agora';
+        alert('Warmup agendado ' + when + '.\n\nApos ~2-3min da execucao, cheque Eventos filtrados por usuario \'auto:test_warmup\' pra confirmar que rodou.');
+    } catch(e) {
+        if (status) status.textContent = 'Erro: ' + e.message;
+        alert('Erro: ' + e.message);
+    }
+};
 
 // ── Diagnostico de uso da API ──
 function fmtNum(n) { return (n||0).toLocaleString('pt-BR'); }

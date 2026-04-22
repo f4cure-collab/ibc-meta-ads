@@ -5660,6 +5660,63 @@ def _scheduled_refresh():
     print(f"[SCHEDULER] Atualizacao completa! Tudo cacheado ate {datetime.now().strftime('%H:%M')}")
 
 
+def _test_warmup_quick():
+    """Versao enxuta do scheduler pra testar o mecanismo.
+    Roda campaigns + daily-summary dos 5 tipos (30d) em sequencia.
+    Leva ~2-3 min total, em vez das 2.5h do scheduler completo.
+    Usado pelo botao /admin > 'Disparar Warmup Agora' pra validar que o
+    thread roda de fato e popula caches antes do 2am de verdade."""
+    from datetime import datetime, timedelta
+    now_br = _now_br()
+    dt_to = (now_br - timedelta(days=1)).strftime("%Y-%m-%d")
+    dt_from_30 = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
+    print(f"[TEST-WARMUP] Iniciando em {now_br.strftime('%Y-%m-%d %H:%M %Z')} — PID {os.getpid()}")
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["username"] = SUPER_ADMIN_EMAIL
+            sess["role"] = "super_admin"
+        for ct in VALID_CAMP_TYPES:
+            try:
+                print(f"[TEST-WARMUP] {ct}: campaigns")
+                client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={dt_from_30}&date_to={dt_to}&camp_status=all&force=true",
+                           headers={"X-Internal-Scheduler":"test_warmup"})
+                time.sleep(3)
+                print(f"[TEST-WARMUP] {ct}: daily-summary")
+                client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={dt_from_30}&date_to={dt_to}&camp_status=all&force=true",
+                           headers={"X-Internal-Scheduler":"test_warmup"})
+                time.sleep(3)
+            except Exception as e:
+                print(f"[TEST-WARMUP] Erro em {ct}: {e}")
+    print(f"[TEST-WARMUP] COMPLETO em {datetime.now(_BR_TZ).strftime('%H:%M:%S %Z')}")
+
+
+@app.route("/api/admin/scheduler-test-fire", methods=["POST"])
+def api_scheduler_test_fire():
+    """Dispara o warmup enxuto em background. Opcional delay_seconds pra
+    testar o mecanismo de agendamento (ex: delay=60 pra rodar em 1min)."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        body = request.get_json(silent=True) or {}
+        delay = int(body.get("delay_seconds", 0))
+        delay = max(0, min(delay, 3600))  # 0 a 1h
+
+        def _run():
+            if delay > 0:
+                print(f"[TEST-WARMUP] Agendado pra {delay}s adiante — PID {os.getpid()}")
+                time.sleep(delay)
+            _test_warmup_quick()
+
+        threading.Thread(target=_run, daemon=True).start()
+        msg = ("Warmup agendado pra daqui a " + str(delay) + "s"
+               if delay > 0
+               else "Warmup disparado em background. Aguarde ~2-3min e cheque o Diagnostico.")
+        return jsonify({"ok": True, "message": msg, "delay_seconds": delay})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 def _warmup_camp_type(ct, days_list, dt_to):
     """Warmup de todos os endpoints cacheaveis de UM camp_type.
     Usado em paralelo (1 thread por tipo) pra popular cache mais rapido
