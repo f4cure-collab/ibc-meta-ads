@@ -2996,7 +2996,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v12_{date_from}_{date_to}"
+        cache_key = f"resumo_v13_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3219,26 +3219,23 @@ def api_resumo():
                     all_accounts.add(acc)
         all_accounts = list(all_accounts)
 
-        # Nao conseguimos KPI/daily pra archived sem call pesada — so spend.
-        # per_type[ct]['spend'] ganha o spend extra via _type_extra_spend.
-        type_extra_spend = {ct: 0.0 for ct in VALID_CAMP_TYPES}
-        type_extra_spend_prev = {ct: 0.0 for ct in VALID_CAMP_TYPES}
         top_unmapped = []
         outros_spend = 0.0
         outros_spend_prev = 0.0
 
-        # Set de ids que ja estao em shared_daily 'active' por tipo — pra NAO
-        # somar spend duplicado quando a campanha ja apareceu no aggregate.
-        # Usa _active_ids completo (nao top_campaigns que eh limitado a 50).
-        active_ids_by_type = {}
-        for t in per_type:
-            active_ids_by_type[t["type"]] = t.get("_active_ids") or set()
-
+        # Single source of truth: per_type[ct]['spend'] vem integralmente de
+        # campaigns_v4 (mesma cache das tabs). Nao adiciona nada via account-level,
+        # garantindo que Tab = Resumo pro mesmo valor.
+        #
+        # Usa account-level /insights apenas pra:
+        #   a) Calcular total_acc_spend (soma de toda a conta no periodo)
+        #   b) Gerar lista top_unmapped (campanhas nao classificadas em tipo algum)
+        # Nunca ajusta per_type via esses dados.
         try:
             overrides = _load_overrides()
 
             def _classify_by_name(nm, objective):
-                """Retorna camp_type ou None. Mesma cascata do admin/unidentified."""
+                """Retorna camp_type ou None. Mesma cascata das tabs."""
                 if _is_nutricao_campaign(nm): return CAMP_TYPE_NUTRICAO
                 if _is_meteoricos_campaign(nm): return CAMP_TYPE_METEORICOS
                 if _is_comercial_campaign(nm): return CAMP_TYPE_COMERCIAL
@@ -3247,9 +3244,6 @@ def api_resumo():
                 if _is_vendas_campaign_by_name(nm): return CAMP_TYPE_VENDAS
                 return None
 
-            # Precisamos do objective pra classificar VENDAS por OUTCOME_SALES
-            # quando o nome nao tem token VENDAS. 1 call por conta pra /campaigns
-            # com fields basicos, cacheado 5min em memoria.
             obj_by_id = {}
             for acc in all_accounts:
                 try:
@@ -3258,78 +3252,52 @@ def api_resumo():
                 except Exception as e:
                     print(f"[RESUMO] Falha meta campanhas {acc}: {e}")
 
-            def _fetch_and_classify(d_from, d_to, is_current):
-                """Busca account-level insights no periodo, classifica cada row.
-                Atualiza type_extra_spend (archived spend) e top_unmapped (current only)."""
-                acc_total = 0.0
-                for acc in all_accounts:
-                    try:
-                        rows = meta_get_all_pages(f"{acc}/insights", {
-                            "fields": "campaign_id,campaign_name,spend",
-                            "time_range": json.dumps({"since": d_from, "until": d_to}),
-                            "level": "campaign",
-                            "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
-                            "limit": 500,
-                        })
-                    except Exception as e:
-                        print(f"[RESUMO] Falha insights conta {acc}: {e}")
+            total_acc_spend = 0.0
+            for acc in all_accounts:
+                try:
+                    rows = meta_get_all_pages(f"{acc}/insights", {
+                        "fields": "campaign_id,campaign_name,spend",
+                        "time_range": json.dumps({"since": date_from, "until": date_to}),
+                        "level": "campaign",
+                        "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
+                        "limit": 500,
+                    })
+                except Exception as e:
+                    print(f"[RESUMO] Falha insights conta {acc}: {e}")
+                    continue
+                for r in rows:
+                    cid = r.get("campaign_id", "")
+                    if not cid:
                         continue
-                    for r in rows:
-                        cid = r.get("campaign_id", "")
-                        if not cid:
-                            continue
-                        sp = float(r.get("spend", 0) or 0)
-                        acc_total += sp
-                        if sp <= 0:
-                            continue
-                        nm = r.get("campaign_name", "")
-                        # Classifica: override -> cascata de nomes+objective
-                        ov = overrides.get(cid)
-                        ct = ov.get("camp_type") if ov else None
-                        if not ct:
-                            ct = _classify_by_name(nm, obj_by_id.get(cid, ""))
-                        if ct in VALID_CAMP_TYPES:
-                            # Soma no type_extra so se NAO esta em active (evita
-                            # double-count — active ja esta em per_type[ct][spend])
-                            if cid not in active_ids_by_type.get(ct, set()):
-                                if is_current:
-                                    type_extra_spend[ct] = type_extra_spend.get(ct, 0) + sp
-                                else:
-                                    type_extra_spend_prev[ct] = type_extra_spend_prev.get(ct, 0) + sp
-                        else:
-                            # Nao classificou: vai pra Outros
-                            if is_current:
-                                top_unmapped.append({
-                                    "id": cid, "name": nm,
-                                    "spend": round(sp, 2), "account_id": acc,
-                                })
-                return acc_total
+                    sp = float(r.get("spend", 0) or 0)
+                    total_acc_spend += sp
+                    if sp <= 0:
+                        continue
+                    nm = r.get("campaign_name", "")
+                    ov = overrides.get(cid)
+                    ct = ov.get("camp_type") if ov else None
+                    if not ct:
+                        ct = _classify_by_name(nm, obj_by_id.get(cid, ""))
+                    if ct not in VALID_CAMP_TYPES:
+                        # Nao classificou -> vai pra drill-down de Outros
+                        top_unmapped.append({
+                            "id": cid, "name": nm,
+                            "spend": round(sp, 2), "account_id": acc,
+                        })
 
-            total_acc_spend = _fetch_and_classify(date_from, date_to, True)
-            total_acc_spend_prev = _fetch_and_classify(prev_from, prev_to, False)
+            # Total do periodo anterior (so precisa do total pra delta; nao precisa classificar)
+            total_acc_spend_prev = _fetch_total_spend_all_accounts(all_accounts, prev_from, prev_to)
 
             top_unmapped.sort(key=lambda x: x["spend"], reverse=True)
             top_unmapped = top_unmapped[:20]
-
-            # Adiciona o spend de archived ao per_type correspondente
-            for t in per_type:
-                ct = t["type"]
-                extra = type_extra_spend.get(ct, 0)
-                if extra > 0:
-                    t["spend"] = round(t["spend"] + extra, 2)
-            for ct in VALID_CAMP_TYPES:
-                extra_prev = type_extra_spend_prev.get(ct, 0)
-                if extra_prev > 0:
-                    prev_by_type[ct] = round(prev_by_type.get(ct, 0) + extra_prev, 2)
         except Exception as e:
             print(f"[RESUMO] Erro processando account-level insights: {e}")
-            # Fallback: usa total_acc_spend via endpoint antigo se o processamento falhou
             total_acc_spend = _fetch_total_spend_all_accounts(all_accounts, date_from, date_to)
             total_acc_spend_prev = _fetch_total_spend_all_accounts(all_accounts, prev_from, prev_to)
 
         typed_spend = sum(t["spend"] for t in per_type)
         prev_typed_spend = sum(prev_by_type.values())
-        # Outros = gasto total - tudo que classificamos (active + archived somados)
+        # Outros = gasto total da conta - tudo que as tabs classificaram
         outros_spend = max(0.0, round(total_acc_spend - typed_spend, 2))
         outros_spend_prev = max(0.0, round(total_acc_spend_prev - prev_typed_spend, 2))
 
