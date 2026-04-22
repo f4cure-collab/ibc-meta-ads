@@ -186,11 +186,22 @@ def get_usage_stats(days=7, source="all", user_filter=""):
             WHERE ts >= ?{where_extra}
         """, (cutoff, *extra_params)).fetchone()
 
+        # Atividade recente (timeline crono descendente) — usado pra verificar
+        # se o scheduler rodou em horarios especificos (ex: 02:00 BRT).
+        recent = conn.execute(f"""
+            SELECT ts, endpoint, camp_type, meta_calls, duration_ms, cache_hit, user, worst_buc_pct
+            FROM api_usage_log
+            WHERE ts >= ?{where_extra}
+            ORDER BY ts DESC
+            LIMIT 200
+        """, (cutoff, *extra_params)).fetchall()
+
         conn.close()
         return {
             "by_endpoint": [dict(zip(["endpoint", "hits", "total_calls", "cache_hits", "avg_ms", "max_ms"], r)) for r in by_endpoint],
             "heaviest": [dict(zip(["ts", "endpoint", "camp_type", "meta_calls", "duration_ms", "user", "worst_buc_pct"], r)) for r in heaviest],
             "by_user": [dict(zip(["user", "hits", "total_calls", "cache_hits"], r)) for r in by_user],
+            "recent": [dict(zip(["ts", "endpoint", "camp_type", "meta_calls", "duration_ms", "cache_hit", "user", "worst_buc_pct"], r)) for r in recent],
             "totals": dict(zip(["total_requests", "total_meta_calls", "total_cache_hits"], totals or (0, 0, 0))),
             "period_days": days,
             "filter_source": source,

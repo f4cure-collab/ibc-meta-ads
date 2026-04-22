@@ -437,6 +437,34 @@
                 <tbody id="usgHeaviestTbody"></tbody>
             </table>
         </div>
+
+        <h3 style="color:#fff;font-size:15px;margin:24px 0 10px;">
+            Atividade Recente
+            <span style="color:#888;font-size:12px;font-weight:400;margin-left:8px;">(timeline descendente, ate 200 eventos)</span>
+        </h3>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">
+            <label style="color:#aaa;font-size:12px;">Desde:</label>
+            <input type="datetime-local" id="usgRecentFrom" style="background:#1a1d24;border:1px solid #2a2e36;color:#fff;padding:6px 10px;border-radius:6px;font-size:12px;">
+            <button onclick="filterRecent()" style="background:#1f6feb;color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;">Filtrar</button>
+            <button onclick="document.getElementById('usgRecentFrom').value='';filterRecent()" style="background:#2a2e36;color:#ccc;border:none;padding:6px 12px;border-radius:6px;font-size:12px;cursor:pointer;">Limpar</button>
+            <span id="usgRecentCount" style="color:#888;font-size:11px;margin-left:auto;"></span>
+        </div>
+        <div style="overflow-x:auto;border:1px solid #2a2e36;border-radius:8px;max-height:500px;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
+                <thead style="background:#1a1d24;position:sticky;top:0;">
+                    <tr style="color:#aaa;text-align:left;">
+                        <th style="padding:10px;white-space:nowrap;">Quando (BRT)</th>
+                        <th style="padding:10px;">Endpoint</th>
+                        <th style="padding:10px;white-space:nowrap;">Tipo</th>
+                        <th style="padding:10px;text-align:center;white-space:nowrap;">Cache</th>
+                        <th style="padding:10px;text-align:right;white-space:nowrap;">Calls</th>
+                        <th style="padding:10px;text-align:right;white-space:nowrap;">Duracao</th>
+                        <th style="padding:10px;white-space:nowrap;">Usuario / Fonte</th>
+                    </tr>
+                </thead>
+                <tbody id="usgRecentTbody"></tbody>
+            </table>
+        </div>
     </div>
 
     <!-- Instrucoes -->
@@ -1651,10 +1679,43 @@ async function loadUsageStats() {
                 '<td style="padding:8px 10px;white-space:nowrap;word-break:keep-all;">' + userCell + '</td>' +
                 '</tr>';
         }).join('') || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#666;">Nenhum request pesado registrado.</td></tr>';
+
+        // Atividade Recente — timeline filtrável por datetime-local
+        window._usgRecentRaw = s.recent || [];
+        renderRecent();
     } catch(e) {
         console.error('usage-stats:', e);
     }
 }
+
+function renderRecent(){
+    var raw = window._usgRecentRaw || [];
+    var fromInput = document.getElementById('usgRecentFrom');
+    var fromVal = fromInput ? fromInput.value : '';
+    var fromTs = fromVal ? fromVal.replace('T', ' ') : '';
+    var filtered = fromTs ? raw.filter(function(r){ return (r.ts||'') >= fromTs; }) : raw;
+    document.getElementById('usgRecentCount').textContent = filtered.length + ' evento(s)' + (fromTs ? ' desde ' + fromTs : '');
+    document.getElementById('usgRecentTbody').innerHTML = filtered.map(function(row){
+        var isAuto = row.user && row.user.indexOf('auto:') === 0;
+        var userCell = isAuto
+            ? '<span style="color:#bc8cff;">auto</span> <span style="color:#888;font-size:11px;">(' + row.user.slice(5) + ')</span>'
+            : (row.user || '--');
+        var cacheIcon = row.cache_hit
+            ? '<span style="color:#3fdf85;" title="Cache hit">&#10003;</span>'
+            : '<span style="color:#ff9558;" title="Cache miss — buscou na Meta">MISS</span>';
+        return '<tr style="border-top:1px solid #2a2e36;color:#ddd;">' +
+            '<td style="padding:6px 10px;color:#aaa;white-space:nowrap;font-family:monospace;font-size:11px;">' + (row.ts||'') + '</td>' +
+            '<td style="padding:6px 10px;font-family:monospace;font-size:11px;">' + (row.endpoint||'') + '</td>' +
+            '<td style="padding:6px 10px;">' + (row.camp_type||'--') + '</td>' +
+            '<td style="padding:6px 10px;text-align:center;">' + cacheIcon + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;color:' + ((row.meta_calls||0)>0?'#ff9558':'#666') + ';">' + fmtNum(row.meta_calls) + '</td>' +
+            '<td style="padding:6px 10px;text-align:right;color:#888;">' + Math.round(row.duration_ms||0) + ' ms</td>' +
+            '<td style="padding:6px 10px;white-space:nowrap;">' + userCell + '</td>' +
+            '</tr>';
+    }).join('') || '<tr><td colspan="7" style="padding:20px;text-align:center;color:#666;">Nenhum evento no filtro.</td></tr>';
+}
+
+window.filterRecent = renderRecent;
 var _btnReloadUsage = document.getElementById('btnReloadUsage');
 if (_btnReloadUsage) _btnReloadUsage.addEventListener('click', loadUsageStats);
 ['usgFilterDays', 'usgFilterSource'].forEach(function(id){
