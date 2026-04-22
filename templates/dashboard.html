@@ -163,9 +163,24 @@
             padding:8px 13px;border-radius:8px;font-size:13px;outline:none;
             transition:all .15s;
             font-family:inherit;
+            cursor:pointer;
         }
         .fi:focus,.fs:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(88,166,255,.12)}
         .fi::placeholder{color:var(--t3)}
+        /* Icone de calendario do input[type=date]: branco com hover accent.
+           Tambem expandido pra cobrir toda a largura do input quando combinado
+           com o click handler em JS — qualquer clique no input abre o picker. */
+        input[type="date"].fi::-webkit-calendar-picker-indicator{
+            filter:invert(0.75);
+            opacity:0.85;
+            cursor:pointer;
+            transition:opacity .15s,filter .15s;
+        }
+        input[type="date"].fi:hover::-webkit-calendar-picker-indicator,
+        input[type="date"].fi:focus::-webkit-calendar-picker-indicator{
+            filter:invert(1);
+            opacity:1;
+        }
         .search{min-width:240px;padding-left:34px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%236e7886' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242.156a5 5 0 1 1 0-10 5 5 0 0 1 0 10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:12px center}
         .btn-p{
             background:linear-gradient(135deg,#238636 0%,#2ea043 100%);
@@ -677,7 +692,6 @@
                     <button class="pbtn" data-days="14" data-tip="&Uacute;ltimos 14 dias completos">14d</button>
                     <button class="pbtn active" data-days="30" data-tip="&Uacute;ltimos 30 dias completos">30d</button>
                     <button class="pbtn" data-days="60" data-tip="&Uacute;ltimos 60 dias completos">60d</button>
-                    {% if role in ('admin', 'super_admin') %}<button class="pbtn" data-days="90" data-tip="&Uacute;ltimos 90 dias completos">90d</button>{% endif %}
                 </div>
             </div>
             <div class="fg"><label data-tip="Filtrar campanhas por status (ativa ou pausada)">Status</label>
@@ -1123,11 +1137,10 @@
                     <button class="pbtn" data-days="14">14d</button>
                     <button class="pbtn active" data-days="30">30d</button>
                     <button class="pbtn" data-days="60">60d</button>
-                    {% if role in ('admin', 'super_admin') %}<button class="pbtn" data-days="90">90d</button>{% endif %}
                 </div>
             </div>
-            <div class="fg"><label data-tip="Data inicial do periodo">De</label><input type="date" id="rs-df"></div>
-            <div class="fg"><label data-tip="Data final (geralmente ontem)">Ate</label><input type="date" id="rs-dt"></div>
+            <div class="fg"><label data-tip="Data inicial do periodo">De</label><input type="date" class="fi" id="rs-df" data-tip="Data inicial"></div>
+            <div class="fg"><label data-tip="Data final (geralmente ontem)">Ate</label><input type="date" class="fi" id="rs-dt" data-tip="Data final"></div>
             <div class="fg">
                 <button id="rs-load-btn" class="btn-primary" style="background:#1f6feb;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600">Carregar Resumo</button>
             </div>
@@ -1595,6 +1608,16 @@ function yesterday(){const d=new Date();d.setDate(d.getDate()-1);return toYMD(d)
 function dAgo(n){const d=new Date();d.setDate(d.getDate()-1-n);return toYMD(d);}
 function initD(){const t=yesterday(),f=dAgo(29);['#date-from','#cr-df','#an-df'].forEach(s=>{if($(s))$(s).value=f;});['#date-to','#cr-dt','#an-dt'].forEach(s=>{if($(s))$(s).value=t;});}
 initD();
+
+// Abre o date picker em QUALQUER clique no input (nao soh no icone
+// do calendario — que e escuro e pequeno). showPicker() esta
+// disponivel no Chromium/Safari modernos; se nao existir, ignora.
+document.addEventListener('click', function(ev){
+    var el = ev.target;
+    if (el && el.tagName === 'INPUT' && el.type === 'date' && typeof el.showPicker === 'function') {
+        try { el.showPicker(); } catch(e) { /* alguns browsers bloqueiam em certas condicoes */ }
+    }
+});
 
 // Aplica classe do tipo de campanha no body e vincula a nav do header
 applyCampTypeClass();
