@@ -2996,7 +2996,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v11_{date_from}_{date_to}"
+        cache_key = f"resumo_v12_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3144,6 +3144,26 @@ def api_resumo():
             full_events.sort(key=lambda x: x["spend"], reverse=True)
             top_camps = full_events[:50]
 
+            # Lista de campanhas INDIVIDUAIS (sem agrupar) pra usar no Top 10
+            # Global — onde o usuario quer ver as campanhas reais que mais
+            # investiram, nao grupos de eventos.
+            individual_camps = []
+            for c in campaigns_data:
+                cid = c.get("id") or ""
+                if not cid:
+                    continue
+                cspend = float(c.get("spend", 0) or 0)
+                ckpi = float(c.get(kpi_field, 0) or 0)
+                ccost = round(cspend / ckpi, 2) if ckpi > 0 else 0
+                individual_camps.append({
+                    "id": cid,
+                    "name": c.get("name", ""),
+                    "spend": round(cspend, 2),
+                    "kpi": round(ckpi, 2),
+                    "kpi_cost": ccost,
+                })
+            individual_camps.sort(key=lambda x: x["spend"], reverse=True)
+
             # Daily series — usa daily_summary cache (campo corresponde ao kpi_field)
             daily_list = []
             if daily_cached:
@@ -3175,6 +3195,9 @@ def api_resumo():
                 # IDs completos de campanhas do tipo — usado pra dedupe no passo
                 # de classificacao Outros (apagado antes do jsonify).
                 "_active_ids": set(c.get("id", "") for c in campaigns_data if c.get("id")),
+                # Campanhas individuais (sem agrupar por evento) — usado pra
+                # montar o Top 10 Global com campanhas reais, nao eventos.
+                "_individual_campaigns": individual_camps,
             }
 
         per_type = [_aggregate_type(ct, date_from, date_to) for ct in VALID_CAMP_TYPES]
@@ -3332,12 +3355,13 @@ def api_resumo():
             "top_unmapped": top_unmapped,
         })
 
-        # Top 10 campanhas globais (so dos tipos mapeados — 'outros' nao tem breakdown)
+        # Top 10 campanhas INDIVIDUAIS (nao agrupadas por evento) ordenadas por gasto.
+        # Usa _individual_campaigns que preserva cada campanha separada.
         all_top = []
         for t in per_type:
             if t["type"] == "outros":
                 continue
-            for c in t["top_campaigns"]:
+            for c in (t.get("_individual_campaigns") or []):
                 all_top.append({
                     "id": c["id"],
                     "name": c["name"],
@@ -3356,6 +3380,7 @@ def api_resumo():
         # Remove campos internos antes de serializar (set nao eh JSON-serializable)
         for t in per_type:
             t.pop("_active_ids", None)
+            t.pop("_individual_campaigns", None)
 
         response = {
             "ok": True,
