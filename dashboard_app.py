@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
-from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh, log_api_usage, clear_old_usage_logs, get_usage_stats, get_api_calls_for_user
+from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh, log_api_usage, clear_old_usage_logs, get_usage_stats, get_api_calls_for_user, pin_cache_key
 from event_grouper import group_campaigns_by_event, _parse_campaign_name as _parse_name
 
 # Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
@@ -5548,6 +5548,139 @@ def _sleep_with_heartbeat(seconds, lock_name):
             pass
 
 
+# ── Monthly warmup: meses COMPLETOS ficam cacheados eternamente ─────────
+# Fluxo por mes:
+#   D+1 apos o fim do mes  -> primeira warming (fresh Meta) + pin 180d
+#   D+8 (~1 semana depois) -> revalidacao UNICA (atribuicoes atrasadas da Meta)
+#   D+9 em diante          -> so re-pin (estende TTL, nao toca Meta)
+# Estado por mes guardado em 'monthly_state_YYYY_MM' com TTL longo.
+
+_MONTHLY_START_YEAR = 2026
+_MONTHLY_START_MONTH = 1
+_MONTHLY_TTL_HOURS = 4320        # 180 dias - cache dos meses em si
+_MONTHLY_STATE_TTL_HOURS = 8760  # 365 dias - estado (warmed/revalidated)
+_MONTHLY_REVALIDATE_AFTER_DAYS = 7
+
+
+def _completed_months_since(year, month):
+    """Retorna [(dt_from, dt_to), ...] de cada mes COMPLETO desde (year, month)
+    ate o mes anterior ao atual (BRT). O mes corrente nao entra — so fecha
+    apos o ultimo dia."""
+    import calendar
+    now_br = _now_br()
+    cur_y, cur_m = now_br.year, now_br.month
+    ranges = []
+    y, m = year, month
+    while (y, m) < (cur_y, cur_m):
+        last_day = calendar.monthrange(y, m)[1]
+        ranges.append((f"{y:04d}-{m:02d}-01", f"{y:04d}-{m:02d}-{last_day:02d}"))
+        m += 1
+        if m == 13:
+            m, y = 1, y + 1
+    return ranges
+
+
+def _monthly_cache_keys(dt_from, dt_to):
+    """Todas as chaves de cache relacionadas a um range mensal. Usado pra pinar."""
+    keys = [f"resumo_v14_{dt_from}_{dt_to}"]
+    for ct in VALID_CAMP_TYPES:
+        keys.append(f"campaigns_v5_{ct}_all_{dt_from}_{dt_to}")
+        keys.append(f"daily_summary_v7_{ct}_all_{dt_from}_{dt_to}")
+    return keys
+
+
+def _pin_monthly(dt_from, dt_to):
+    """Pina (estende TTL) todas as chaves cacheadas desse mes."""
+    pinned = 0
+    for k in _monthly_cache_keys(dt_from, dt_to):
+        if pin_cache_key(k, ttl_hours=_MONTHLY_TTL_HOURS):
+            pinned += 1
+    return pinned
+
+
+def _warm_month_once(client, dt_from, dt_to, label="first"):
+    """Faz uma passada completa de warming em UM mes: campaigns + daily_summary
+    dos 5 tipos, depois o endpoint resumo. Todas com force=true pra pegar dados
+    frescos da Meta (usado na 1a carga e na revalidacao de D+7)."""
+    hdr = {"X-Internal-Scheduler": f"monthly_{label}"}
+    for ct in VALID_CAMP_TYPES:
+        try:
+            base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&camp_status=all&force=true"
+            client.get(f"/api/dashboard/campaigns?{base}", headers=hdr)
+            time.sleep(4)
+            client.get(f"/api/dashboard/daily-summary?{base}", headers=hdr)
+            time.sleep(4)
+        except Exception as e:
+            print(f"[MONTHLY] Erro {ct} {dt_from}: {e}")
+    try:
+        client.get(f"/api/dashboard/resumo?date_from={dt_from}&date_to={dt_to}&force=true", headers=hdr)
+        time.sleep(2)
+    except Exception as e:
+        print(f"[MONTHLY] Erro resumo {dt_from}: {e}")
+
+
+def _warmup_monthly_historical():
+    """Warma e pina caches de meses completos. Idempotente — seguro chamar
+    varias vezes por dia. Revalida cada mes UMA vez, ~1 semana apos a
+    primeira carga (pra pegar atribuicoes atrasadas da Meta)."""
+    from datetime import datetime as _dt
+    months = _completed_months_since(_MONTHLY_START_YEAR, _MONTHLY_START_MONTH)
+    if not months:
+        print("[MONTHLY] Sem meses completos pra pre-carregar ainda")
+        return
+    print(f"[MONTHLY] {len(months)} mes(es) completo(s) — verificando estado de cada um")
+
+    now_iso = _dt.now().isoformat()
+    with app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess["logged_in"] = True
+            sess["username"] = SUPER_ADMIN_EMAIL
+            sess["role"] = "super_admin"
+
+        for dt_from, dt_to in months:
+            ym = dt_from[:7].replace("-", "_")  # "2026_01"
+            state_key = f"monthly_state_{ym}"
+            state = get_cached(state_key) or {}
+
+            if not state.get("warmed_at"):
+                # PRIMEIRA carga — mes acabou de fechar
+                print(f"[MONTHLY] {dt_from} a {dt_to}: primeira carga")
+                _warm_month_once(client, dt_from, dt_to, label="first")
+                pinned = _pin_monthly(dt_from, dt_to)
+                state = {"warmed_at": now_iso, "revalidated_at": None}
+                set_cached(state_key, state, ttl_hours=_MONTHLY_STATE_TTL_HOURS)
+                print(f"[MONTHLY] {dt_from} a {dt_to}: {pinned} chaves pinadas (180d)")
+                continue
+
+            if not state.get("revalidated_at"):
+                # Verifica se ja passou 1 semana desde a primeira carga
+                try:
+                    warmed_at = _dt.fromisoformat(state["warmed_at"])
+                    days = (_dt.now() - warmed_at).days
+                except Exception:
+                    days = 999
+                if days >= _MONTHLY_REVALIDATE_AFTER_DAYS:
+                    print(f"[MONTHLY] {dt_from} a {dt_to}: revalidando (D+{days})")
+                    _warm_month_once(client, dt_from, dt_to, label="revalidate")
+                    pinned = _pin_monthly(dt_from, dt_to)
+                    state["revalidated_at"] = now_iso
+                    set_cached(state_key, state, ttl_hours=_MONTHLY_STATE_TTL_HOURS)
+                    print(f"[MONTHLY] {dt_from} a {dt_to}: revalidado, {pinned} pinadas")
+                else:
+                    # Ainda nao chegou o D+7 — so re-pin pra manter TTL
+                    _pin_monthly(dt_from, dt_to)
+                    print(f"[MONTHLY] {dt_from} a {dt_to}: aguardando D+7 (dia {days}/7), re-pinado")
+                continue
+
+            # Ja passou pela 1a carga E pela revalidacao — so manter TTL
+            pinned = _pin_monthly(dt_from, dt_to)
+            # Renova o state tambem pra nao expirar
+            set_cached(state_key, state, ttl_hours=_MONTHLY_STATE_TTL_HOURS)
+            print(f"[MONTHLY] {dt_from} a {dt_to}: settled, {pinned} re-pinadas")
+
+    print("[MONTHLY] Warmup concluido")
+
+
 def _scheduled_refresh():
     """Pre-carrega campanhas e criativos em etapas uma vez por dia (2am BRT).
 
@@ -5678,6 +5811,16 @@ def _scheduled_refresh():
             print("[SCHEDULER] Todos criativos OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro todos criativos: {e}")
+
+        # ── ETAPA 6 (4:30): Meses completos pra aba Inicio ──
+        # Idempotente: pula meses ja cacheados (so re-pina TTL). Revalida cada
+        # mes UMA vez, ~7 dias apos o fim, pra pegar conversoes atrasadas.
+        try:
+            print("[SCHEDULER] Etapa 6/6: Meses completos (aba Inicio)...")
+            _warmup_monthly_historical()
+            print("[SCHEDULER] Meses completos OK")
+        except Exception as e:
+            print(f"[SCHEDULER] Erro meses completos: {e}")
 
     print(f"[SCHEDULER] Atualizacao completa! Tudo cacheado ate {datetime.now().strftime('%H:%M')}")
 
@@ -5811,6 +5954,14 @@ def _refresh_recent_loop():
         print(f"[WARMUP] Concluido em {datetime.now().strftime('%H:%M')}")
     except Exception as e:
         print(f"[WARMUP] Erro inicial: {e}")
+
+    # Warmup dos meses completos apos o boot (so o worker que pegou o lock).
+    # Idempotente — passa rapido se ja tudo cacheado (so re-pina TTL).
+    try:
+        print("[BOOT] Disparando warmup mensal historico apos boot")
+        _warmup_monthly_historical()
+    except Exception as e:
+        print(f"[BOOT] Erro warmup mensal: {e}")
 
     iteration = 1
     # Ranges cobertos pelo loop (30d e 7d apenas — os mais usados).

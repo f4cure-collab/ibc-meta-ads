@@ -334,6 +334,27 @@ def should_refresh(cache_key, min_ttl_ratio=0.4):
         return True
 
 
+def pin_cache_key(cache_key, ttl_hours=4320):
+    """Estende o expires_at de uma entrada existente pra ttl_hours a partir de agora.
+    Usado pra 'pinar' caches de dados historicos imutaveis (meses ja fechados)
+    — evita re-hit desnecessario da Meta API. Default 180 dias.
+    Retorna True se pinou, False se a entrada nao existe."""
+    try:
+        conn = _get_db()
+        new_expires = (datetime.now() + timedelta(hours=ttl_hours)).isoformat()
+        cur = conn.execute(
+            "UPDATE api_cache SET expires_at = ? WHERE cache_key = ?",
+            (new_expires, cache_key)
+        )
+        rows = cur.rowcount
+        conn.commit()
+        conn.close()
+        return rows > 0
+    except Exception as e:
+        print(f"[CACHE] Erro ao pinar {cache_key}: {e}")
+        return False
+
+
 def clear_cache():
     """Limpa todo o cache."""
     try:
