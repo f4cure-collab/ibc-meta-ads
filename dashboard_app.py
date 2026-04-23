@@ -441,17 +441,38 @@ def _is_meteoricos_campaign(name):
 
 
 def _is_crescimento_campaign(name):
-    """True se o nome contem token CRESCIMENTO em qualquer posicao."""
+    """True se o nome contem token CRESCIMENTO ou abreviacao CRESC."""
     tokens = _name_tokens(name)
-    return "CRESCIMENTO" in tokens
+    return "CRESCIMENTO" in tokens or "CRESC" in tokens
+
+
+def _is_post_instagram_campaign(name):
+    """Campanhas tipo 'Post do Instagram' — tokens POST + INSTAGRAM presentes.
+    Classificadas como Nutricao a nivel Brasil (sem extracao de cidade)."""
+    tokens = _name_tokens(name)
+    return "POST" in tokens and "INSTAGRAM" in tokens
+
+
+def _is_reconhecimento_campaign(name):
+    """Campanhas com token RECONHECIMENTO — classificadas como Nutricao
+    com cidade especifica (ou Brasil se nao encontrar)."""
+    tokens = _name_tokens(name)
+    return "RECONHECIMENTO" in tokens
 
 
 def _is_nutricao_campaign(name):
-    """True se o nome contem token NUTRICAO OU ENGAJAMENTO em qualquer posicao.
-    Campanhas de video otimizando pra ThruPlay — agrupadas sob Nutricao.
-    Padroes: NUTRICAO_<EVENT>_<CIDADE>_<SUFIX>, M.M_NUTRICAO_..., ENGAJAMENTO_*"""
+    """True se o nome contem token NUTRICAO, ENGAJAMENTO, RECONHECIMENTO,
+    ou o par POST+INSTAGRAM. Campanhas de video/engajamento agrupadas sob
+    Nutricao. Padroes: NUTRICAO_<EVENT>_<CIDADE>_<SUFIX>, M.M_NUTRICAO_...,
+    ENGAJAMENTO_*, RECONHECIMENTO_<CIDADE>_*, POST_INSTAGRAM_*."""
     tokens = _name_tokens(name)
-    return "NUTRICAO" in tokens or "ENGAJAMENTO" in tokens
+    if "NUTRICAO" in tokens or "ENGAJAMENTO" in tokens:
+        return True
+    if "RECONHECIMENTO" in tokens:
+        return True
+    if "POST" in tokens and "INSTAGRAM" in tokens:
+        return True
+    return False
 
 
 def _is_comercial_campaign(name):
@@ -1636,7 +1657,7 @@ def api_campaigns():
 
         # v3: attribution baseada em profile_visits (campo results). Bumpado pra
         # invalidar cache antigo que ainda usava link_click como proxy.
-        cache_key = f"campaigns_v4_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"campaigns_v5_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -2859,7 +2880,7 @@ def api_daily_summary():
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_v6_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_v7_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -2996,7 +3017,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v13_{date_from}_{date_to}"
+        cache_key = f"resumo_v14_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3043,14 +3064,14 @@ def api_resumo():
         def _aggregate_type(ct, d_from, d_to, want_detail=True):
             """Agrega totais + serie diaria + top campanhas de 1 tipo.
 
-            Reusa o cache das tabs (campaigns_v4 + daily_summary_v6, ambos
+            Reusa o cache das tabs (campaigns_v5 + daily_summary_v7, ambos
             'all'): totais por campanha ja incluem archived e sao warmados
             pelo scheduler ou pela 1a visita na tab. Evita fetch duplicado.
             Se cache frio, cai no fallback de fetch interno (populando cache
             das duas tabs no caminho — Resumo+Tab dividem o custo)."""
             kpi_field = type_meta[ct]["kpi"]
-            key_camp = f"campaigns_v4_{ct}_all_{d_from}_{d_to}"
-            key_daily = f"daily_summary_v6_{ct}_all_{d_from}_{d_to}"
+            key_camp = f"campaigns_v5_{ct}_all_{d_from}_{d_to}"
+            key_daily = f"daily_summary_v7_{ct}_all_{d_from}_{d_to}"
             camp_cached = get_cached(key_camp)
             daily_cached = get_cached(key_daily) if want_detail else None
 
@@ -3224,7 +3245,7 @@ def api_resumo():
         outros_spend_prev = 0.0
 
         # Single source of truth: per_type[ct]['spend'] vem integralmente de
-        # campaigns_v4 (mesma cache das tabs). Nao adiciona nada via account-level,
+        # campaigns_v5 (mesma cache das tabs). Nao adiciona nada via account-level,
         # garantindo que Tab = Resumo pro mesmo valor.
         #
         # Usa account-level /insights apenas pra:
@@ -5731,8 +5752,8 @@ def _warmup_camp_type(ct, days_list, dt_to):
         for days in days_list:
             dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
             try:
-                k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
-                k_daily = f"daily_summary_v6_{ct}_all_{dt_from}_{dt_to}"
+                k_camp = f"campaigns_v5_{ct}_all_{dt_from}_{dt_to}"
+                k_daily = f"daily_summary_v7_{ct}_all_{dt_from}_{dt_to}"
                 k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
@@ -5810,8 +5831,8 @@ def _refresh_recent_loop():
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
-                            k_camp = f"campaigns_v4_{ct}_all_{dt_from}_{dt_to}"
-                            k_daily = f"daily_summary_v6_{ct}_all_{dt_from}_{dt_to}"
+                            k_camp = f"campaigns_v5_{ct}_all_{dt_from}_{dt_to}"
+                            k_daily = f"daily_summary_v7_{ct}_all_{dt_from}_{dt_to}"
                             k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 

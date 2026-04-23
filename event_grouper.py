@@ -171,7 +171,8 @@ def _parse_campaign_name(name):
             return (prod_key, prod_key, prod_name)
 
     # Crescimento: agrupa por cidade. Se nao tem cidade, "Brasil" (fallback).
-    if "CRESCIMENTO" in tokens_split:
+    # Aceita token CRESCIMENTO ou abreviacao CRESC.
+    if "CRESCIMENTO" in tokens_split or "CRESC" in tokens_split:
         name_norm = name_upper.replace("-", "_").replace(".", "_")
         best_city = None
         best_key = None
@@ -197,10 +198,16 @@ def _parse_campaign_name(name):
         # Sem cidade -> Brasil geral (campanhas nacionais/regionais)
         return ("CRESCIMENTO", "BRASIL", "Brasil")
 
+    # "Post do Instagram" — sempre Nutricao a nivel Brasil (sem extrair cidade).
+    # Regra explicita do usuario: Post do Instagram nao agrupa por cidade.
+    if "POST" in tokens_split and "INSTAGRAM" in tokens_split:
+        return ("NUTRICAO", "BRASIL", "Brasil")
+
     # Nutricao: agrupa por cidade (pode ter sub-evento DSP/SPK mas a cidade
     # e o principal agrupador — mesma logica de Crescimento).
-    # ENGAJAMENTO tambem entra aqui (campanhas de video pra engajamento).
-    if "NUTRICAO" in tokens_split or "ENGAJAMENTO" in tokens_split:
+    # ENGAJAMENTO e RECONHECIMENTO tambem entram aqui.
+    if ("NUTRICAO" in tokens_split or "ENGAJAMENTO" in tokens_split
+            or "RECONHECIMENTO" in tokens_split):
         name_norm = name_upper.replace("-", "_").replace(".", "_")
         best_city = None
         best_key = None
