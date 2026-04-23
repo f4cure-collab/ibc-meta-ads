@@ -4781,7 +4781,11 @@ def api_ad_accounts_list():
             continue
         meta = _fetch_account_meta(acc_id)
         meta["is_main"] = False
-        meta["label"] = extra.get("label") or meta.get("name") or acc_id
+        # Prefere nome da Meta. Label salvo so e usado se for customizado
+        # (diferente do proprio ID — entradas antigas salvavam label=acc_id).
+        stored_label = (extra.get("label") or "").strip()
+        custom_label = stored_label if stored_label and stored_label != acc_id else ""
+        meta["label"] = custom_label or meta.get("name") or acc_id
         meta["camp_types"] = extra.get("camp_types") or []
         meta["created_by"] = extra.get("created_by", "")
         meta["created_at"] = extra.get("created_at", "")
@@ -4830,7 +4834,7 @@ def api_ad_accounts_add():
     else:
         accounts.append({
             "id": acc_id,
-            "label": label or acc_id,
+            "label": label,  # vazio => usa nome da Meta na exibicao
             "camp_types": camp_types,
             "created_by": session.get("username", ""),
             "created_at": _now_br().strftime("%Y-%m-%d"),
