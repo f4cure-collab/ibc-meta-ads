@@ -5258,23 +5258,82 @@ var RS_TYPE_COLORS = {
     if (rfb) rfb.addEventListener('click', function(){ loadResumo(true); });
 })();
 
+// Auto-retry state — cancela retries se usuario mudar o range durante espera
+var _rsWarmingRetryTimer = null;
+var _rsWarmingAttempt = 0;
+
+function _setRsLoadingMsg(msg, sub){
+    var el = document.getElementById('resumo-full-loading');
+    if (!el) return;
+    // Usa estrutura simples: texto principal + subtexto
+    var main = el.querySelector('.lm-main');
+    var subt = el.querySelector('.lm-sub');
+    if (!main) {
+        el.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;gap:8px;">'
+            + '<div class="lm-main" style="color:#e5e7eb;font-size:14px;font-weight:600;">' + (msg||'Carregando...') + '</div>'
+            + '<div class="lm-sub" style="color:#9ca3af;font-size:12px;">' + (sub||'') + '</div>'
+            + '</div>';
+    } else {
+        main.textContent = msg || 'Carregando...';
+        if (subt) subt.textContent = sub || '';
+    }
+    el.style.display = 'flex';
+}
+
 async function loadResumo(force){
+    // Cancela qualquer retry pendente (ex: usuario mudou range)
+    if (_rsWarmingRetryTimer) { clearTimeout(_rsWarmingRetryTimer); _rsWarmingRetryTimer = null; }
+    _rsWarmingAttempt = 0;
+
     var loading = $('#resumo-full-loading');
     if (loading) loading.style.display = 'flex';
+    _setRsLoadingMsg('Carregando resumo...', '');
+
+    var df = $('#rs-df').value || dAgo(29);
+    var dt = $('#rs-dt').value || yesterday();
+    await _doLoadResumo(df, dt, force);
+}
+
+async function _doLoadResumo(df, dt, force){
+    var loading = $('#resumo-full-loading');
     try {
-        var df = $('#rs-df').value || dAgo(29);
-        var dt = $('#rs-dt').value || yesterday();
         var url = '/api/dashboard/resumo?date_from=' + df + '&date_to=' + dt + (force ? '&force=true' : '');
-        var d = await api(url);
-        if (!d) return;
+        var r = await fetch(url);
+        if (r.status === 401) { window.location.href = '/login'; return; }
+
+        // 202 Accepted: cache sendo populado em background — re-tenta em 30s
+        if (r.status === 202) {
+            _rsWarmingAttempt++;
+            var body = {};
+            try { body = await r.json(); } catch(e){}
+            var ready = body.ready || 0, total = body.total || 1;
+            var pct = Math.round((ready / Math.max(total,1)) * 100);
+            var waitSecs = _rsWarmingAttempt < 3 ? 30 : 60;  // primeiras tentativas mais frequentes
+            _setRsLoadingMsg(
+                'Preparando cache... ' + pct + '%',
+                'Tentativa automatica em ' + waitSecs + 's (' + _rsWarmingAttempt + 'a). Voce pode fechar a aba, o processo continua no servidor.'
+            );
+            _rsWarmingRetryTimer = setTimeout(function(){
+                _rsWarmingRetryTimer = null;
+                _doLoadResumo(df, dt, false);
+            }, waitSecs * 1000);
+            return;
+        }
+
+        if (!r.ok) {
+            throw new Error('HTTP ' + r.status);
+        }
+        var d = await r.json();
+        if (d && !d.ok) throw new Error(d.error || 'Erro');
         rsData = d;
         rsLoaded = true;
+        if (loading) loading.style.display = 'none';
+        _rsWarmingAttempt = 0;
         renderResumo(d);
     } catch(e) {
         console.error('loadResumo:', e);
-        alert('Erro ao carregar resumo: ' + e.message);
-    } finally {
         if (loading) loading.style.display = 'none';
+        alert('Erro ao carregar resumo: ' + e.message);
     }
 }
 

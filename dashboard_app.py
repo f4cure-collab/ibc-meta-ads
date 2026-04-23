@@ -3025,6 +3025,62 @@ def api_resumo():
             if cached:
                 return jsonify(cached)
 
+        # Non-blocking: se o cache base estiver muito frio, retorna 202
+        # imediatamente e dispara warmup em background. Frontend mostra
+        # 'carregando cache' e re-tenta depois. Evita NGINX 504 em ranges
+        # multi-mes cold (ex: 30d sliding apos bump de cache).
+        if not force:
+            segments = _split_range_by_month_segments(date_from, date_to)
+            ready = 0
+            total_needed = len(VALID_CAMP_TYPES) * 2  # campaigns + daily per tipo
+            for ct in VALID_CAMP_TYPES:
+                exact_camp = get_cached(f"campaigns_v6_{ct}_all_{date_from}_{date_to}")
+                exact_daily = get_cached(f"daily_summary_v8_{ct}_all_{date_from}_{date_to}")
+                if exact_camp:
+                    ready += 1
+                else:
+                    # Todos os segmentos precisam estar cacheados pra contar
+                    if all(get_cached(f"campaigns_v6_{ct}_all_{sf}_{st}") for sf, st in segments):
+                        ready += 1
+                if exact_daily:
+                    ready += 1
+                else:
+                    if all(get_cached(f"daily_summary_v8_{ct}_all_{sf}_{st}") for sf, st in segments):
+                        ready += 1
+            # Se menos da metade esta pronto, kick off background + retorna 202
+            if ready < total_needed // 2:
+                dfrom_for_bg, dto_for_bg = date_from, date_to
+                segs_for_bg = list(segments)
+                def _bg_warm():
+                    print(f"[RESUMO-BG] Warming {dfrom_for_bg} a {dto_for_bg} ({len(segs_for_bg)} segs x {len(VALID_CAMP_TYPES)} tipos)")
+                    try:
+                        with app.test_client() as client:
+                            with client.session_transaction() as sess:
+                                sess["logged_in"] = True
+                                sess["username"] = SUPER_ADMIN_EMAIL
+                                sess["role"] = "super_admin"
+                            hdr = {"X-Internal-Scheduler": "resumo_bg"}
+                            for sf, st in segs_for_bg:
+                                for ct in VALID_CAMP_TYPES:
+                                    try:
+                                        client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={sf}&date_to={st}&camp_status=all", headers=hdr)
+                                        time.sleep(2)
+                                        client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={sf}&date_to={st}&camp_status=all", headers=hdr)
+                                        time.sleep(2)
+                                    except Exception as e:
+                                        print(f"[RESUMO-BG] erro {ct} {sf}: {e}")
+                        print(f"[RESUMO-BG] Concluido {dfrom_for_bg} a {dto_for_bg}")
+                    except Exception as e:
+                        print(f"[RESUMO-BG] Falha geral: {e}")
+                threading.Thread(target=_bg_warm, daemon=True).start()
+                return jsonify({
+                    "warming": True,
+                    "ready": ready,
+                    "total": total_needed,
+                    "segments": len(segments),
+                    "message": "Cache sendo populado em segundo plano. Tentativa automatica em ~30s.",
+                }), 202
+
         dt_from = datetime.strptime(date_from, "%Y-%m-%d")
         dt_to_obj = datetime.strptime(date_to, "%Y-%m-%d")
         period_days = (dt_to_obj - dt_from).days + 1
