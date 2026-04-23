@@ -3066,35 +3066,59 @@ def api_resumo():
         def _aggregate_type(ct, d_from, d_to, want_detail=True):
             """Agrega totais + serie diaria + top campanhas de 1 tipo.
 
-            Reusa o cache das tabs (campaigns_v6 + daily_summary_v8, ambos
-            'all'): totais por campanha ja incluem archived e sao warmados
-            pelo scheduler ou pela 1a visita na tab. Evita fetch duplicado.
-            Se cache frio, cai no fallback de fetch interno (populando cache
-            das duas tabs no caminho — Resumo+Tab dividem o custo)."""
+            Estrategia de cache em 2 niveis:
+              1. Exact-range cache (campaigns_v6 + daily_summary_v8 do range pedido):
+                 o scheduler diario warma 30d/7d que o dashboard usa com frequencia.
+                 Se bate, retorna instantaneo.
+              2. Chunking por mes: se o range cold, split em segmentos mensais.
+                 Meses completos dentro do range mapeam pros caches pinados
+                 (warmup mensal) — instantaneo. So segmentos parciais (prefixo/
+                 sufixo do mes corrente) fazem fetch Meta, e em range pequeno.
+            Evita timeout do NGINX em ranges multi-mes cold."""
             kpi_field = type_meta[ct]["kpi"]
             key_camp = f"campaigns_v6_{ct}_all_{d_from}_{d_to}"
             key_daily = f"daily_summary_v8_{ct}_all_{d_from}_{d_to}"
             camp_cached = get_cached(key_camp)
             daily_cached = get_cached(key_daily) if want_detail else None
 
-            # Cold cache fallback: chama o endpoint internamente pra popular
-            # (serve ao Resumo E a tab correspondente na proxima visita)
-            if not camp_cached or (want_detail and not daily_cached):
+            # Se cache exato bate, pula direto — caminho rapido pra ranges
+            # warmed pelo scheduler (30d/7d).
+            if camp_cached and (not want_detail or daily_cached):
+                pass
+            else:
+                # Chunking por mes: resolve cada segmento via cache (pinado
+                # se for mes completo) ou fetch curto
+                segments = _split_range_by_month_segments(d_from, d_to)
+                seg_camp = []
+                seg_daily = []
                 try:
                     with app.test_client() as client:
                         with client.session_transaction() as sess:
                             sess["logged_in"] = True
                             sess["username"] = SUPER_ADMIN_EMAIL
                             sess["role"] = "super_admin"
-                        hdr = {"X-Internal-Scheduler": "resumo"}
-                        if not camp_cached:
-                            client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={d_from}&date_to={d_to}&camp_status=all", headers=hdr)
-                            camp_cached = get_cached(key_camp)
-                        if want_detail and not daily_cached:
-                            client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={d_from}&date_to={d_to}&camp_status=all", headers=hdr)
-                            daily_cached = get_cached(key_daily)
+                        hdr = {"X-Internal-Scheduler": "resumo_chunked"}
+                        for seg_from, seg_to in segments:
+                            sk_camp = f"campaigns_v6_{ct}_all_{seg_from}_{seg_to}"
+                            sk_daily = f"daily_summary_v8_{ct}_all_{seg_from}_{seg_to}"
+                            sc = get_cached(sk_camp)
+                            sd = get_cached(sk_daily) if want_detail else None
+                            if not sc:
+                                client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={seg_from}&date_to={seg_to}&camp_status=all", headers=hdr)
+                                sc = get_cached(sk_camp)
+                            if want_detail and not sd:
+                                client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={seg_from}&date_to={seg_to}&camp_status=all", headers=hdr)
+                                sd = get_cached(sk_daily)
+                            if sc:
+                                seg_camp.append(sc)
+                            if sd:
+                                seg_daily.append(sd)
                 except Exception as e:
-                    print(f"[RESUMO] Falha warmup cache tab {ct}: {e}")
+                    print(f"[RESUMO] Falha chunked {ct} {d_from}-{d_to}: {e}")
+
+                camp_cached = _merge_campaigns_data(seg_camp) if seg_camp else camp_cached
+                if want_detail:
+                    daily_cached = _merge_daily_data(seg_daily) if seg_daily else daily_cached
 
             campaigns_data = (camp_cached or {}).get("data", []) or []
             summary = (camp_cached or {}).get("summary", {}) or {}
@@ -5562,6 +5586,131 @@ _MONTHLY_START_MONTH = 1
 _MONTHLY_TTL_HOURS = 4320        # 180 dias - cache dos meses em si
 _MONTHLY_STATE_TTL_HOURS = 8760  # 365 dias - estado (warmed/revalidated)
 _MONTHLY_REVALIDATE_AFTER_DAYS = 7
+
+
+# Campos numericos das campaigns_v6 que sao aditivos quando combinamos
+# segmentos de tempo (spend de Jan + spend de Fev = spend de Jan+Fev).
+_CAMP_NUMERIC_FIELDS = [
+    "spend", "revenue", "purchases", "impressions", "clicks",
+    "profile_visits", "video_thruplay", "video_plays",
+    "video_p25", "video_p50", "video_p75", "video_p95", "video_p100",
+]
+_SUMMARY_ADDITIVE_FIELDS = [
+    "total_spend", "total_revenue", "total_purchases", "total_impressions",
+    "total_clicks", "total_profile_visits", "total_thruplay",
+    "total_video_plays", "total_video_p25", "total_video_p50",
+    "total_video_p75", "total_video_p95", "total_video_p100",
+]
+
+
+def _split_range_by_month_segments(d_from, d_to):
+    """Quebra [d_from, d_to] em segmentos contiguos limitados por fronteiras
+    de mes. Retorna [(seg_from, seg_to), ...] em strings YYYY-MM-DD.
+
+    Exemplos:
+      2026-03-01 a 2026-03-31 -> [(2026-03-01, 2026-03-31)]  (1 mes cheio)
+      2026-03-15 a 2026-04-10 -> [(2026-03-15, 2026-03-31), (2026-04-01, 2026-04-10)]
+      2026-01-01 a 2026-03-31 -> [(2026-01-01, 2026-01-31), (2026-02-01, 2026-02-28), (2026-03-01, 2026-03-31)]
+    """
+    import calendar
+    from datetime import datetime as _dt, timedelta as _td
+    try:
+        cur = _dt.strptime(d_from, "%Y-%m-%d")
+        end = _dt.strptime(d_to, "%Y-%m-%d")
+    except Exception:
+        return [(d_from, d_to)]
+    if cur > end:
+        return [(d_from, d_to)]
+    segments = []
+    while cur <= end:
+        last_day = calendar.monthrange(cur.year, cur.month)[1]
+        month_end = _dt(cur.year, cur.month, last_day)
+        seg_end = min(month_end, end)
+        segments.append((cur.strftime("%Y-%m-%d"), seg_end.strftime("%Y-%m-%d")))
+        cur = seg_end + _td(days=1)
+    return segments
+
+
+def _merge_campaigns_data(segments):
+    """Combina N dicts {data, summary} do endpoint /campaigns em um equivalente
+    ao do range completo. Soma campos aditivos por campanha (merge by id) e
+    recalcula derivadas (cpa/cpm/ctr/roas) em cima dos somatorios."""
+    if not segments:
+        return {"data": [], "summary": {}}
+    if len(segments) == 1:
+        return segments[0]
+
+    merged_by_id = {}
+    for seg in segments:
+        for c in seg.get("data", []) or []:
+            cid = c.get("id") or ""
+            if not cid:
+                continue
+            if cid not in merged_by_id:
+                # copia metadados (name, status, objective, event_name, etc)
+                base = dict(c)
+                for f in _CAMP_NUMERIC_FIELDS:
+                    base[f] = float(c.get(f, 0) or 0)
+                merged_by_id[cid] = base
+            else:
+                target = merged_by_id[cid]
+                for f in _CAMP_NUMERIC_FIELDS:
+                    target[f] = float(target.get(f, 0) or 0) + float(c.get(f, 0) or 0)
+                # active_days: pega o maior (campanha ativa em qualquer segmento)
+                ad_new = c.get("active_days", 0) or 0
+                if ad_new > (target.get("active_days", 0) or 0):
+                    target["active_days"] = ad_new
+
+    # Recalcula derivadas por campanha
+    for c in merged_by_id.values():
+        sp = float(c.get("spend", 0) or 0)
+        pr = float(c.get("purchases", 0) or 0)
+        imp = float(c.get("impressions", 0) or 0)
+        clk = float(c.get("clicks", 0) or 0)
+        rev = float(c.get("revenue", 0) or 0)
+        c["cpa"] = round(sp / pr, 2) if pr > 0 else 0
+        c["cpm"] = round(sp / imp * 1000, 2) if imp > 0 else 0
+        c["ctr"] = round(clk / imp * 100, 2) if imp > 0 else 0
+        c["roas"] = round(rev / sp, 2) if sp > 0 else 0
+
+    # Recalcula summary
+    merged_summary = {}
+    for f in _SUMMARY_ADDITIVE_FIELDS:
+        merged_summary[f] = 0
+    for seg in segments:
+        s = seg.get("summary", {}) or {}
+        for f in _SUMMARY_ADDITIVE_FIELDS:
+            merged_summary[f] += float(s.get(f, 0) or 0)
+    ts = merged_summary["total_spend"]
+    tr = merged_summary["total_revenue"]
+    tp = merged_summary["total_purchases"]
+    ti = merged_summary["total_impressions"]
+    tc = merged_summary["total_clicks"]
+    merged_summary["total_campaigns"] = len(merged_by_id)
+    merged_summary["avg_roas"] = round(tr / ts, 2) if ts > 0 else 0
+    merged_summary["avg_cpa"] = round(ts / tp, 2) if tp > 0 else 0
+    merged_summary["avg_cpm"] = round((ts / ti) * 1000, 2) if ti > 0 else 0
+    merged_summary["avg_ctr"] = round((tc / ti) * 100, 2) if ti > 0 else 0
+
+    data_list = list(merged_by_id.values())
+    data_list.sort(key=lambda x: x.get("spend", 0), reverse=True)
+    return {"data": data_list, "summary": merged_summary}
+
+
+def _merge_daily_data(segments):
+    """Concat series diarias de N segmentos (sem duplicar datas), ordenado."""
+    if not segments:
+        return {"data": []}
+    if len(segments) == 1:
+        return segments[0]
+    seen = {}
+    for seg in segments:
+        for r in seg.get("data", []) or []:
+            d = r.get("date", "")
+            if d and d not in seen:
+                seen[d] = r
+    rows = [seen[k] for k in sorted(seen.keys())]
+    return {"data": rows}
 
 
 def _completed_months_since(year, month):
