@@ -426,8 +426,10 @@ def _name_tokens(name):
     if not name:
         return set()
     u = name.upper()
-    # Trata como separadores: hifen, ponto, espaco, brackets, parenteses, barras, virgula
-    for sep in ["-", ".", " ", "[", "]", "(", ")", "/", "\\", ","]:
+    # Trata como separadores: hifen, ponto, espaco, brackets, parenteses, barras,
+    # virgula, dois-pontos, ponto-e-virgula, exclamacao, interrogacao, pipe.
+    # :/;/!/? cobrem nomes auto-gerados tipo "Post do Instagram: [caption]".
+    for sep in ["-", ".", " ", "[", "]", "(", ")", "/", "\\", ",", ":", ";", "!", "?", "|"]:
         u = u.replace(sep, "_")
     u = (u.replace("Ç", "C").replace("Ã", "A").replace("Á", "A")
          .replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U"))
@@ -1657,7 +1659,7 @@ def api_campaigns():
 
         # v3: attribution baseada em profile_visits (campo results). Bumpado pra
         # invalidar cache antigo que ainda usava link_click como proxy.
-        cache_key = f"campaigns_v5_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"campaigns_v6_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -2880,7 +2882,7 @@ def api_daily_summary():
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_v7_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_v8_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3017,7 +3019,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v14_{date_from}_{date_to}"
+        cache_key = f"resumo_v15_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3064,14 +3066,14 @@ def api_resumo():
         def _aggregate_type(ct, d_from, d_to, want_detail=True):
             """Agrega totais + serie diaria + top campanhas de 1 tipo.
 
-            Reusa o cache das tabs (campaigns_v5 + daily_summary_v7, ambos
+            Reusa o cache das tabs (campaigns_v6 + daily_summary_v8, ambos
             'all'): totais por campanha ja incluem archived e sao warmados
             pelo scheduler ou pela 1a visita na tab. Evita fetch duplicado.
             Se cache frio, cai no fallback de fetch interno (populando cache
             das duas tabs no caminho — Resumo+Tab dividem o custo)."""
             kpi_field = type_meta[ct]["kpi"]
-            key_camp = f"campaigns_v5_{ct}_all_{d_from}_{d_to}"
-            key_daily = f"daily_summary_v7_{ct}_all_{d_from}_{d_to}"
+            key_camp = f"campaigns_v6_{ct}_all_{d_from}_{d_to}"
+            key_daily = f"daily_summary_v8_{ct}_all_{d_from}_{d_to}"
             camp_cached = get_cached(key_camp)
             daily_cached = get_cached(key_daily) if want_detail else None
 
@@ -3245,7 +3247,7 @@ def api_resumo():
         outros_spend_prev = 0.0
 
         # Single source of truth: per_type[ct]['spend'] vem integralmente de
-        # campaigns_v5 (mesma cache das tabs). Nao adiciona nada via account-level,
+        # campaigns_v6 (mesma cache das tabs). Nao adiciona nada via account-level,
         # garantindo que Tab = Resumo pro mesmo valor.
         #
         # Usa account-level /insights apenas pra:
@@ -5582,10 +5584,10 @@ def _completed_months_since(year, month):
 
 def _monthly_cache_keys(dt_from, dt_to):
     """Todas as chaves de cache relacionadas a um range mensal. Usado pra pinar."""
-    keys = [f"resumo_v14_{dt_from}_{dt_to}"]
+    keys = [f"resumo_v15_{dt_from}_{dt_to}"]
     for ct in VALID_CAMP_TYPES:
-        keys.append(f"campaigns_v5_{ct}_all_{dt_from}_{dt_to}")
-        keys.append(f"daily_summary_v7_{ct}_all_{dt_from}_{dt_to}")
+        keys.append(f"campaigns_v6_{ct}_all_{dt_from}_{dt_to}")
+        keys.append(f"daily_summary_v8_{ct}_all_{dt_from}_{dt_to}")
     return keys
 
 
@@ -5641,6 +5643,14 @@ def _warmup_monthly_historical():
             ym = dt_from[:7].replace("-", "_")  # "2026_01"
             state_key = f"monthly_state_{ym}"
             state = get_cached(state_key) or {}
+
+            # Se o state diz 'warmed' mas o cache real nao existe (bump de versao,
+            # cache purgado, etc), invalida o state pra re-aquecer de fato.
+            if state.get("warmed_at"):
+                r_key = f"resumo_v15_{dt_from}_{dt_to}"
+                if get_cached(r_key) is None:
+                    print(f"[MONTHLY] {dt_from} a {dt_to}: state orfao (cache sumiu), re-aquecendo")
+                    state = {}
 
             if not state.get("warmed_at"):
                 # PRIMEIRA carga — mes acabou de fechar
@@ -5895,8 +5905,8 @@ def _warmup_camp_type(ct, days_list, dt_to):
         for days in days_list:
             dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
             try:
-                k_camp = f"campaigns_v5_{ct}_all_{dt_from}_{dt_to}"
-                k_daily = f"daily_summary_v7_{ct}_all_{dt_from}_{dt_to}"
+                k_camp = f"campaigns_v6_{ct}_all_{dt_from}_{dt_to}"
+                k_daily = f"daily_summary_v8_{ct}_all_{dt_from}_{dt_to}"
                 k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
@@ -5982,8 +5992,8 @@ def _refresh_recent_loop():
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
-                            k_camp = f"campaigns_v5_{ct}_all_{dt_from}_{dt_to}"
-                            k_daily = f"daily_summary_v7_{ct}_all_{dt_from}_{dt_to}"
+                            k_camp = f"campaigns_v6_{ct}_all_{dt_from}_{dt_to}"
+                            k_daily = f"daily_summary_v8_{ct}_all_{dt_from}_{dt_to}"
                             k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 

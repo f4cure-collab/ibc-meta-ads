@@ -157,9 +157,11 @@ def _parse_campaign_name(name):
     Retorna (event_type, city_key, city_name) ou None se não conseguir parsear.
     """
     name_upper = name.upper().replace("Á", "A").replace("É", "E").replace("Ú", "U").replace("Ã", "A").replace("Ó", "O")
-    # Normaliza separadores comuns (hifen, ponto, espaco, brackets, parenteses)
+    # Normaliza separadores comuns (hifen, ponto, espaco, brackets, parenteses,
+    # virgula, dois-pontos, ponto-e-virgula, exclamacao, interrogacao, pipe).
+    # :/;/!/? cobrem nomes auto-gerados tipo "Post do Instagram: [caption]".
     _name_split = name_upper
-    for _sep in ["-", ".", " ", "[", "]", "(", ")", "/", "\\", ","]:
+    for _sep in ["-", ".", " ", "[", "]", "(", ")", "/", "\\", ",", ":", ";", "!", "?", "|"]:
         _name_split = _name_split.replace(_sep, "_")
     tokens_split = set(t for t in _name_split.split("_") if t)
 
