@@ -3001,6 +3001,12 @@ def api_daily_summary():
         return jsonify({"ok": False, "error": str(e)}), 400
 
 
+# Dedupe de computes em andamento — evita que 2 retries do frontend
+# disparem 2 bg threads simultaneas pro mesmo cache_key.
+_resumo_computing = set()
+_resumo_computing_lock = threading.Lock()
+
+
 @app.route("/api/dashboard/resumo")
 @not_viewer_required
 def api_resumo():
@@ -3025,61 +3031,44 @@ def api_resumo():
             if cached:
                 return jsonify(cached)
 
-        # Non-blocking: se o cache base estiver muito frio, retorna 202
-        # imediatamente e dispara warmup em background. Frontend mostra
-        # 'carregando cache' e re-tenta depois. Evita NGINX 504 em ranges
-        # multi-mes cold (ex: 30d sliding apos bump de cache).
-        if not force:
-            segments = _split_range_by_month_segments(date_from, date_to)
-            ready = 0
-            total_needed = len(VALID_CAMP_TYPES) * 2  # campaigns + daily per tipo
-            for ct in VALID_CAMP_TYPES:
-                exact_camp = get_cached(f"campaigns_v6_{ct}_all_{date_from}_{date_to}")
-                exact_daily = get_cached(f"daily_summary_v8_{ct}_all_{date_from}_{date_to}")
-                if exact_camp:
-                    ready += 1
-                else:
-                    # Todos os segmentos precisam estar cacheados pra contar
-                    if all(get_cached(f"campaigns_v6_{ct}_all_{sf}_{st}") for sf, st in segments):
-                        ready += 1
-                if exact_daily:
-                    ready += 1
-                else:
-                    if all(get_cached(f"daily_summary_v8_{ct}_all_{sf}_{st}") for sf, st in segments):
-                        ready += 1
-            # Se menos da metade esta pronto, kick off background + retorna 202
-            if ready < total_needed // 2:
-                dfrom_for_bg, dto_for_bg = date_from, date_to
-                segs_for_bg = list(segments)
-                def _bg_warm():
-                    print(f"[RESUMO-BG] Warming {dfrom_for_bg} a {dto_for_bg} ({len(segs_for_bg)} segs x {len(VALID_CAMP_TYPES)} tipos)")
+            # Cache miss: dispara compute COMPLETO em background via test_client
+            # (com force=true pra bypassar esta propria logica de 202 no bg).
+            # Bg thread nao tem timeout de gunicorn, pode rodar 5-10min sem problema.
+            # Quando termina, ele mesmo cacheia resumo_v15 — proxima retry do
+            # frontend pega direto do cache.
+            with _resumo_computing_lock:
+                already_running = cache_key in _resumo_computing
+                if not already_running:
+                    _resumo_computing.add(cache_key)
+            if not already_running:
+                dfrom_bg, dto_bg = date_from, date_to
+                ck_bg = cache_key
+                def _bg_compute():
+                    print(f"[RESUMO-BG] Computando {dfrom_bg} a {dto_bg} em background")
                     try:
                         with app.test_client() as client:
                             with client.session_transaction() as sess:
                                 sess["logged_in"] = True
                                 sess["username"] = SUPER_ADMIN_EMAIL
                                 sess["role"] = "super_admin"
-                            hdr = {"X-Internal-Scheduler": "resumo_bg"}
-                            for sf, st in segs_for_bg:
-                                for ct in VALID_CAMP_TYPES:
-                                    try:
-                                        client.get(f"/api/dashboard/campaigns?camp_type={ct}&date_from={sf}&date_to={st}&camp_status=all", headers=hdr)
-                                        time.sleep(2)
-                                        client.get(f"/api/dashboard/daily-summary?camp_type={ct}&date_from={sf}&date_to={st}&camp_status=all", headers=hdr)
-                                        time.sleep(2)
-                                    except Exception as e:
-                                        print(f"[RESUMO-BG] erro {ct} {sf}: {e}")
-                        print(f"[RESUMO-BG] Concluido {dfrom_for_bg} a {dto_for_bg}")
+                            # force=true bypassa tanto o cache final quanto
+                            # o check 202 — forca execucao sincrona completa
+                            client.get(
+                                f"/api/dashboard/resumo?date_from={dfrom_bg}&date_to={dto_bg}&force=true",
+                                headers={"X-Internal-Scheduler": "resumo_bg_compute"}
+                            )
+                        print(f"[RESUMO-BG] Concluido {dfrom_bg} a {dto_bg}")
                     except Exception as e:
-                        print(f"[RESUMO-BG] Falha geral: {e}")
-                threading.Thread(target=_bg_warm, daemon=True).start()
-                return jsonify({
-                    "warming": True,
-                    "ready": ready,
-                    "total": total_needed,
-                    "segments": len(segments),
-                    "message": "Cache sendo populado em segundo plano. Tentativa automatica em ~30s.",
-                }), 202
+                        print(f"[RESUMO-BG] Erro computando {dfrom_bg} a {dto_bg}: {e}")
+                    finally:
+                        with _resumo_computing_lock:
+                            _resumo_computing.discard(ck_bg)
+                threading.Thread(target=_bg_compute, daemon=True).start()
+            return jsonify({
+                "warming": True,
+                "in_flight": already_running,
+                "message": "Calculando resumo em segundo plano. Nova tentativa automatica em ~30s.",
+            }), 202
 
         dt_from = datetime.strptime(date_from, "%Y-%m-%d")
         dt_to_obj = datetime.strptime(date_to, "%Y-%m-%d")
