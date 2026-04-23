@@ -5892,6 +5892,26 @@ def api_scheduler_test_fire():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@app.route("/api/admin/monthly-warmup-fire", methods=["POST"])
+def api_monthly_warmup_fire():
+    """Dispara _warmup_monthly_historical em background.
+    Usado pra pre-carregar meses completos sob demanda (ex: apos bump de
+    cache ou quando o usuario quer acessar um mes que ainda nao foi warmed)."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        months = _completed_months_since(_MONTHLY_START_YEAR, _MONTHLY_START_MONTH)
+        threading.Thread(target=_warmup_monthly_historical, daemon=True).start()
+        est_min = max(1, len(months) * 2)
+        return jsonify({
+            "ok": True,
+            "message": f"Warmup mensal disparado ({len(months)} meses). Estimado ~{est_min}min. Acompanhe nos Eventos com fonte 'auto:monthly_first' ou 'auto:monthly_revalidate'.",
+            "months_count": len(months),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 def _warmup_camp_type(ct, days_list, dt_to):
     """Warmup de todos os endpoints cacheaveis de UM camp_type.
     Usado em paralelo (1 thread por tipo) pra popular cache mais rapido

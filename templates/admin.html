@@ -365,6 +365,21 @@
             </div>
         </div>
 
+        <div style="background:rgba(73,199,142,0.08);border:1px solid rgba(73,199,142,0.25);border-radius:8px;padding:14px;margin-bottom:16px;">
+            <div style="color:#49c78e;font-size:13px;font-weight:600;margin-bottom:6px;">Pre-carregar Meses Fechados (aba Inicio)</div>
+            <div style="color:#aaa;font-size:12px;margin-bottom:10px;">
+                Warma o cache de todos os meses completos (desde jan/2026) pra a aba Inicio abrir instantaneamente.
+                Idempotente: pula meses ja cacheados (so re-pina TTL).
+                Revalida cada mes UMA vez, ~7 dias apos o fim, pra pegar conversoes atrasadas.
+                Dispara em background — estime ~2-3min por mes nao cacheado.
+                Aparece nos Eventos como <code style="color:#49c78e;">auto:monthly_first</code> ou <code style="color:#49c78e;">auto:monthly_revalidate</code>.
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <button onclick="fireMonthlyWarmup()" style="background:#49c78e;color:#0a1018;border:none;padding:8px 16px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">Disparar Agora</button>
+                <span id="monthlyWarmupStatus" style="color:#888;font-size:11px;margin-left:auto;"></span>
+            </div>
+        </div>
+
         <div id="usageOverview" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px;">
             <div class="stat-card" style="background:#1a1d24;padding:14px;border-radius:8px;border:1px solid #2a2e36;">
                 <div style="color:#888;font-size:11px;text-transform:uppercase;">Total Requests</div>
@@ -1668,6 +1683,29 @@ window.fireSchedTest = async function(delay){
         if (status) status.textContent = d.message || 'OK';
         var when = delay > 0 ? ('daqui a ' + Math.round(delay/60) + 'min') : 'agora';
         alert('Warmup agendado ' + when + '.\n\nApos ~2-3min da execucao, cheque Eventos filtrados por usuario \'auto:test_warmup\' pra confirmar que rodou.');
+    } catch(e) {
+        if (status) status.textContent = 'Erro: ' + e.message;
+        alert('Erro: ' + e.message);
+    }
+};
+
+// ── Disparar warmup mensal manualmente ──
+window.fireMonthlyWarmup = async function(){
+    var status = document.getElementById('monthlyWarmupStatus');
+    if (status) status.textContent = 'Disparando...';
+    try {
+        var r = await fetch('/api/admin/monthly-warmup-fire', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'}
+        });
+        var d = await r.json();
+        if (!d.ok) {
+            if (status) status.textContent = 'Erro: ' + (d.error||'?');
+            alert('Erro: ' + (d.error||'desconhecido'));
+            return;
+        }
+        if (status) status.textContent = d.message || 'OK';
+        alert(d.message || 'Warmup mensal disparado em background.');
     } catch(e) {
         if (status) status.textContent = 'Erro: ' + e.message;
         alert('Erro: ' + e.message);
