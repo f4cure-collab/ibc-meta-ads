@@ -4807,8 +4807,12 @@ def api_ad_accounts_add():
     # Validacao
     if not acc_id:
         return jsonify({"ok": False, "error": "ID da conta e obrigatorio"}), 400
-    if not acc_id.startswith("act_"):
-        acc_id = "act_" + acc_id.lstrip("act_").strip()
+    # Normaliza: extrai apenas digitos e reconstroi act_<digitos>.
+    # Absorve variantes como "act_123", "123", "act_=123", "act_ 123", etc.
+    digits = "".join(ch for ch in acc_id if ch.isdigit())
+    if not digits:
+        return jsonify({"ok": False, "error": "ID da conta invalido (sem digitos)"}), 400
+    acc_id = "act_" + digits
     if not isinstance(camp_types, list) or not camp_types:
         return jsonify({"ok": False, "error": "Selecione ao menos um tipo de campanha"}), 400
     for ct in camp_types:
