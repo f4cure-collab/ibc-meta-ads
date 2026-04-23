@@ -3346,17 +3346,10 @@ def api_resumo():
 
             total_acc_spend = 0.0
             for acc in all_accounts:
-                try:
-                    rows = meta_get_all_pages(f"{acc}/insights", {
-                        "fields": "campaign_id,campaign_name,spend",
-                        "time_range": json.dumps({"since": date_from, "until": date_to}),
-                        "level": "campaign",
-                        "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
-                        "limit": 500,
-                    })
-                except Exception as e:
-                    print(f"[RESUMO] Falha insights conta {acc}: {e}")
-                    continue
+                # Chunked + cached por mes (meses completos = TTL 180d pinado).
+                # 3-mes completo => todos os segmentos ja cacheados apos 1a carga,
+                # proximo resumo do mesmo range = instantaneo.
+                rows = _fetch_acc_insights_chunked(acc, date_from, date_to)
                 for r in rows:
                     cid = r.get("campaign_id", "")
                     if not cid:
@@ -3377,15 +3370,20 @@ def api_resumo():
                             "spend": round(sp, 2), "account_id": acc,
                         })
 
-            # Total do periodo anterior (so precisa do total pra delta; nao precisa classificar)
-            total_acc_spend_prev = _fetch_total_spend_all_accounts(all_accounts, prev_from, prev_to)
+            # Periodo anterior: chunked tambem pra aproveitar cache
+            total_acc_spend_prev = 0.0
+            for acc in all_accounts:
+                total_acc_spend_prev += _fetch_acc_total_spend_chunked(acc, prev_from, prev_to)
 
             top_unmapped.sort(key=lambda x: x["spend"], reverse=True)
             top_unmapped = top_unmapped[:20]
         except Exception as e:
             print(f"[RESUMO] Erro processando account-level insights: {e}")
-            total_acc_spend = _fetch_total_spend_all_accounts(all_accounts, date_from, date_to)
-            total_acc_spend_prev = _fetch_total_spend_all_accounts(all_accounts, prev_from, prev_to)
+            total_acc_spend = 0.0
+            total_acc_spend_prev = 0.0
+            for acc in all_accounts:
+                total_acc_spend += _fetch_acc_total_spend_chunked(acc, date_from, date_to)
+                total_acc_spend_prev += _fetch_acc_total_spend_chunked(acc, prev_from, prev_to)
 
         typed_spend = sum(t["spend"] for t in per_type)
         prev_typed_spend = sum(prev_by_type.values())
@@ -3454,7 +3452,13 @@ def api_resumo():
             "per_type": per_type,
             "top_campaigns": all_top,
         }
-        set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
+        # Se o range eh inteiramente composto de meses COMPLETOS (fechados),
+        # pina o resumo_v15 por 180d — dados historicos nao mudam.
+        _range_segments = _split_range_by_month_segments(date_from, date_to)
+        if _range_segments and all(_is_completed_month(sf, st) for sf, st in _range_segments):
+            set_cached(cache_key, response, ttl_hours=_MONTHLY_TTL_HOURS)
+        else:
+            set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
         return jsonify(response)
     except Exception as e:
         import traceback
@@ -5648,6 +5652,113 @@ _SUMMARY_ADDITIVE_FIELDS = [
 ]
 
 
+def _is_completed_month(seg_from, seg_to):
+    """True se [seg_from, seg_to] corresponde a um mes completo JA FECHADO
+    (primeiro ao ultimo dia, e mes/ano < mes/ano atual BRT). Caches destes
+    segmentos sao pinados com TTL longo pois os dados sao imutaveis."""
+    import calendar
+    from datetime import datetime as _dt
+    try:
+        df = _dt.strptime(seg_from, "%Y-%m-%d")
+        dt_obj = _dt.strptime(seg_to, "%Y-%m-%d")
+        if df.day != 1 or df.month != dt_obj.month or df.year != dt_obj.year:
+            return False
+        last_day = calendar.monthrange(df.year, df.month)[1]
+        if dt_obj.day != last_day:
+            return False
+        now_br = _now_br()
+        return (df.year, df.month) < (now_br.year, now_br.month)
+    except Exception:
+        return False
+
+
+def _fetch_acc_insights_chunked(acc_id, d_from, d_to):
+    """/insights level=campaign, chunked por mes + cache por segmento.
+    Segmentos de mes COMPLETO (fechado) sao pinados 180d. Parciais/mes
+    corrente tem TTL curto (6h). Retorna lista agregada [{campaign_id,
+    campaign_name, spend}] somada por campanha across segmentos."""
+    segments = _split_range_by_month_segments(d_from, d_to)
+    rows_by_cid = {}
+    for seg_from, seg_to in segments:
+        ck = f"acc_insights_v1_{acc_id}_{seg_from}_{seg_to}"
+        cached = get_cached(ck)
+        if cached is None:
+            try:
+                raw = meta_get_all_pages(f"{acc_id}/insights", {
+                    "fields": "campaign_id,campaign_name,spend",
+                    "time_range": json.dumps({"since": seg_from, "until": seg_to}),
+                    "level": "campaign",
+                    "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
+                    "limit": 500,
+                })
+                simplified = [{
+                    "campaign_id": r.get("campaign_id", ""),
+                    "campaign_name": r.get("campaign_name", ""),
+                    "spend": float(r.get("spend", 0) or 0),
+                } for r in raw]
+                # TTL longo pra mes completo; curto pra partial/mes corrente.
+                ttl = _MONTHLY_TTL_HOURS if _is_completed_month(seg_from, seg_to) else 6
+                set_cached(ck, simplified, ttl_hours=ttl)
+                cached = simplified
+            except Exception as e:
+                print(f"[RESUMO] Falha acc_insights {acc_id} {seg_from}-{seg_to}: {e}")
+                cached = []
+        for r in cached:
+            cid = r.get("campaign_id", "")
+            if not cid:
+                continue
+            if cid not in rows_by_cid:
+                rows_by_cid[cid] = {
+                    "campaign_id": cid,
+                    "campaign_name": r.get("campaign_name", ""),
+                    "spend": 0.0,
+                }
+            rows_by_cid[cid]["spend"] += float(r.get("spend", 0) or 0)
+    return list(rows_by_cid.values())
+
+
+def _fetch_acc_total_spend_chunked(acc_id, d_from, d_to):
+    """Total spend de UMA conta em [d_from, d_to], chunked por mes.
+    Reusa as mesmas caches por segmento do _fetch_acc_insights_chunked
+    (soma spend de todas as campanhas do segmento). Segmentos ja cacheados
+    = instantaneo."""
+    total = 0.0
+    for seg_from, seg_to in _split_range_by_month_segments(d_from, d_to):
+        ck = f"acc_insights_v1_{acc_id}_{seg_from}_{seg_to}"
+        cached = get_cached(ck)
+        if cached is None:
+            # Popula o cache via fetch completo (mais util que so o total)
+            cached = _fetch_acc_insights_chunked_single(acc_id, seg_from, seg_to)
+        for r in cached or []:
+            total += float(r.get("spend", 0) or 0)
+    return total
+
+
+def _fetch_acc_insights_chunked_single(acc_id, seg_from, seg_to):
+    """Helper interno: fetcha 1 segmento e cacheia. Extraido pro
+    _fetch_acc_total_spend_chunked reutilizar sem duplicar logica."""
+    ck = f"acc_insights_v1_{acc_id}_{seg_from}_{seg_to}"
+    try:
+        raw = meta_get_all_pages(f"{acc_id}/insights", {
+            "fields": "campaign_id,campaign_name,spend",
+            "time_range": json.dumps({"since": seg_from, "until": seg_to}),
+            "level": "campaign",
+            "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
+            "limit": 500,
+        })
+        simplified = [{
+            "campaign_id": r.get("campaign_id", ""),
+            "campaign_name": r.get("campaign_name", ""),
+            "spend": float(r.get("spend", 0) or 0),
+        } for r in raw]
+        ttl = _MONTHLY_TTL_HOURS if _is_completed_month(seg_from, seg_to) else 6
+        set_cached(ck, simplified, ttl_hours=ttl)
+        return simplified
+    except Exception as e:
+        print(f"[RESUMO] Falha single {acc_id} {seg_from}: {e}")
+        return []
+
+
 def _split_range_by_month_segments(d_from, d_to):
     """Quebra [d_from, d_to] em segmentos contiguos limitados por fronteiras
     de mes. Retorna [(seg_from, seg_to), ...] em strings YYYY-MM-DD.
@@ -5796,8 +5907,9 @@ def _pin_monthly(dt_from, dt_to):
 
 def _warm_month_once(client, dt_from, dt_to, label="first"):
     """Faz uma passada completa de warming em UM mes: campaigns + daily_summary
-    dos 5 tipos, depois o endpoint resumo. Todas com force=true pra pegar dados
-    frescos da Meta (usado na 1a carga e na revalidacao de D+7)."""
+    dos 5 tipos, acc_insights por conta, depois o endpoint resumo. Todas com
+    force=true pra pegar dados frescos da Meta (usado na 1a carga e na
+    revalidacao de D+7)."""
     hdr = {"X-Internal-Scheduler": f"monthly_{label}"}
     for ct in VALID_CAMP_TYPES:
         try:
@@ -5808,6 +5920,22 @@ def _warm_month_once(client, dt_from, dt_to, label="first"):
             time.sleep(4)
         except Exception as e:
             print(f"[MONTHLY] Erro {ct} {dt_from}: {e}")
+    # Pre-cache do /insights nivel conta pra essa mesma janela (1 por conta)
+    # — usado pelo resumo pra calcular total_acc_spend e top_unmapped.
+    try:
+        all_accs = set()
+        for ct in VALID_CAMP_TYPES:
+            for acc in _get_accounts_for_type(ct):
+                if acc:
+                    all_accs.add(acc)
+        for acc in all_accs:
+            try:
+                _fetch_acc_insights_chunked_single(acc, dt_from, dt_to)
+                time.sleep(3)
+            except Exception as e:
+                print(f"[MONTHLY] Erro acc_insights {acc} {dt_from}: {e}")
+    except Exception as e:
+        print(f"[MONTHLY] Erro listando contas {dt_from}: {e}")
     try:
         client.get(f"/api/dashboard/resumo?date_from={dt_from}&date_to={dt_to}&force=true", headers=hdr)
         time.sleep(2)
