@@ -875,34 +875,53 @@ def _worst_usage_pct():
 
 
 def _enforce_rate_limit():
-    """Garante delay minimo entre chamadas e pausa SO se Meta explicitamente
-    sinaliza bloqueio via estimated_time_to_regain_access > 0.
+    """Preemptive throttle baseado no BUC + respeita regain_seconds explicito.
 
-    Historico: antes pausavamos proativamente com base em % (80-90%), mas isso
-    e pessimista — o painel dev da Meta mostrava ~5% de uso real enquanto
-    nosso dashboard exibia 91%. O app so le dados (nao escreve), entao nao
-    faz sentido desacelerar por palpite. Quando Meta de fato bloqueia, o
-    header regain_seconds vem > 0; so ai a gente respeita a janela dela."""
+    Comportamento:
+      regain > 0 (Meta bloqueou)    -> pausa ate 30s
+      BUC >= 98%                    -> pausa 60s (beira do hard-block)
+      BUC >= 90%                    -> pausa 15s (zona vermelha)
+      BUC >= 80%                    -> pausa 5s  (zona amarela)
+      BUC <  80%                    -> so o _MIN_DELAY normal
+
+    Protege scheduler/warmups/bg threads contra stampede: se um bg pegar BUC
+    em 85%, os proximos calls automaticamente desaceleram. Nao bloqueia o
+    request do usuario — so desacelera cada call individual."""
     global _last_call_time
     now = time.time()
     elapsed = now - _last_call_time
     if elapsed < _MIN_DELAY:
         time.sleep(_MIN_DELAY - elapsed)
 
-    # So pausa se Meta explicitamente sinaliza bloqueio ativo
+    # 1) Regain ativo (Meta bloqueando explicitamente)
     regain = 0
-    acc = None
+    acc_regain = None
     for acc_id, u in _rate_per_account.items():
         r = u.get("regain_seconds", 0) or 0
-        # Considera regain valido so se recente (headers com >15min sao stale)
         age = time.time() - u.get("last_check", 0)
         if r > 0 and age < 900:
             if r > regain:
                 regain = r
-                acc = acc_id
+                acc_regain = acc_id
     if regain > 0:
-        wait = min(regain, 30)  # cap em 30s por call
-        print(f"[RATE LIMIT] {acc}: Meta bloqueando por {regain}s — pausando {wait}s")
+        wait = min(regain, 30)
+        print(f"[RATE LIMIT] {acc_regain}: Meta bloqueando por {regain}s — pausando {wait}s")
+        time.sleep(wait)
+        _last_call_time = time.time()
+        return
+
+    # 2) Preemptive throttle pelo BUC (evita stampede)
+    worst_pct, worst_acc = _worst_usage_pct()
+    if worst_pct >= 98:
+        wait = 60
+    elif worst_pct >= 90:
+        wait = 15
+    elif worst_pct >= 80:
+        wait = 5
+    else:
+        wait = 0
+    if wait > 0:
+        print(f"[RATE LIMIT] BUC {worst_acc}={worst_pct}% — pausando {wait}s")
         time.sleep(wait)
 
     _last_call_time = time.time()
@@ -937,6 +956,37 @@ def _update_rate_from_headers(resp):
             }
     except Exception:
         pass
+
+
+def _buc_is_critical(threshold=95):
+    """True se BUC >= threshold% OU Meta sinalizou regain_seconds ativo.
+    Usado pra circuit-breaker: scheduler/warmups param quando BUC critico
+    pra nao agravar o problema. Reles meta_get tem preemptive throttle
+    proprio, mas pra jobs em background e melhor abortar cedo."""
+    worst_pct, _ = _worst_usage_pct()
+    if worst_pct >= threshold:
+        return True
+    # Regain ativo
+    for acc_id, u in _rate_per_account.items():
+        r = u.get("regain_seconds", 0) or 0
+        age = time.time() - u.get("last_check", 0)
+        if r > 0 and age < 900:
+            return True
+    return False
+
+
+def _wait_for_buc_ok(max_wait_seconds=600, check_interval=30):
+    """Espera ate BUC ficar OK (< 85%) ou timeout. Usado em jobs longos
+    (warmups, scheduler) pra retomar quando o BUC drenar. Max default 10min."""
+    waited = 0
+    while waited < max_wait_seconds:
+        worst_pct, worst_acc = _worst_usage_pct()
+        if worst_pct < 85 and not _buc_is_critical(threshold=85):
+            return True
+        print(f"[RATE LIMIT] Aguardando BUC drenar: {worst_acc}={worst_pct}% (aguardou {waited}s)")
+        time.sleep(check_interval)
+        waited += check_interval
+    return False
 
 
 def get_dashboard_rate_info():
@@ -3115,6 +3165,15 @@ def api_resumo():
                 dfrom_bg, dto_bg = date_from, date_to
                 ck_bg = cache_key
                 def _bg_compute():
+                    # Se BUC critico, espera drenar antes de comecar
+                    if _buc_is_critical():
+                        print(f"[RESUMO-BG] BUC critico — aguardando antes de {dfrom_bg}")
+                        _wait_for_buc_ok(max_wait_seconds=600)
+                        if _buc_is_critical():
+                            print(f"[RESUMO-BG] BUC ainda critico apos espera — abortando {dfrom_bg}")
+                            with _resumo_computing_lock:
+                                _resumo_computing.discard(ck_bg)
+                            return
                     print(f"[RESUMO-BG] Computando {dfrom_bg} a {dto_bg} em background")
                     try:
                         with app.test_client() as client:
@@ -3122,8 +3181,6 @@ def api_resumo():
                                 sess["logged_in"] = True
                                 sess["username"] = SUPER_ADMIN_EMAIL
                                 sess["role"] = "super_admin"
-                            # force=true bypassa tanto o cache final quanto
-                            # o check 202 — forca execucao sincrona completa
                             client.get(
                                 f"/api/dashboard/resumo?date_from={dfrom_bg}&date_to={dto_bg}&force=true",
                                 headers={"X-Internal-Scheduler": "resumo_bg_compute"}
@@ -5996,7 +6053,10 @@ def _warm_month_once(client, dt_from, dt_to, label="first"):
     """Faz uma passada completa de warming em UM mes: campaigns + daily_summary
     dos 5 tipos, acc_insights por conta, depois o endpoint resumo. Todas com
     force=true pra pegar dados frescos da Meta (usado na 1a carga e na
-    revalidacao de D+7)."""
+    revalidacao de D+7). Aborta se BUC critico — retoma em outra rodada."""
+    if _buc_is_critical():
+        print(f"[MONTHLY] BUC critico — abortando warmup de {dt_from}-{dt_to}, retoma depois")
+        return
     hdr = {"X-Internal-Scheduler": f"monthly_{label}"}
     for ct in VALID_CAMP_TYPES:
         try:
@@ -6445,6 +6505,10 @@ def _refresh_recent_loop():
     # Warmup do endpoint /resumo pras janelas deslizantes (30d, 7d).
     # Pre-warmar account_total_spend ANTES do /resumo pra que o Resumo
     # vire pura soma de caches. Tudo pronto pra aba Inicio de manha.
+    # Aborta se BUC critico — retoma no proximo ciclo do refresh loop.
+    if _buc_is_critical():
+        print("[BOOT] BUC critico — adiando resumo warmup")
+        return
     try:
         print("[BOOT] Pre-warming account_total_spend + /resumo (30d, 7d)")
         dt_to_now = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
