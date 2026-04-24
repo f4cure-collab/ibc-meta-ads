@@ -164,17 +164,34 @@ def _parse_campaign_name(name):
     for _sep in ["-", ".", " ", "[", "]", "(", ")", "/", "\\", ",", ":", ";", "!", "?", "|"]:
         _name_split = _name_split.replace(_sep, "_")
     tokens_split = set(t for t in _name_split.split("_") if t)
+    tokens_ordered = [t for t in _name_split.split("_") if t]
+
+    # "Primeira classificacao escrita ganha" — evita que campanhas tipo
+    # 'VENDAS_DSP_GOIANIA_ENGAJAMENTO' sejam rotuladas como Nutricao so
+    # porque tem ENGAJAMENTO no meio do nome.
+    _primary = None
+    _has_rmkt = bool(tokens_split & {"RMKT", "REMARKETING", "RETARGETING", "NURTURE"})
+    for _tok in tokens_ordered:
+        if _tok == "VENDAS":
+            _primary = "VENDAS"; break
+        if _tok in ("METEORICO", "METEORICOS"):
+            _primary = "METEORICO"; break
+        if _tok in ("CRESCIMENTO", "CRESC"):
+            _primary = "CRESCIMENTO"; break
+        if _tok in ("NUTRICAO", "ENGAJAMENTO", "RECONHECIMENTO"):
+            _primary = "NUTRICAO"; break
+        if _tok in COMERCIAL_PRODUCT_MAP and not _has_rmkt:
+            _primary = "COMERCIAL"; break
 
     # Comercial: agrupa por produto (MTR, PSC, OHIO, CSI, PNL) em vez de evento+cidade
-    for prod_key, prod_name in COMERCIAL_PRODUCT_MAP.items():
-        if prod_key in tokens_split:
-            # Reutiliza o contrato (event_type, city_key, city_name).
-            # event_type = codigo do produto, city_name = nome completo.
-            return (prod_key, prod_key, prod_name)
+    if _primary == "COMERCIAL":
+        for _tok in tokens_ordered:
+            if _tok in COMERCIAL_PRODUCT_MAP:
+                return (_tok, _tok, COMERCIAL_PRODUCT_MAP[_tok])
 
     # Crescimento: agrupa por cidade. Se nao tem cidade, "Brasil" (fallback).
     # Aceita token CRESCIMENTO ou abreviacao CRESC.
-    if "CRESCIMENTO" in tokens_split or "CRESC" in tokens_split:
+    if _primary == "CRESCIMENTO" and ("CRESCIMENTO" in tokens_split or "CRESC" in tokens_split):
         name_norm = name_upper.replace("-", "_").replace(".", "_")
         best_city = None
         best_key = None
@@ -202,13 +219,17 @@ def _parse_campaign_name(name):
 
     # "Post do Instagram" — sempre Nutricao a nivel Brasil (sem extrair cidade).
     # Regra explicita do usuario: Post do Instagram nao agrupa por cidade.
-    if "POST" in tokens_split and "INSTAGRAM" in tokens_split:
+    # So aplica se nao houver outro keyword ANTES no nome (primeira classificacao ganha).
+    if _primary is None and "POST" in tokens_split and "INSTAGRAM" in tokens_split:
         return ("NUTRICAO", "BRASIL", "Brasil")
 
     # Nutricao: agrupa por cidade (pode ter sub-evento DSP/SPK mas a cidade
     # e o principal agrupador — mesma logica de Crescimento).
     # ENGAJAMENTO e RECONHECIMENTO tambem entram aqui.
-    if ("NUTRICAO" in tokens_split or "ENGAJAMENTO" in tokens_split
+    # So rotula como NUTRICAO se NUTRICAO/ENGAJAMENTO/RECONHECIMENTO eh o
+    # PRIMEIRO keyword de classificacao no nome (evita rotular campanhas
+    # VENDAS_DSP_GYN_ENGAJAMENTO como Nutricao).
+    if _primary == "NUTRICAO" and ("NUTRICAO" in tokens_split or "ENGAJAMENTO" in tokens_split
             or "RECONHECIMENTO" in tokens_split):
         name_norm = name_upper.replace("-", "_").replace(".", "_")
         best_city = None
@@ -236,7 +257,8 @@ def _parse_campaign_name(name):
 
     # Meteoricos: qualquer campanha com token METEORICO e agrupada por CIDADE apenas.
     # Ignora DSP/SPK/AIE no nome (todo meteorico e um so tipo de evento).
-    if "METEORICO" in tokens_split or "METEORICOS" in tokens_split:
+    # So rotula se METEORICO eh o PRIMEIRO keyword de classificacao no nome.
+    if _primary == "METEORICO" and ("METEORICO" in tokens_split or "METEORICOS" in tokens_split):
         # name_norm tem '-' e '.' trocados por '_' pra match de chaves compostas
         # tipo 'JOAO_PESSOA' funcionar quando o nome tiver 'JOAO-PESSOA'
         name_norm = name_upper.replace("-", "_").replace(".", "_")

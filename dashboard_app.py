@@ -442,66 +442,81 @@ def _is_meteoricos_campaign(name):
     return "METEORICO" in tokens or "METEORICOS" in tokens
 
 
+def _name_tokens_ordered(name):
+    """Tokeniza preservando ordem (lista, nao set). Usado pra logica de
+    'primeira classificacao escrita ganha'."""
+    if not name:
+        return []
+    u = name.upper()
+    for sep in ["-", ".", " ", "[", "]", "(", ")", "/", "\\", ",", ":", ";", "!", "?", "|"]:
+        u = u.replace(sep, "_")
+    u = (u.replace("Ç", "C").replace("Ã", "A").replace("Á", "A")
+         .replace("É", "E").replace("Í", "I").replace("Ó", "O").replace("Ú", "U"))
+    return [t for t in u.split("_") if t]
+
+
+def _primary_type_from_name(name):
+    """Retorna o tipo cujo keyword aparece PRIMEIRO no nome da campanha.
+    'Primeira classificacao escrita ganha' — evita double-classify.
+
+    Ex: 'VENDAS_DSP_GOIANIA_ENGAJAMENTO' -> CAMP_TYPE_VENDAS (VENDAS vem antes)
+        'NUTRICAO_MTR_DSP' -> CAMP_TYPE_NUTRICAO (NUTRICAO vem antes de MTR)
+        'POST_Instagram: caption' -> CAMP_TYPE_NUTRICAO (Post+Instagram sem
+            outro keyword antes = Nutricao)
+
+    Retorna None se nao achar nenhum keyword de classificacao."""
+    tokens = _name_tokens_ordered(name)
+    if not tokens:
+        return None
+    token_set = set(tokens)
+    # RMKT bloqueia comercial (remarketing nao eh lead-gen)
+    has_rmkt = bool(token_set & {"RMKT", "REMARKETING", "RETARGETING", "NURTURE"})
+    for tok in tokens:
+        if tok == "VENDAS":
+            return CAMP_TYPE_VENDAS
+        if tok in ("METEORICO", "METEORICOS"):
+            return CAMP_TYPE_METEORICOS
+        if tok in ("CRESCIMENTO", "CRESC"):
+            return CAMP_TYPE_CRESCIMENTO
+        if tok in ("NUTRICAO", "ENGAJAMENTO", "RECONHECIMENTO"):
+            return CAMP_TYPE_NUTRICAO
+        if tok in COMERCIAL_PRODUCTS and not has_rmkt:
+            return CAMP_TYPE_COMERCIAL
+    # Special: POST + INSTAGRAM em qualquer posicao (sem outro keyword antes)
+    if "POST" in token_set and "INSTAGRAM" in token_set:
+        return CAMP_TYPE_NUTRICAO
+    return None
+
+
 def _is_crescimento_campaign(name):
-    """True se o nome contem token CRESCIMENTO ou abreviacao CRESC."""
-    tokens = _name_tokens(name)
-    return "CRESCIMENTO" in tokens or "CRESC" in tokens
+    return _primary_type_from_name(name) == CAMP_TYPE_CRESCIMENTO
 
 
 def _is_post_instagram_campaign(name):
-    """Campanhas tipo 'Post do Instagram' — tokens POST + INSTAGRAM presentes.
-    Classificadas como Nutricao a nivel Brasil (sem extracao de cidade)."""
+    """Nome tem POST+INSTAGRAM sem outro keyword antes."""
     tokens = _name_tokens(name)
-    return "POST" in tokens and "INSTAGRAM" in tokens
+    return (_primary_type_from_name(name) == CAMP_TYPE_NUTRICAO
+            and "POST" in tokens and "INSTAGRAM" in tokens)
 
 
 def _is_reconhecimento_campaign(name):
-    """Campanhas com token RECONHECIMENTO — classificadas como Nutricao
-    com cidade especifica (ou Brasil se nao encontrar)."""
     tokens = _name_tokens(name)
-    return "RECONHECIMENTO" in tokens
+    return (_primary_type_from_name(name) == CAMP_TYPE_NUTRICAO
+            and "RECONHECIMENTO" in tokens)
 
 
 def _is_nutricao_campaign(name):
-    """True se o nome contem token NUTRICAO, ENGAJAMENTO, RECONHECIMENTO,
-    ou o par POST+INSTAGRAM. Campanhas de video/engajamento agrupadas sob
-    Nutricao. Padroes: NUTRICAO_<EVENT>_<CIDADE>_<SUFIX>, M.M_NUTRICAO_...,
-    ENGAJAMENTO_*, RECONHECIMENTO_<CIDADE>_*, POST_INSTAGRAM_*."""
-    tokens = _name_tokens(name)
-    if "NUTRICAO" in tokens or "ENGAJAMENTO" in tokens:
-        return True
-    if "RECONHECIMENTO" in tokens:
-        return True
-    if "POST" in tokens and "INSTAGRAM" in tokens:
-        return True
-    return False
+    return _primary_type_from_name(name) == CAMP_TYPE_NUTRICAO
 
 
 def _is_comercial_campaign(name):
-    """True se o nome contem algum token de produto comercial (MTR/PSC/OHIO/CSI/PNL)
-    E nao for campanha de nutricao/remarketing (que nao gera lead novo)."""
-    tokens = _name_tokens(name)
-    if not tokens:
-        return False
-    exclude = {"NUTRICAO", "RMKT", "REMARKETING", "RETARGETING", "NURTURE"}
-    if tokens & exclude:
-        return False
-    return any(k in tokens for k in COMERCIAL_PRODUCTS)
+    return _primary_type_from_name(name) == CAMP_TYPE_COMERCIAL
 
 
 def _is_vendas_campaign_by_name(name):
-    """Fallback de Vendas por NOME — detecta campanhas legacy de Vendas cujo
-    objective nao eh OUTCOME_SALES (objetivos antigos tipo CONVERSIONS).
-    So retorna True se o nome tem VENDAS e nao bate com nenhum outro tipo
-    (evita double-classify, que bagunca a conta total do Resumo)."""
-    tokens = _name_tokens(name)
-    if "VENDAS" not in tokens:
-        return False
-    if _is_meteoricos_campaign(name): return False
-    if _is_crescimento_campaign(name): return False
-    if _is_nutricao_campaign(name): return False
-    if _is_comercial_campaign(name): return False
-    return True
+    """Fallback de Vendas por NOME — True se a PRIMEIRA classificacao escrita
+    no nome eh VENDAS. Garante exclusividade (1 campanha -> 1 tipo)."""
+    return _primary_type_from_name(name) == CAMP_TYPE_VENDAS
 
 
 def _filter_campaigns_by_type(campaigns, camp_type):
@@ -538,11 +553,14 @@ def _filter_campaigns_by_type(campaigns, camp_type):
             if _is_nutricao_campaign(name):
                 result.append(c)
         else:
-            # Vendas: objective OUTCOME_SALES OU fallback por nome (campanhas
-            # legacy arquivadas com objetivo antigo — o nome ainda tem VENDAS)
-            if c.get("objective") == "OUTCOME_SALES":
+            # Vendas: primeira classificacao no nome eh VENDAS, OU nome sem
+            # keyword de tipo algum + objective=OUTCOME_SALES (legacy).
+            # Nao adiciona se outra classificacao aparece antes no nome
+            # (ex: 'NUTRICAO_DSP_VENDAS' eh Nutricao, nao Vendas).
+            primary = _primary_type_from_name(name)
+            if primary == CAMP_TYPE_VENDAS:
                 result.append(c)
-            elif _is_vendas_campaign_by_name(name):
+            elif primary is None and c.get("objective") == "OUTCOME_SALES":
                 result.append(c)
     return result
 
@@ -1659,7 +1677,7 @@ def api_campaigns():
 
         # v3: attribution baseada em profile_visits (campo results). Bumpado pra
         # invalidar cache antigo que ainda usava link_click como proxy.
-        cache_key = f"campaigns_v6_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"campaigns_v7_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -2882,7 +2900,7 @@ def api_daily_summary():
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_v8_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_v9_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3025,7 +3043,7 @@ def api_resumo():
         if blocked:
             return blocked
 
-        cache_key = f"resumo_v15_{date_from}_{date_to}"
+        cache_key = f"resumo_v16_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3034,7 +3052,7 @@ def api_resumo():
             # Cache miss: dispara compute COMPLETO em background via test_client
             # (com force=true pra bypassar esta propria logica de 202 no bg).
             # Bg thread nao tem timeout de gunicorn, pode rodar 5-10min sem problema.
-            # Quando termina, ele mesmo cacheia resumo_v15 — proxima retry do
+            # Quando termina, ele mesmo cacheia resumo_v16 — proxima retry do
             # frontend pega direto do cache.
             with _resumo_computing_lock:
                 already_running = cache_key in _resumo_computing
@@ -3112,7 +3130,7 @@ def api_resumo():
             """Agrega totais + serie diaria + top campanhas de 1 tipo.
 
             Estrategia de cache em 2 niveis:
-              1. Exact-range cache (campaigns_v6 + daily_summary_v8 do range pedido):
+              1. Exact-range cache (campaigns_v7 + daily_summary_v9 do range pedido):
                  o scheduler diario warma 30d/7d que o dashboard usa com frequencia.
                  Se bate, retorna instantaneo.
               2. Chunking por mes: se o range cold, split em segmentos mensais.
@@ -3121,8 +3139,8 @@ def api_resumo():
                  sufixo do mes corrente) fazem fetch Meta, e em range pequeno.
             Evita timeout do NGINX em ranges multi-mes cold."""
             kpi_field = type_meta[ct]["kpi"]
-            key_camp = f"campaigns_v6_{ct}_all_{d_from}_{d_to}"
-            key_daily = f"daily_summary_v8_{ct}_all_{d_from}_{d_to}"
+            key_camp = f"campaigns_v7_{ct}_all_{d_from}_{d_to}"
+            key_daily = f"daily_summary_v9_{ct}_all_{d_from}_{d_to}"
             camp_cached = get_cached(key_camp)
             daily_cached = get_cached(key_daily) if want_detail else None
 
@@ -3144,8 +3162,8 @@ def api_resumo():
                             sess["role"] = "super_admin"
                         hdr = {"X-Internal-Scheduler": "resumo_chunked"}
                         for seg_from, seg_to in segments:
-                            sk_camp = f"campaigns_v6_{ct}_all_{seg_from}_{seg_to}"
-                            sk_daily = f"daily_summary_v8_{ct}_all_{seg_from}_{seg_to}"
+                            sk_camp = f"campaigns_v7_{ct}_all_{seg_from}_{seg_to}"
+                            sk_daily = f"daily_summary_v9_{ct}_all_{seg_from}_{seg_to}"
                             sc = get_cached(sk_camp)
                             sd = get_cached(sk_daily) if want_detail else None
                             if not sc:
@@ -3391,7 +3409,7 @@ def api_resumo():
             "top_campaigns": all_top,
         }
         # Se o range eh inteiramente composto de meses COMPLETOS (fechados),
-        # pina o resumo_v15 por 180d — dados historicos nao mudam.
+        # pina o resumo_v16 por 180d — dados historicos nao mudam.
         _range_segments = _split_range_by_month_segments(date_from, date_to)
         if _range_segments and all(_is_completed_month(sf, st) for sf, st in _range_segments):
             set_cached(cache_key, response, ttl_hours=_MONTHLY_TTL_HOURS)
@@ -5653,7 +5671,7 @@ _MONTHLY_STATE_TTL_HOURS = 8760  # 365 dias - estado (warmed/revalidated)
 _MONTHLY_REVALIDATE_AFTER_DAYS = 7
 
 
-# Campos numericos das campaigns_v6 que sao aditivos quando combinamos
+# Campos numericos das campaigns_v7 que sao aditivos quando combinamos
 # segmentos de tempo (spend de Jan + spend de Fev = spend de Jan+Fev).
 _CAMP_NUMERIC_FIELDS = [
     "spend", "revenue", "purchases", "impressions", "clicks",
@@ -5905,10 +5923,10 @@ def _completed_months_since(year, month):
 
 def _monthly_cache_keys(dt_from, dt_to):
     """Todas as chaves de cache relacionadas a um range mensal. Usado pra pinar."""
-    keys = [f"resumo_v15_{dt_from}_{dt_to}"]
+    keys = [f"resumo_v16_{dt_from}_{dt_to}"]
     for ct in VALID_CAMP_TYPES:
-        keys.append(f"campaigns_v6_{ct}_all_{dt_from}_{dt_to}")
-        keys.append(f"daily_summary_v8_{ct}_all_{dt_from}_{dt_to}")
+        keys.append(f"campaigns_v7_{ct}_all_{dt_from}_{dt_to}")
+        keys.append(f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}")
     return keys
 
 
@@ -5991,7 +6009,7 @@ def _warmup_monthly_historical():
             # Se o state diz 'warmed' mas o cache real nao existe (bump de versao,
             # cache purgado, etc), invalida o state pra re-aquecer de fato.
             if state.get("warmed_at"):
-                r_key = f"resumo_v15_{dt_from}_{dt_to}"
+                r_key = f"resumo_v16_{dt_from}_{dt_to}"
                 if get_cached(r_key) is None:
                     print(f"[MONTHLY] {dt_from} a {dt_to}: state orfao (cache sumiu), re-aquecendo")
                     state = {}
@@ -6122,7 +6140,7 @@ def _scheduled_refresh():
                         time.sleep(2)
                     except Exception as e:
                         print(f"[SCHEDULER] Erro account_total {acc} {days}d: {e}")
-            # Agora o endpoint resumo em si — popula resumo_v15 final
+            # Agora o endpoint resumo em si — popula resumo_v16 final
             for days, dt_from_r in ranges:
                 print(f"[SCHEDULER]   /resumo {days}d ({dt_from_r} a {dt_to})")
                 client.get(f"/api/dashboard/resumo?date_from={dt_from_r}&date_to={dt_to}&force=true", headers={"X-Internal-Scheduler":"daily"})
@@ -6311,8 +6329,8 @@ def _warmup_camp_type(ct, days_list, dt_to):
         for days in days_list:
             dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
             try:
-                k_camp = f"campaigns_v6_{ct}_all_{dt_from}_{dt_to}"
-                k_daily = f"daily_summary_v8_{ct}_all_{dt_from}_{dt_to}"
+                k_camp = f"campaigns_v7_{ct}_all_{dt_from}_{dt_to}"
+                k_daily = f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}"
                 k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
@@ -6445,8 +6463,8 @@ def _refresh_recent_loop():
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
-                            k_camp = f"campaigns_v6_{ct}_all_{dt_from}_{dt_to}"
-                            k_daily = f"daily_summary_v8_{ct}_all_{dt_from}_{dt_to}"
+                            k_camp = f"campaigns_v7_{ct}_all_{dt_from}_{dt_to}"
+                            k_daily = f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}"
                             k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
