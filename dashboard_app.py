@@ -3313,12 +3313,13 @@ def api_resumo():
 
         # Outros = total_acc - soma_tipos. Pra o TOTAL usamos account_total_spend
         # (level=account, 1 row, ~1s e cacheado 20min). A LISTA top_unmapped
-        # (drill-down) vira endpoint separado /api/dashboard/resumo/unmapped
-        # pra nao bloquear o carregamento do Resumo com Meta calls pesadas.
+        # (drill-down) tem endpoint separado /api/dashboard/resumo/unmapped
+        # — pre-warmed pelo scheduler/boot/monthly pra estar sempre pronto.
         #
-        # Pre-req: scheduler/boot warmam account_total_spend pras janelas usadas.
-        # Se tabs estao warmed, o Resumo e soma pura de caches.
-        top_unmapped = []
+        # Se o cache unmapped ja existe, inline aqui pra zero latencia no
+        # drill-down. Se nao, o frontend lazy-fetcha quando usuario clicar.
+        _unmapped_cached = get_cached(f"resumo_unmapped_v1_{date_from}_{date_to}")
+        top_unmapped = (_unmapped_cached or {}).get("data", []) if _unmapped_cached else []
         total_acc_spend = _fetch_total_spend_all_accounts(all_accounts, date_from, date_to)
         total_acc_spend_prev = _fetch_total_spend_all_accounts(all_accounts, prev_from, prev_to)
 
@@ -5956,6 +5957,12 @@ def _warm_month_once(client, dt_from, dt_to, label="first"):
         time.sleep(2)
     except Exception as e:
         print(f"[MONTHLY] Erro resumo {dt_from}: {e}")
+    # Drill-down Outros pre-warm (pinado 180d pra mes fechado)
+    try:
+        client.get(f"/api/dashboard/resumo/unmapped?date_from={dt_from}&date_to={dt_to}", headers=hdr)
+        time.sleep(2)
+    except Exception as e:
+        print(f"[MONTHLY] Erro resumo/unmapped {dt_from}: {e}")
 
 
 def _warmup_monthly_historical():
@@ -6120,6 +6127,12 @@ def _scheduled_refresh():
                 print(f"[SCHEDULER]   /resumo {days}d ({dt_from_r} a {dt_to})")
                 client.get(f"/api/dashboard/resumo?date_from={dt_from_r}&date_to={dt_to}&force=true", headers={"X-Internal-Scheduler":"daily"})
                 time.sleep(10)
+            # Drill-down Outros (lista de campanhas nao mapeadas) — pre-warm
+            # pra ficar instantaneo quando usuario clicar na seta.
+            for days, dt_from_r in ranges:
+                print(f"[SCHEDULER]   /resumo/unmapped {days}d")
+                client.get(f"/api/dashboard/resumo/unmapped?date_from={dt_from_r}&date_to={dt_to}", headers={"X-Internal-Scheduler":"daily"})
+                time.sleep(5)
             print("[SCHEDULER] Resumo endpoint OK")
         except Exception as e:
             print(f"[SCHEDULER] Erro resumo endpoint: {e}")
@@ -6396,6 +6409,12 @@ def _refresh_recent_loop():
                     time.sleep(5)
                 except Exception as e:
                     print(f"[BOOT] Erro resumo {_days}d: {e}")
+                # Drill-down Outros pre-warm (instantaneo quando usuario clicar)
+                try:
+                    _c.get(f"/api/dashboard/resumo/unmapped?date_from={_df}&date_to={_dt_to}", headers={"X-Internal-Scheduler":"boot_warmup"})
+                    time.sleep(3)
+                except Exception as e:
+                    print(f"[BOOT] Erro resumo/unmapped {_days}d: {e}")
     except Exception as e:
         print(f"[BOOT] Erro resumo boot: {e}")
 
