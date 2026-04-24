@@ -206,6 +206,60 @@ def _fetch_type_campaigns(camp_type, fields, effective_status):
     return _filter_campaigns_by_type(all_camps, camp_type)
 
 
+def _fetch_account_raw_v1(acc_id, camp_status, date_from, date_to):
+    """Cache BRUTO por conta — lista de campanhas + insights SEM filtro por tipo.
+    Key: campaigns_raw_v1_{acc}_{status}_{range}.
+
+    Motivo da separacao: mudancas na regra de classificacao por nome nao
+    devem invalidar Meta caches. O cache filtrado por tipo (campaigns_v*_{ct})
+    eh derivado deste em runtime. Bump de v3->v4 classificacao = re-filtra
+    o bruto, zero chamada Meta.
+
+    Retorna: {'campaigns': [lista com id/name/status/objective/etc],
+              'insights_by_id': {cid: {raw insight dict}}}"""
+    cache_key = f"campaigns_raw_v1_{acc_id}_{camp_status}_{date_from}_{date_to}"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    # Lista de campanhas (meta_get_all_pages — cacheada internamente 5min)
+    try:
+        camps = _fetch_account_campaigns(
+            acc_id,
+            "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
+            _camp_status_filter(camp_status),
+        )
+    except Exception as e:
+        print(f"[RAW] Falha campanhas {acc_id}: {e}")
+        camps = []
+
+    # Insights level=campaign pra TODAS as campanhas da conta no periodo.
+    # Filter impressions > 0 evita retornar campanhas sem atividade.
+    insights_by_id = {}
+    try:
+        rows = meta_get_all_pages(f"{acc_id}/insights", {
+            "fields": INSIGHT_FIELDS_CAMPAIGN,
+            "time_range": json.dumps({"since": date_from, "until": date_to}),
+            "level": "campaign",
+            "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
+            "limit": 500,
+        })
+        for r in rows:
+            cid = r.get("campaign_id", "")
+            if cid:
+                insights_by_id[cid] = r
+    except Exception as e:
+        print(f"[RAW] Falha insights {acc_id}: {e}")
+
+    payload = {"campaigns": camps, "insights_by_id": insights_by_id}
+    set_cached(cache_key, payload, ttl_hours=_cache_ttl_for_range(date_from, date_to))
+    # Se o range eh inteiramente mes completo, pina 180d
+    _segs = _split_range_by_month_segments(date_from, date_to)
+    if _segs and all(_is_completed_month(sf, st) for sf, st in _segs):
+        pin_cache_key(cache_key, ttl_hours=_MONTHLY_TTL_HOURS)
+    return payload
+
+
 def _fetch_insights_for_tagged_campaigns(campaigns, base_params, extra_filters=None):
     """Busca insights para campanhas taggueadas com _account_id, agrupando as chamadas
     por conta. base_params deve ter fields, time_range, level, limit, etc. mas NAO
@@ -1683,31 +1737,30 @@ def api_campaigns():
             if cached:
                 return jsonify(cached)
 
-        # 1. Buscar campanhas do tipo selecionado (multi-conta)
-        sales_campaigns = _fetch_type_campaigns(
-            camp_type,
-            "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
-            _camp_status_filter(camp_status)
-        )
+        # 1. Buscar RAW (campanhas + insights) por conta — cache campaigns_raw_v1.
+        # Reutilizado por todas as tabs: 1a tab paga Meta; demais tabs no mesmo
+        # range/status sao soma+filter em memoria. Mudanca de classificacao:
+        # refiltra o bruto, zero chamada Meta.
+        all_campaigns = []
+        insights_map = {}
+        for acc in _get_accounts_for_type(camp_type):
+            if not acc:
+                continue
+            raw = _fetch_account_raw_v1(acc, camp_status, date_from, date_to)
+            for c in (raw.get("campaigns") or []):
+                # Copia shallow + tagueia _account_id (nao mutar cache)
+                cc = dict(c)
+                cc["_account_id"] = acc
+                all_campaigns.append(cc)
+            for cid, ins in (raw.get("insights_by_id") or {}).items():
+                if cid not in insights_map:
+                    insights_map[cid] = parse_insights(ins, camp_type=camp_type)
+
+        # 2. Filtrar por tipo (aplica classificacao ATUAL em cima do bruto)
+        sales_campaigns = _filter_campaigns_by_type(all_campaigns, camp_type)
 
         if not sales_campaigns:
             return jsonify({"ok": True, "data": [], "summary": {}})
-
-        # 2. Buscar insights (agrupado por conta via _account_id)
-        insights_data = _fetch_insights_for_tagged_campaigns(
-            sales_campaigns,
-            base_params={
-                "fields": INSIGHT_FIELDS_CAMPAIGN,
-                "time_range": json.dumps({"since": date_from, "until": date_to}),
-                "level": "campaign",
-                "limit": 500,
-            },
-            extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
-        )
-
-        insights_map = {}
-        for row in insights_data:
-            insights_map[row.get("campaign_id")] = parse_insights(row, camp_type=camp_type)
 
         # 2b. Crescimento: sobrescreve 'purchases' com seguidores atribuidos do IG.
         # Meta Marketing API nao expoe follow por campanha — usamos IG Graph API
