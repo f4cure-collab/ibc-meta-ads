@@ -6073,6 +6073,19 @@ def _scheduled_refresh():
         except Exception as e:
             print(f"[SCHEDULER] Erro resumo diario: {e}")
 
+        # ── ETAPA 2b: Endpoint Resumo em si (aba Inicio) pra 30d e 7d ──
+        # Popula resumo_v15_{range} + acc_insights_v1_{acc}_{seg} pras
+        # janelas deslizantes. Sem isso, 1a visita da manha paga o bg compute.
+        try:
+            print("[SCHEDULER] Etapa 2b/5: Cacheando endpoint /resumo pras 2 janelas...")
+            for days, dt_from in ranges:
+                print(f"[SCHEDULER]   /resumo {days}d ({dt_from} a {dt_to})")
+                client.get(f"/api/dashboard/resumo?date_from={dt_from}&date_to={dt_to}&force=true", headers={"X-Internal-Scheduler":"daily"})
+                time.sleep(10)
+            print("[SCHEDULER] Resumo endpoint OK")
+        except Exception as e:
+            print(f"[SCHEDULER] Erro resumo endpoint: {e}")
+
         # Pausa
         print("[SCHEDULER] Aguardando 30 min...")
         _sleep_with_heartbeat(1800, "daily_scheduler")
@@ -6306,6 +6319,27 @@ def _refresh_recent_loop():
         print(f"[WARMUP] Concluido em {datetime.now().strftime('%H:%M')}")
     except Exception as e:
         print(f"[WARMUP] Erro inicial: {e}")
+
+    # Warmup do endpoint /resumo pras janelas deslizantes (30d, 7d).
+    # Popula resumo_v15_{range} + acc_insights_v1 — tudo que a aba Inicio
+    # precisa pra abrir instantaneo pela manha.
+    try:
+        print("[BOOT] Cacheando endpoint /resumo (30d, 7d)")
+        dt_to_now = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
+        with app.test_client() as _c:
+            with _c.session_transaction() as sess:
+                sess["logged_in"] = True
+                sess["username"] = SUPER_ADMIN_EMAIL
+                sess["role"] = "super_admin"
+            for _days in [30, 7]:
+                _df = (now_br() - timedelta(days=_days)).strftime("%Y-%m-%d")
+                try:
+                    _c.get(f"/api/dashboard/resumo?date_from={_df}&date_to={dt_to_now}&force=true", headers={"X-Internal-Scheduler":"boot_warmup"})
+                    time.sleep(5)
+                except Exception as e:
+                    print(f"[BOOT] Erro resumo {_days}d: {e}")
+    except Exception as e:
+        print(f"[BOOT] Erro resumo boot: {e}")
 
     # Warmup dos meses completos apos o boot (so o worker que pegou o lock).
     # Idempotente — passa rapido se ja tudo cacheado (so re-pina TTL).

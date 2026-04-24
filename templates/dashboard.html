@@ -5301,18 +5301,21 @@ async function _doLoadResumo(df, dt, force){
         var r = await fetch(url);
         if (r.status === 401) { window.location.href = '/login'; return; }
 
-        // 202 Accepted: cache sendo populado em background — re-tenta em 30s
+        // 202 Accepted: compute rodando em background — re-tenta em 30s
         if (r.status === 202) {
             _rsWarmingAttempt++;
             var body = {};
             try { body = await r.json(); } catch(e){}
-            var ready = body.ready || 0, total = body.total || 1;
-            var pct = Math.round((ready / Math.max(total,1)) * 100);
-            var waitSecs = _rsWarmingAttempt < 3 ? 30 : 60;  // primeiras tentativas mais frequentes
-            _setRsLoadingMsg(
-                'Preparando cache... ' + pct + '%',
-                'Tentativa automatica em ' + waitSecs + 's (' + _rsWarmingAttempt + 'a). Voce pode fechar a aba, o processo continua no servidor.'
-            );
+            var waitSecs = _rsWarmingAttempt < 3 ? 30 : 60;
+            // Tempo acumulado aproximado em segundos
+            var elapsed = (_rsWarmingAttempt - 1) * 30 + (_rsWarmingAttempt >= 3 ? (_rsWarmingAttempt - 2) * 30 : 0);
+            var mainMsg = _rsWarmingAttempt === 1
+                ? 'Calculando resumo no servidor...'
+                : 'Ainda calculando (tentativa ' + _rsWarmingAttempt + ')';
+            var subMsg = 'Proxima tentativa em ' + waitSecs + 's. '
+                + 'Decorridos ~' + elapsed + 's. '
+                + 'Voce pode fechar a aba, o processo continua no servidor.';
+            _setRsLoadingMsg(mainMsg, subMsg);
             _rsWarmingRetryTimer = setTimeout(function(){
                 _rsWarmingRetryTimer = null;
                 _doLoadResumo(df, dt, false);
