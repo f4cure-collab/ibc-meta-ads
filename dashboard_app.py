@@ -3311,79 +3311,16 @@ def api_resumo():
                     all_accounts.add(acc)
         all_accounts = list(all_accounts)
 
-        top_unmapped = []
-        outros_spend = 0.0
-        outros_spend_prev = 0.0
-
-        # Single source of truth: per_type[ct]['spend'] vem integralmente de
-        # campaigns_v6 (mesma cache das tabs). Nao adiciona nada via account-level,
-        # garantindo que Tab = Resumo pro mesmo valor.
+        # Outros = total_acc - soma_tipos. Pra o TOTAL usamos account_total_spend
+        # (level=account, 1 row, ~1s e cacheado 20min). A LISTA top_unmapped
+        # (drill-down) vira endpoint separado /api/dashboard/resumo/unmapped
+        # pra nao bloquear o carregamento do Resumo com Meta calls pesadas.
         #
-        # Usa account-level /insights apenas pra:
-        #   a) Calcular total_acc_spend (soma de toda a conta no periodo)
-        #   b) Gerar lista top_unmapped (campanhas nao classificadas em tipo algum)
-        # Nunca ajusta per_type via esses dados.
-        try:
-            overrides = _load_overrides()
-
-            def _classify_by_name(nm, objective):
-                """Retorna camp_type ou None. Mesma cascata das tabs."""
-                if _is_nutricao_campaign(nm): return CAMP_TYPE_NUTRICAO
-                if _is_meteoricos_campaign(nm): return CAMP_TYPE_METEORICOS
-                if _is_comercial_campaign(nm): return CAMP_TYPE_COMERCIAL
-                if _is_crescimento_campaign(nm): return CAMP_TYPE_CRESCIMENTO
-                if objective == "OUTCOME_SALES": return CAMP_TYPE_VENDAS
-                if _is_vendas_campaign_by_name(nm): return CAMP_TYPE_VENDAS
-                return None
-
-            obj_by_id = {}
-            for acc in all_accounts:
-                try:
-                    for c in _fetch_account_campaigns(acc, "id,name,objective", '["ACTIVE","PAUSED","ARCHIVED"]'):
-                        obj_by_id[c.get("id", "")] = c.get("objective", "")
-                except Exception as e:
-                    print(f"[RESUMO] Falha meta campanhas {acc}: {e}")
-
-            total_acc_spend = 0.0
-            for acc in all_accounts:
-                # Chunked + cached por mes (meses completos = TTL 180d pinado).
-                # 3-mes completo => todos os segmentos ja cacheados apos 1a carga,
-                # proximo resumo do mesmo range = instantaneo.
-                rows = _fetch_acc_insights_chunked(acc, date_from, date_to)
-                for r in rows:
-                    cid = r.get("campaign_id", "")
-                    if not cid:
-                        continue
-                    sp = float(r.get("spend", 0) or 0)
-                    total_acc_spend += sp
-                    if sp <= 0:
-                        continue
-                    nm = r.get("campaign_name", "")
-                    ov = overrides.get(cid)
-                    ct = ov.get("camp_type") if ov else None
-                    if not ct:
-                        ct = _classify_by_name(nm, obj_by_id.get(cid, ""))
-                    if ct not in VALID_CAMP_TYPES:
-                        # Nao classificou -> vai pra drill-down de Outros
-                        top_unmapped.append({
-                            "id": cid, "name": nm,
-                            "spend": round(sp, 2), "account_id": acc,
-                        })
-
-            # Periodo anterior: chunked tambem pra aproveitar cache
-            total_acc_spend_prev = 0.0
-            for acc in all_accounts:
-                total_acc_spend_prev += _fetch_acc_total_spend_chunked(acc, prev_from, prev_to)
-
-            top_unmapped.sort(key=lambda x: x["spend"], reverse=True)
-            top_unmapped = top_unmapped[:20]
-        except Exception as e:
-            print(f"[RESUMO] Erro processando account-level insights: {e}")
-            total_acc_spend = 0.0
-            total_acc_spend_prev = 0.0
-            for acc in all_accounts:
-                total_acc_spend += _fetch_acc_total_spend_chunked(acc, date_from, date_to)
-                total_acc_spend_prev += _fetch_acc_total_spend_chunked(acc, prev_from, prev_to)
+        # Pre-req: scheduler/boot warmam account_total_spend pras janelas usadas.
+        # Se tabs estao warmed, o Resumo e soma pura de caches.
+        top_unmapped = []
+        total_acc_spend = _fetch_total_spend_all_accounts(all_accounts, date_from, date_to)
+        total_acc_spend_prev = _fetch_total_spend_all_accounts(all_accounts, prev_from, prev_to)
 
         typed_spend = sum(t["spend"] for t in per_type)
         prev_typed_spend = sum(prev_by_type.values())
@@ -3456,6 +3393,84 @@ def api_resumo():
         # pina o resumo_v15 por 180d — dados historicos nao mudam.
         _range_segments = _split_range_by_month_segments(date_from, date_to)
         if _range_segments and all(_is_completed_month(sf, st) for sf, st in _range_segments):
+            set_cached(cache_key, response, ttl_hours=_MONTHLY_TTL_HOURS)
+        else:
+            set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
+        return jsonify(response)
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.route("/api/dashboard/resumo/unmapped")
+@not_viewer_required
+def api_resumo_unmapped():
+    """Drill-down do Outros: lista de campanhas nao classificadas com gasto
+    no periodo. Separado do /resumo pra nao bloquear o carregamento inicial
+    com Meta calls pesadas (level=campaign, paginado). Frontend chama quando
+    usuario expande a seta de Outros."""
+    try:
+        date_from = request.args.get("date_from", _default_date_from())
+        date_to = request.args.get("date_to", _yesterday())
+        blocked = _enforce_range_for_role(date_from, date_to)
+        if blocked:
+            return blocked
+
+        cache_key = f"resumo_unmapped_v1_{date_from}_{date_to}"
+        cached = get_cached(cache_key)
+        if cached is not None:
+            return jsonify(cached)
+
+        all_accounts = set()
+        for ct in VALID_CAMP_TYPES:
+            for acc in _get_accounts_for_type(ct):
+                if acc:
+                    all_accounts.add(acc)
+        all_accounts = list(all_accounts)
+
+        overrides = _load_overrides()
+        def _classify_by_name(nm, objective):
+            if _is_nutricao_campaign(nm): return CAMP_TYPE_NUTRICAO
+            if _is_meteoricos_campaign(nm): return CAMP_TYPE_METEORICOS
+            if _is_comercial_campaign(nm): return CAMP_TYPE_COMERCIAL
+            if _is_crescimento_campaign(nm): return CAMP_TYPE_CRESCIMENTO
+            if objective == "OUTCOME_SALES": return CAMP_TYPE_VENDAS
+            if _is_vendas_campaign_by_name(nm): return CAMP_TYPE_VENDAS
+            return None
+
+        obj_by_id = {}
+        for acc in all_accounts:
+            try:
+                for c in _fetch_account_campaigns(acc, "id,name,objective", '["ACTIVE","PAUSED","ARCHIVED"]'):
+                    obj_by_id[c.get("id", "")] = c.get("objective", "")
+            except Exception as e:
+                print(f"[UNMAPPED] Falha meta campanhas {acc}: {e}")
+
+        top_unmapped = []
+        for acc in all_accounts:
+            rows = _fetch_acc_insights_chunked(acc, date_from, date_to)
+            for r in rows:
+                cid = r.get("campaign_id", "")
+                if not cid: continue
+                sp = float(r.get("spend", 0) or 0)
+                if sp <= 0: continue
+                nm = r.get("campaign_name", "")
+                ov = overrides.get(cid)
+                ct = ov.get("camp_type") if ov else None
+                if not ct:
+                    ct = _classify_by_name(nm, obj_by_id.get(cid, ""))
+                if ct not in VALID_CAMP_TYPES:
+                    top_unmapped.append({
+                        "id": cid, "name": nm,
+                        "spend": round(sp, 2), "account_id": acc,
+                    })
+        top_unmapped.sort(key=lambda x: x["spend"], reverse=True)
+        top_unmapped = top_unmapped[:20]
+
+        response = {"ok": True, "data": top_unmapped}
+        # TTL longo se range for todos meses completos
+        _segs = _split_range_by_month_segments(date_from, date_to)
+        if _segs and all(_is_completed_month(sf, st) for sf, st in _segs):
             set_cached(cache_key, response, ttl_hours=_MONTHLY_TTL_HOURS)
         else:
             set_cached(cache_key, response, ttl_hours=_cache_ttl_for_range(date_from, date_to))
@@ -6073,14 +6088,37 @@ def _scheduled_refresh():
         except Exception as e:
             print(f"[SCHEDULER] Erro resumo diario: {e}")
 
-        # ── ETAPA 2b: Endpoint Resumo em si (aba Inicio) pra 30d e 7d ──
-        # Popula resumo_v15_{range} + acc_insights_v1_{acc}_{seg} pras
-        # janelas deslizantes. Sem isso, 1a visita da manha paga o bg compute.
+        # ── ETAPA 2b: Pre-warm account_total_spend + endpoint Resumo ──
+        # Resumo precisa de account_total_spend (level=account, 1 row rapido)
+        # pra calcular Outros. Pre-warm antes do endpoint /resumo assim:
+        #   1) account_total_spend_{acc}_{d_from}_{d_to} pronto
+        #   2) /resumo so faz soma de caches (tabs warm + este)
         try:
-            print("[SCHEDULER] Etapa 2b/5: Cacheando endpoint /resumo pras 2 janelas...")
-            for days, dt_from in ranges:
-                print(f"[SCHEDULER]   /resumo {days}d ({dt_from} a {dt_to})")
-                client.get(f"/api/dashboard/resumo?date_from={dt_from}&date_to={dt_to}&force=true", headers={"X-Internal-Scheduler":"daily"})
+            print("[SCHEDULER] Etapa 2b/5: Warm account_total_spend + /resumo...")
+            all_accs = set()
+            for ct in VALID_CAMP_TYPES:
+                for acc in _get_accounts_for_type(ct):
+                    if acc:
+                        all_accs.add(acc)
+            # Pre-warm account_total_spend pras janelas e pros periodos anteriores
+            from datetime import timedelta as _td
+            for days, dt_from_r in ranges:
+                _dt_from_r = datetime.strptime(dt_from_r, "%Y-%m-%d")
+                _dt_to_r = datetime.strptime(dt_to, "%Y-%m-%d")
+                _period_days = (_dt_to_r - _dt_from_r).days + 1
+                _prev_to = (_dt_from_r - _td(days=1)).strftime("%Y-%m-%d")
+                _prev_from = (_dt_from_r - _td(days=_period_days)).strftime("%Y-%m-%d")
+                for acc in all_accs:
+                    try:
+                        _fetch_account_total_spend(acc, dt_from_r, dt_to)
+                        _fetch_account_total_spend(acc, _prev_from, _prev_to)
+                        time.sleep(2)
+                    except Exception as e:
+                        print(f"[SCHEDULER] Erro account_total {acc} {days}d: {e}")
+            # Agora o endpoint resumo em si — popula resumo_v15 final
+            for days, dt_from_r in ranges:
+                print(f"[SCHEDULER]   /resumo {days}d ({dt_from_r} a {dt_to})")
+                client.get(f"/api/dashboard/resumo?date_from={dt_from_r}&date_to={dt_to}&force=true", headers={"X-Internal-Scheduler":"daily"})
                 time.sleep(10)
             print("[SCHEDULER] Resumo endpoint OK")
         except Exception as e:
@@ -6321,11 +6359,16 @@ def _refresh_recent_loop():
         print(f"[WARMUP] Erro inicial: {e}")
 
     # Warmup do endpoint /resumo pras janelas deslizantes (30d, 7d).
-    # Popula resumo_v15_{range} + acc_insights_v1 — tudo que a aba Inicio
-    # precisa pra abrir instantaneo pela manha.
+    # Pre-warmar account_total_spend ANTES do /resumo pra que o Resumo
+    # vire pura soma de caches. Tudo pronto pra aba Inicio de manha.
     try:
-        print("[BOOT] Cacheando endpoint /resumo (30d, 7d)")
+        print("[BOOT] Pre-warming account_total_spend + /resumo (30d, 7d)")
         dt_to_now = (now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
+        _all_accs = set()
+        for ct in VALID_CAMP_TYPES:
+            for acc in _get_accounts_for_type(ct):
+                if acc:
+                    _all_accs.add(acc)
         with app.test_client() as _c:
             with _c.session_transaction() as sess:
                 sess["logged_in"] = True
@@ -6333,8 +6376,23 @@ def _refresh_recent_loop():
                 sess["role"] = "super_admin"
             for _days in [30, 7]:
                 _df = (now_br() - timedelta(days=_days)).strftime("%Y-%m-%d")
+                _dt_to = dt_to_now
+                _dt_from_obj = datetime.strptime(_df, "%Y-%m-%d")
+                _dt_to_obj = datetime.strptime(_dt_to, "%Y-%m-%d")
+                _pdays = (_dt_to_obj - _dt_from_obj).days + 1
+                _prev_to = (_dt_from_obj - timedelta(days=1)).strftime("%Y-%m-%d")
+                _prev_from = (_dt_from_obj - timedelta(days=_pdays)).strftime("%Y-%m-%d")
+                # Pre-warm account_total_spend pras 4 chaves (atual+anterior)
+                for acc in _all_accs:
+                    try:
+                        _fetch_account_total_spend(acc, _df, _dt_to)
+                        _fetch_account_total_spend(acc, _prev_from, _prev_to)
+                        time.sleep(2)
+                    except Exception as e:
+                        print(f"[BOOT] Erro account_total {acc} {_days}d: {e}")
+                # Agora /resumo — so soma caches, deve ser rapido
                 try:
-                    _c.get(f"/api/dashboard/resumo?date_from={_df}&date_to={dt_to_now}&force=true", headers={"X-Internal-Scheduler":"boot_warmup"})
+                    _c.get(f"/api/dashboard/resumo?date_from={_df}&date_to={_dt_to}&force=true", headers={"X-Internal-Scheduler":"boot_warmup"})
                     time.sleep(5)
                 except Exception as e:
                     print(f"[BOOT] Erro resumo {_days}d: {e}")

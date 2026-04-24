@@ -5597,10 +5597,12 @@ function renderResumoTypeTable(perType){
 
         // Lista de campanhas pra drill-down: top_campaigns pros tipos mapeados,
         // top_unmapped pra 'Outros' (mesma estrutura visual).
+        // Outros e sempre expansivel (lazy-load via /api/dashboard/resumo/unmapped)
+        // mesmo se top_unmapped vier vazio do resumo principal.
         var drillList = isOutros
             ? (Array.isArray(t.top_unmapped) ? t.top_unmapped : [])
             : (Array.isArray(t.top_campaigns) ? t.top_campaigns : []);
-        var hasDrill = drillList.length > 0;
+        var hasDrill = isOutros ? (t.spend > 0) : drillList.length > 0;
 
         var labelHtml = '<strong style="color:var(--t1)">' + t.label + '</strong>';
         if (hasDrill) {
@@ -5668,6 +5670,11 @@ function renderResumoTypeTable(perType){
             var parent = row.getAttribute('data-type');
             var detail = tb.querySelector('.rs-type-detail[data-parent="' + parent + '"]');
             var arrow = tog.querySelector('.rs-type-arrow');
+            // Outros: lazy-load se ainda nao tem dados
+            if (parent === 'outros' && (!detail || !detail.dataset.loaded)) {
+                _loadResumoUnmapped(parent);
+                return;
+            }
             if (detail) {
                 var open = detail.style.display !== 'none';
                 detail.style.display = open ? 'none' : '';
@@ -5675,6 +5682,64 @@ function renderResumoTypeTable(perType){
             }
         });
     });
+}
+
+// Lazy-load da lista de campanhas Outros (drill-down)
+async function _loadResumoUnmapped(parent){
+    var tb = $('#rs-types-tbody');
+    if (!tb) return;
+    var row = tb.querySelector('tr.rs-type-row[data-type="' + parent + '"]');
+    if (!row) return;
+    var arrow = row.querySelector('.rs-type-arrow');
+    var detail = tb.querySelector('.rs-type-detail[data-parent="' + parent + '"]');
+    // Se ja ta aberto, fecha
+    if (detail && detail.style.display !== 'none' && detail.dataset.loaded) {
+        detail.style.display = 'none';
+        if (arrow) arrow.style.transform = '';
+        return;
+    }
+    // Insere linha temporaria "carregando..."
+    if (!detail) {
+        detail = document.createElement('tr');
+        detail.className = 'rs-type-detail';
+        detail.setAttribute('data-parent', parent);
+        detail.innerHTML = '<td colspan="7" style="padding:10px 6px 10px 40px;font-size:12px;color:var(--t3);font-style:italic">Buscando campanhas nao mapeadas...</td>';
+        row.insertAdjacentElement('afterend', detail);
+    }
+    detail.style.display = '';
+    if (arrow) arrow.style.transform = 'rotate(90deg)';
+    try {
+        var df = $('#rs-df').value || dAgo(29);
+        var dt = $('#rs-dt').value || yesterday();
+        var r = await fetch('/api/dashboard/resumo/unmapped?date_from=' + df + '&date_to=' + dt);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        var d = await r.json();
+        if (!d.ok) throw new Error(d.error || 'Erro');
+        var list = d.data || [];
+        var totalSpend = (rsData && rsData.totals ? rsData.totals.spend : 0) || 0;
+        var html = '<td colspan="7" style="padding:0"><table style="width:100%;border-collapse:collapse">';
+        if (!list.length) {
+            html += '<tr><td style="padding:10px 6px 10px 40px;font-size:12px;color:var(--t3);font-style:italic">Nenhuma campanha sem tipo mapeado no periodo.</td></tr>';
+        } else {
+            html += '<tr><td colspan="7" style="padding:8px 6px 8px 40px;font-size:11px;color:var(--t3);font-style:italic">Top ' + list.length + ' campanhas sem tipo mapeado. Use /admin para adicionar overrides.</td></tr>';
+            list.forEach(function(u){
+                var uPct = totalSpend > 0 ? ((u.spend || 0) / totalSpend * 100).toFixed(1) : '0.0';
+                html += '<tr>'
+                    + '<td style="padding:6px 6px 6px 40px;font-size:11px;color:var(--t2);max-width:360px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (u.name||'').replace(/"/g,'&quot;') + '">' + (u.name || '(sem nome)') + '</td>'
+                    + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t2)">' + fmtM(u.spend || 0) + '</td>'
+                    + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t3)">' + uPct + '%</td>'
+                    + '<td colspan="2" style="padding:6px 6px;font-size:10px;color:var(--t3)">' + (u.account_id || '') + '</td>'
+                    + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t3)">--</td>'
+                    + '<td style="padding:6px 6px;text-align:right;font-size:11px;color:var(--t3)">--</td>'
+                    + '</tr>';
+            });
+        }
+        html += '</table></td>';
+        detail.innerHTML = html;
+        detail.dataset.loaded = '1';
+    } catch(e) {
+        detail.innerHTML = '<td colspan="7" style="padding:10px 6px 10px 40px;font-size:12px;color:#f85149">Erro ao buscar: ' + e.message + '</td>';
+    }
 }
 
 function renderResumoTopTable(topCamps){
