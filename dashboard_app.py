@@ -7291,6 +7291,105 @@ def api_admin_atom_backfill_pause():
     return jsonify({"ok": True, "paused": _backfill_paused})
 
 
+@app.route("/api/admin/atom-validate-now", methods=["POST"])
+def api_admin_atom_validate_now():
+    """Valida atoms vs legacy SINCRONO. Compara 3 metricas principais
+    (spend, revenue, purchases) pra todos os tipos no range pedido.
+    Super_admin only."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    body = request.get_json(silent=True) or {}
+    days = max(1, min(60, int(body.get("days", 30))))
+
+    date_to = (_now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
+    date_from = (_now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    def _summary(raw_per_acc, camp_type):
+        all_camps = []
+        ins_map = {}
+        for acc, raw in raw_per_acc.items():
+            for c in (raw.get("campaigns") or []):
+                cc = dict(c); cc["_account_id"] = acc
+                all_camps.append(cc)
+            for cid, ins in (raw.get("insights_by_id") or {}).items():
+                if cid not in ins_map:
+                    ins_map[cid] = parse_insights(ins, camp_type=camp_type)
+        sales = _filter_campaigns_by_type(all_camps, camp_type)
+        ts = tr = tp = 0
+        for c in sales:
+            m = ins_map.get(c.get("id"), {}) or {}
+            ts += m.get("spend", 0)
+            tr += m.get("revenue", 0)
+            tp += m.get("purchases", 0)
+        return {
+            "total_campaigns": len(sales),
+            "total_spend": round(ts, 2),
+            "total_revenue": round(tr, 2),
+            "total_purchases": int(tp),
+        }
+
+    results = []
+    for ct in VALID_CAMP_TYPES:
+        accounts = [a for a in _get_accounts_for_type(ct) if a]
+        if not accounts:
+            continue
+
+        # Atoms
+        atoms_raw = {}
+        atoms_complete = True
+        for acc in accounts:
+            r = _build_pseudo_raw_per_account_from_atoms(acc, date_from, date_to)
+            if r is None:
+                atoms_complete = False
+                break
+            atoms_raw[acc] = r
+        if not atoms_complete:
+            results.append({"type": ct, "status": "skipped", "reason": "atoms_incomplete"})
+            continue
+        atoms_sum = _summary(atoms_raw, ct)
+
+        # Legacy (cache atual ou Meta fresh)
+        legacy_raw = {}
+        for acc in accounts:
+            r = _fetch_account_raw_v1(acc, "all", date_from, date_to)
+            legacy_raw[acc] = r or {"campaigns": [], "insights_by_id": {}}
+        legacy_sum = _summary(legacy_raw, ct)
+
+        # Compara metricas principais
+        diffs = {}
+        max_diff = 0.0
+        for k in ("total_spend", "total_revenue", "total_purchases", "total_campaigns"):
+            a = float(atoms_sum.get(k, 0) or 0)
+            l = float(legacy_sum.get(k, 0) or 0)
+            if l == 0 and a == 0:
+                pct = 0.0
+            else:
+                pct = abs(a - l) / max(abs(l), 1) * 100
+            diffs[k] = {
+                "atoms": atoms_sum.get(k, 0),
+                "legacy": legacy_sum.get(k, 0),
+                "diff_pct": round(pct, 4),
+            }
+            max_diff = max(max_diff, pct)
+            _validate_atom_vs_legacy(f"validate_now_{ct}_{k}", a, l, tolerance=0.0001)
+
+        status = "ok" if max_diff < 0.01 else ("warning" if max_diff < 1.0 else "diverge")
+        results.append({
+            "type": ct,
+            "status": status,
+            "max_diff_pct": round(max_diff, 4),
+            "metrics": diffs,
+        })
+
+    return jsonify({
+        "ok": True,
+        "date_from": date_from,
+        "date_to": date_to,
+        "days": days,
+        "results": results,
+    })
+
+
 @app.route("/api/admin/atom-populate-queue", methods=["POST"])
 def api_admin_atom_populate_queue():
     """Forca repopulacao da fila (ex: bumpou versao de atom). Super_admin only."""
