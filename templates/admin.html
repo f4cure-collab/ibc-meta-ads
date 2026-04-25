@@ -529,7 +529,7 @@
     </div>
 
     <!-- Migracao de Atoms (super_admin only) -->
-    <div class="card" data-adm-section="atoms" style="display:none;">
+    <div class="card" id="atomMigCard" data-adm-section="atoms" style="display:none;">
         <h2>&#128640; Migracao de Atoms</h2>
         <p style="color:#888;font-size:13px;margin-bottom:16px;">
             Migracao do cache pra modelo de atoms diarios imutaveis.
@@ -785,6 +785,13 @@ async function loadUsers() {
         if (usgCard) {
             usgCard.style.display = _isSuper ? 'block' : 'none';
             if (_isSuper && document.body.getAttribute('data-adm-active') === 'usage') loadUsageStats();
+        }
+        var atomCard = document.getElementById('atomMigCard');
+        if (atomCard) {
+            atomCard.style.display = _isSuper ? 'block' : 'none';
+            if (_isSuper && document.body.getAttribute('data-adm-active') === 'atoms') {
+                if (typeof _startAtomPolling === 'function') _startAtomPolling();
+            }
         }
         if (_isSuper) checkUpdate();
 
@@ -1732,6 +1739,8 @@ function hide(id) { document.getElementById(id).style.display='none'; }
         });
         localStorage.setItem('admActiveTab', tab);
         if (tab === 'usage') loadUsageStats();
+        if (tab === 'atoms' && typeof _startAtomPolling === 'function') _startAtomPolling();
+        else if (typeof _stopAtomPolling === 'function') _stopAtomPolling();
     }
     setActive(saved);
     document.querySelectorAll('.adm-nav-btn').forEach(function(b){
