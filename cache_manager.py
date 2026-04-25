@@ -355,6 +355,142 @@ def pin_cache_key(cache_key, ttl_hours=4320):
         return False
 
 
+# ── ATOM LAYER (cache diario imutavel) ────────────────────────────────
+# Atom = unidade indivisivel de cache: dados de UM dia, UMA conta, UM tipo de
+# dado. Range cache = soma de atoms. Mudanca de regra de classificacao nao
+# invalida atoms (sao dados crus). Yesterday's data eh fetcheada 1x e
+# revalidada 2x (D+1.5h e D+8d) — depois disso eh imutavel ate D+180.
+#
+# Cache key format: atom_{scope}_v1_{key}_{date}
+# Ex: atom_acc_v1_act_1099877583362016_2026-04-24
+
+
+def _atom_ttl_hours_for_date(date_str):
+    """TTL adaptativo por idade do dado:
+        Hoje:        30min  (ainda mudando)
+        Ontem:       8d     (cobre as revalidacoes D+1.5 e D+8)
+        D-2 a D-7:   8d     (em janela de revalidacao)
+        D-8+:        180d   (imutavel)
+        Futuro:      24h    (caso de erro/teste)
+    """
+    try:
+        atom_date = datetime.strptime(date_str, "%Y-%m-%d")
+    except Exception:
+        return 24
+    today_d = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    days_old = (today_d - atom_date).days
+    if days_old < 0:
+        return 24
+    if days_old == 0:
+        return 0.5  # 30min
+    if days_old <= 7:
+        return 192  # 8 dias — cobre janela de revalidacao
+    return 4320  # 180d — imutavel
+
+
+def set_atom(scope, key, date, payload):
+    """Salva um atom (cache de UM dia). TTL automatico baseado na idade do dado.
+    scope: 'acc' (per-account) | 'type' (per-type aggregate) | etc
+    key: identificador (acc_id, camp_type, etc)
+    date: 'YYYY-MM-DD'
+    payload: dict serializavel — dado bruto pra esse dia
+    """
+    cache_key = f"atom_{scope}_v1_{key}_{date}"
+    ttl = _atom_ttl_hours_for_date(date)
+    set_cached(cache_key, payload, ttl_hours=ttl)
+
+
+def get_atom(scope, key, date):
+    """Le um atom. Retorna None se nao existe ou expirou."""
+    cache_key = f"atom_{scope}_v1_{key}_{date}"
+    return get_cached(cache_key)
+
+
+def get_atoms_for_range(scope, key, date_from, date_to):
+    """Le atoms pra um range continuo. Retorna (atoms_list, missing_dates).
+    atoms_list: [{date, payload}, ...] ordenado por data
+    missing_dates: lista de datas YYYY-MM-DD sem atom
+    Util pra dual-read: se missing_dates esta vazio, agrega; senao fallback."""
+    try:
+        df = datetime.strptime(date_from, "%Y-%m-%d")
+        dt = datetime.strptime(date_to, "%Y-%m-%d")
+    except Exception:
+        return [], []
+    atoms = []
+    missing = []
+    cur = df
+    while cur <= dt:
+        date_str = cur.strftime("%Y-%m-%d")
+        cache_key = f"atom_{scope}_v1_{key}_{date_str}"
+        payload = get_cached(cache_key)
+        if payload is not None:
+            atoms.append({"date": date_str, "payload": payload})
+        else:
+            missing.append(date_str)
+        cur += timedelta(days=1)
+    return atoms, missing
+
+
+def list_atoms_metadata(scope=None):
+    """Lista metadados de todos os atoms (key, criado, expira).
+    Usado pelo painel de migracao /admin > Migracao de Atoms.
+    Filtros: scope ('acc', 'type', etc) — None = todos."""
+    try:
+        conn = _get_db()
+        prefix = f"atom_{scope}_v1_%" if scope else "atom_%_v1_%"
+        rows = conn.execute(
+            "SELECT cache_key, created_at, expires_at FROM api_cache WHERE cache_key LIKE ? ORDER BY cache_key",
+            (prefix,)
+        ).fetchall()
+        conn.close()
+        result = []
+        for ck, created, expires in rows:
+            # Parse: atom_{scope}_v1_{key}_{date}
+            parts = ck.split("_v1_", 1)
+            if len(parts) != 2:
+                continue
+            head = parts[0]  # atom_{scope}
+            tail = parts[1]  # {key}_{date}
+            # Date é os ultimos 10 chars de tail (YYYY-MM-DD)
+            if len(tail) < 11 or tail[-11] != "_":
+                continue
+            atom_key = tail[:-11]
+            atom_date = tail[-10:]
+            atom_scope = head.replace("atom_", "")
+            result.append({
+                "scope": atom_scope,
+                "key": atom_key,
+                "date": atom_date,
+                "created_at": created,
+                "expires_at": expires,
+            })
+        return result
+    except Exception as e:
+        print(f"[ATOM] Erro list metadata: {e}")
+        return []
+
+
+def count_atoms_by_scope():
+    """Retorna contadores: {scope: count}."""
+    try:
+        conn = _get_db()
+        rows = conn.execute(
+            "SELECT cache_key FROM api_cache WHERE cache_key LIKE 'atom_%_v1_%'"
+        ).fetchall()
+        conn.close()
+        counters = {}
+        for (ck,) in rows:
+            parts = ck.split("_v1_", 1)
+            if len(parts) != 2:
+                continue
+            scope = parts[0].replace("atom_", "")
+            counters[scope] = counters.get(scope, 0) + 1
+        return counters
+    except Exception as e:
+        print(f"[ATOM] Erro count: {e}")
+        return {}
+
+
 def clear_cache():
     """Limpa todo o cache."""
     try:
