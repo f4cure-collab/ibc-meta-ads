@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 from dotenv import load_dotenv
-from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh, log_api_usage, clear_old_usage_logs, get_usage_stats, get_api_calls_for_user, pin_cache_key
+from cache_manager import get_cached, set_cached, clear_cache, cache_stats, start_scheduler, clear_expired, try_acquire_scheduler_lock, refresh_scheduler_lock, should_refresh, log_api_usage, clear_old_usage_logs, get_usage_stats, get_api_calls_for_user, pin_cache_key, set_atom, get_atom, get_atoms_for_range, list_atoms_metadata, count_atoms_by_scope
 from event_grouper import group_campaigns_by_event, _parse_campaign_name as _parse_name
 
 # Carrega .env sempre do diretorio do proprio arquivo (independente do cwd do gunicorn)
@@ -258,6 +258,327 @@ def _fetch_account_raw_v1(acc_id, camp_status, date_from, date_to):
     if _segs and all(_is_completed_month(sf, st) for sf, st in _segs):
         pin_cache_key(cache_key, ttl_hours=_MONTHLY_TTL_HOURS)
     return payload
+
+
+# ── ATOM SYSTEM (cache diario imutavel) ────────────────────────────────
+# Atom = unidade indivisivel: 1 dia, 1 conta. Range = soma de atoms.
+# Atoms maduros (>D+8) sao imutaveis e nunca refetcheados.
+# Sistema com dual-read: USE_ATOMS=True usa atoms+aggregar, fallback no
+# range cache antigo se atoms ainda nao cobrem o range completo.
+
+# Flag global de feature. Inicia em False — so ativa apos backfill completo
+# + validacao OK. Painel /admin tem botao pra ativar manualmente.
+USE_ATOMS = False
+
+# Lock pra mudancas concorrentes na flag
+_use_atoms_lock = threading.Lock()
+
+# Reversao automatica: se N divergencias graves em janela curta, desativa
+_atom_recent_divergences = []  # lista de timestamps
+_DIVERGENCE_WINDOW_SECONDS = 3600  # 1h
+_DIVERGENCE_THRESHOLD = 3  # 3 divergencias em 1h = desativa
+
+
+def _set_use_atoms(value, reason=""):
+    """Atomically set USE_ATOMS flag. Loga a mudanca."""
+    global USE_ATOMS
+    with _use_atoms_lock:
+        old = USE_ATOMS
+        USE_ATOMS = bool(value)
+        if old != USE_ATOMS:
+            print(f"[ATOMS] USE_ATOMS {old} -> {USE_ATOMS} ({reason})")
+            _log_atom_event("flag_change", {"from": old, "to": USE_ATOMS, "reason": reason})
+
+
+def _log_atom_event(event_type, data):
+    """Adiciona evento ao log de migracao (mostrado no painel /admin).
+    event_type: 'fetch_ok' | 'fetch_err' | 'validate_ok' | 'validate_diverge' |
+                'flag_change' | 'auto_revert' | 'backfill_progress'
+    data: dict com info especifica do evento."""
+    try:
+        log_path = os.path.join(os.path.dirname(__file__), "atom_migration_log.json")
+        log = []
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r", encoding="utf-8") as f:
+                    log = json.load(f)
+            except Exception:
+                log = []
+        entry = {
+            "ts": _now_br().isoformat(timespec="seconds"),
+            "event": event_type,
+            "data": data,
+        }
+        log.append(entry)
+        # Mantem apenas os ultimos 500 eventos
+        if len(log) > 500:
+            log = log[-500:]
+        with open(log_path, "w", encoding="utf-8") as f:
+            json.dump(log, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[ATOMS] Log erro: {e}")
+
+
+def _fetch_atom_acc_for_day(acc_id, date_str):
+    """Fetcha 1 atom: dados de UMA conta em UM dia. 1 chamada Meta.
+    Retorna {campaigns, insights_by_id, fetched_at}.
+    Cacheado via set_atom (TTL adaptativo).
+
+    Usado pelo backfill engine. Pode ser chamado na hora se atom faltar
+    durante uma agregacao em runtime."""
+    cached = get_atom('acc', acc_id, date_str)
+    if cached is not None:
+        return cached
+
+    t0 = time.time()
+    try:
+        camps_list = _fetch_account_campaigns(
+            acc_id,
+            "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
+            '["ACTIVE","PAUSED","ARCHIVED"]',
+        )
+    except Exception as e:
+        print(f"[ATOM] Falha campanhas {acc_id} {date_str}: {e}")
+        camps_list = []
+
+    insights_by_id = {}
+    try:
+        rows = meta_get_all_pages(f"{acc_id}/insights", {
+            "fields": INSIGHT_FIELDS_CAMPAIGN,
+            "time_range": json.dumps({"since": date_str, "until": date_str}),
+            "level": "campaign",
+            "filtering": json.dumps([{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]),
+            "limit": 500,
+        })
+        for r in rows:
+            cid = r.get("campaign_id", "")
+            if cid:
+                insights_by_id[cid] = r
+    except Exception as e:
+        print(f"[ATOM] Falha insights {acc_id} {date_str}: {e}")
+        _log_atom_event("fetch_err", {"acc": acc_id, "date": date_str, "error": str(e)[:200]})
+        return None
+
+    payload = {
+        "campaigns": camps_list,
+        "insights_by_id": insights_by_id,
+        "fetched_at": _now_br().isoformat(timespec="seconds"),
+    }
+    set_atom('acc', acc_id, date_str, payload)
+    duration_ms = int((time.time() - t0) * 1000)
+    _log_atom_event("fetch_ok", {
+        "acc": acc_id, "date": date_str,
+        "campaigns": len(camps_list),
+        "insights": len(insights_by_id),
+        "ms": duration_ms,
+    })
+    return payload
+
+
+def _accumulate_insight_row(combined, new_row):
+    """Soma campos numericos + merge de listas (actions, action_values, etc)
+    de UM insight row novo no acumulador combined.
+    combined eh modificado in-place. new_row eh o dict raw da Meta."""
+    if not new_row:
+        return
+    # Campos numericos diretos
+    for k in ("spend", "impressions", "clicks", "reach", "inline_link_clicks",
+              "frequency", "cpc", "cpm", "ctr"):
+        v = new_row.get(k)
+        if v is None:
+            continue
+        try:
+            v = float(v)
+        except Exception:
+            continue
+        if k in ("frequency", "cpc", "cpm", "ctr"):
+            # Esses sao DERIVADOS — guardamos a ultima vista pra recalcular depois
+            combined.setdefault("_derived_seen", {})[k] = v
+        else:
+            combined[k] = combined.get(k, 0) + v
+
+    # Listas de acoes — merge por action_type
+    for list_field in ("actions", "action_values", "cost_per_action_type",
+                        "purchase_roas", "video_thruplay_watched_actions",
+                        "video_play_actions", "video_p25_watched_actions",
+                        "video_p50_watched_actions", "video_p75_watched_actions",
+                        "video_p95_watched_actions", "video_p100_watched_actions"):
+        new_list = new_row.get(list_field) or []
+        if not new_list:
+            continue
+        bucket = combined.setdefault("_list_" + list_field, {})  # action_type -> sum
+        for item in new_list:
+            at = item.get("action_type")
+            if not at:
+                continue
+            try:
+                v = float(item.get("value", 0) or 0)
+            except Exception:
+                v = 0
+            if list_field in ("cost_per_action_type", "purchase_roas"):
+                # Derivados — recalculam depois, marcamos com flag pra nao usar a soma
+                continue
+            bucket[at] = bucket.get(at, 0) + v
+
+
+def _finalize_combined_insight(combined):
+    """Converte o acumulador (`_list_*` dicts) de volta pra estrutura Meta-like
+    com campos `actions`, `action_values`, etc. Recalcula derivados como CPA
+    a partir dos somatorios."""
+    out = {}
+    for k, v in combined.items():
+        if k.startswith("_list_") or k.startswith("_derived"):
+            continue
+        out[k] = v
+    # Reconstroi listas
+    for prefix in ("actions", "action_values", "video_thruplay_watched_actions",
+                    "video_play_actions", "video_p25_watched_actions",
+                    "video_p50_watched_actions", "video_p75_watched_actions",
+                    "video_p95_watched_actions", "video_p100_watched_actions"):
+        bucket = combined.get("_list_" + prefix) or {}
+        if bucket:
+            out[prefix] = [{"action_type": at, "value": str(v)} for at, v in bucket.items()]
+    # Recalcula cost_per_action_type (CPA por tipo) a partir do acumulado
+    spend = float(out.get("spend", 0) or 0)
+    actions_bucket = combined.get("_list_actions") or {}
+    if spend > 0 and actions_bucket:
+        cpa_list = []
+        for at, count in actions_bucket.items():
+            if count > 0:
+                cpa_list.append({"action_type": at, "value": str(round(spend / count, 4))})
+        if cpa_list:
+            out["cost_per_action_type"] = cpa_list
+    # Recalcula purchase_roas: action_values purchase / spend
+    av_bucket = combined.get("_list_action_values") or {}
+    if spend > 0 and av_bucket:
+        roas_list = []
+        for at, value in av_bucket.items():
+            roas_list.append({"action_type": at, "value": str(round(value / spend, 4))})
+        if roas_list:
+            out["purchase_roas"] = roas_list
+    return out
+
+
+def _atoms_can_serve_range(acc_ids, date_from, date_to):
+    """Verifica se TODOS os atoms necessarios pra esse range estao disponiveis
+    (todas as contas × todos os dias). Usado pelo dual-read pra decidir se
+    pode usar atoms ou cai no fallback."""
+    for acc in acc_ids:
+        atoms, missing = get_atoms_for_range('acc', acc, date_from, date_to)
+        if missing:
+            return False
+    return True
+
+
+def _fetch_atoms_for_range(acc_ids, date_from, date_to):
+    """Le atoms de varias contas pra um range. Retorna {acc_id: [atoms_list]}.
+    Atoms faltantes sao IGNORADOS (chamador valida via _atoms_can_serve_range
+    antes de usar)."""
+    result = {}
+    for acc in acc_ids:
+        atoms, missing = get_atoms_for_range('acc', acc, date_from, date_to)
+        result[acc] = atoms
+    return result
+
+
+def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to):
+    """Constroi um dict no formato {campaigns, insights_by_id} a partir dos
+    atoms — DROP-IN replacement pra _fetch_account_raw_v1.
+    Soma metricas across days dos atoms. Reconstroi listas (actions, etc).
+    Retorna None se atoms incompletos pra esse range."""
+    atoms_list, missing = get_atoms_for_range('acc', acc_id, date_from, date_to)
+    if missing:
+        return None
+
+    all_campaigns = {}
+    combined = {}
+    for atom in atoms_list:
+        payload = atom['payload']
+        for c in payload.get('campaigns') or []:
+            cid = c.get('id')
+            if cid and cid not in all_campaigns:
+                all_campaigns[cid] = dict(c)
+        for cid, ins in (payload.get('insights_by_id') or {}).items():
+            if cid not in combined:
+                combined[cid] = {}
+            _accumulate_insight_row(combined[cid], ins)
+
+    insights_by_id = {}
+    for cid, c_combined in combined.items():
+        finalized = _finalize_combined_insight(c_combined)
+        finalized["campaign_id"] = cid
+        insights_by_id[cid] = finalized
+
+    return {
+        "campaigns": list(all_campaigns.values()),
+        "insights_by_id": insights_by_id,
+    }
+
+
+def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_status="all"):
+    """Constroi (sales_campaigns, daily_rows) no formato de _get_shared_daily_insights
+    a partir dos atoms. Cada atom vira N rows (um por campanha-dia) com date_start.
+    Retorna None se atoms incompletos."""
+    accounts = [a for a in _get_accounts_for_type(camp_type) if a]
+    if not accounts:
+        return None
+    if not _atoms_can_serve_range(accounts, date_from, date_to):
+        return None
+
+    all_campaigns = {}
+    daily_rows = []
+    for acc in accounts:
+        atoms_list, _ = get_atoms_for_range('acc', acc, date_from, date_to)
+        for atom in atoms_list:
+            atom_date = atom['date']
+            payload = atom['payload']
+            for c in payload.get('campaigns') or []:
+                cid = c.get('id')
+                if cid and cid not in all_campaigns:
+                    cc = dict(c)
+                    cc['_account_id'] = acc
+                    all_campaigns[cid] = cc
+            for cid, ins in (payload.get('insights_by_id') or {}).items():
+                row = dict(ins)
+                row['date_start'] = atom_date
+                row['date_stop'] = atom_date
+                row['campaign_id'] = cid
+                daily_rows.append(row)
+
+    sales_campaigns = _filter_campaigns_by_type(list(all_campaigns.values()), camp_type)
+    sales_ids = {c['id'] for c in sales_campaigns}
+    daily_rows = [r for r in daily_rows if r.get('campaign_id') in sales_ids]
+    return sales_campaigns, daily_rows
+
+
+def _validate_atom_vs_legacy(label, atom_value, legacy_value, tolerance=0.0001):
+    """Compara valor calculado via atoms vs valor de cache antigo / Meta direto.
+    Loga divergencias. Retorna True se OK (diff < tolerance)."""
+    try:
+        a = float(atom_value or 0)
+        l = float(legacy_value or 0)
+        if l == 0 and a == 0:
+            return True
+        diff_pct = abs(a - l) / max(abs(l), 1) * 100
+        ok = diff_pct < (tolerance * 100)
+        _log_atom_event("validate_ok" if ok else "validate_diverge", {
+            "label": label,
+            "atom": round(a, 4),
+            "legacy": round(l, 4),
+            "diff_pct": round(diff_pct, 6),
+        })
+        if not ok:
+            now_ts = time.time()
+            _atom_recent_divergences.append(now_ts)
+            cutoff = now_ts - _DIVERGENCE_WINDOW_SECONDS
+            _atom_recent_divergences[:] = [t for t in _atom_recent_divergences if t >= cutoff]
+            if len(_atom_recent_divergences) >= _DIVERGENCE_THRESHOLD:
+                _set_use_atoms(False, f"auto-revert: {len(_atom_recent_divergences)} divergencias em 1h")
+                _log_atom_event("auto_revert", {"divergences": len(_atom_recent_divergences)})
+        return ok
+    except Exception as e:
+        print(f"[ATOMS] Erro validacao {label}: {e}")
+        return True  # erro silencioso nao bloqueia atoms
 
 
 def _fetch_insights_for_tagged_campaigns(campaigns, base_params, extra_filters=None):
@@ -1736,6 +2057,14 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
     if cached is not None:
         return cached.get("campaigns", []), cached.get("rows", [])
 
+    # DUAL-READ: se USE_ATOMS ativo, tenta atoms primeiro
+    if USE_ATOMS:
+        atom_result = _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_status)
+        if atom_result is not None:
+            sales_campaigns, rows = atom_result
+            set_cached(cache_key, {"campaigns": sales_campaigns, "rows": rows}, ttl_hours=4)
+            return sales_campaigns, rows
+
     sales_campaigns = _fetch_type_campaigns(
         camp_type,
         "id,name,objective,daily_budget,lifetime_budget,start_time,created_time,status",
@@ -1787,18 +2116,20 @@ def api_campaigns():
             if cached:
                 return jsonify(cached)
 
-        # 1. Buscar RAW (campanhas + insights) por conta — cache campaigns_raw_v1.
-        # Reutilizado por todas as tabs: 1a tab paga Meta; demais tabs no mesmo
-        # range/status sao soma+filter em memoria. Mudanca de classificacao:
-        # refiltra o bruto, zero chamada Meta.
+        # 1. Buscar RAW (campanhas + insights) por conta.
+        # DUAL-READ: se USE_ATOMS ativo, tenta atoms primeiro (drop-in); senao
+        # cai no campaigns_raw_v1 (caminho antigo, hits Meta range).
         all_campaigns = []
         insights_map = {}
         for acc in _get_accounts_for_type(camp_type):
             if not acc:
                 continue
-            raw = _fetch_account_raw_v1(acc, camp_status, date_from, date_to)
+            raw = None
+            if USE_ATOMS:
+                raw = _build_pseudo_raw_per_account_from_atoms(acc, date_from, date_to)
+            if raw is None:
+                raw = _fetch_account_raw_v1(acc, camp_status, date_from, date_to)
             for c in (raw.get("campaigns") or []):
-                # Copia shallow + tagueia _account_id (nao mutar cache)
                 cc = dict(c)
                 cc["_account_id"] = acc
                 all_campaigns.append(cc)
