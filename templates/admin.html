@@ -82,6 +82,7 @@
         body[data-adm-active="system"]   [data-adm-section]:not([data-adm-section="system"])  {display:none !important}
         body[data-adm-active="campaigns"] [data-adm-section]:not([data-adm-section="campaigns"]){display:none !important}
         body[data-adm-active="usage"]    [data-adm-section]:not([data-adm-section="usage"])   {display:none !important}
+        body[data-adm-active="atoms"]    [data-adm-section]:not([data-adm-section="atoms"])   {display:none !important}
         body[data-adm-active="help"]     [data-adm-section]:not([data-adm-section="help"])    {display:none !important}
     </style>
 </head>
@@ -100,6 +101,7 @@
         <button class="adm-nav-btn" data-adm-tab="system" data-super-only>Sistema</button>
         <button class="adm-nav-btn" data-adm-tab="campaigns" data-super-only>Campanhas</button>
         <button class="adm-nav-btn" data-adm-tab="usage" data-super-only>Diagnostico API</button>
+        <button class="adm-nav-btn" data-adm-tab="atoms" data-super-only>Migracao Atoms</button>
         <button class="adm-nav-btn" data-adm-tab="help">Ajuda</button>
     </div>
 
@@ -524,6 +526,82 @@
                 </table>
             </div>
         </details>
+    </div>
+
+    <!-- Migracao de Atoms (super_admin only) -->
+    <div class="card" data-adm-section="atoms" style="display:none;">
+        <h2>&#128640; Migracao de Atoms</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:16px;">
+            Migracao do cache pra modelo de atoms diarios imutaveis.
+            Cada atom = 1 dia de UMA conta de anuncios.
+            Range queries (30d, 7d, etc) viram soma de atoms — depois de
+            populados, atoms nunca sao re-fetched (excepto revalidacao D+2 e D+8).
+            Reduz ~80-90% das chamadas Meta no regime permanente.
+        </p>
+
+        <!-- Bloco 1: Estado geral -->
+        <div id="atomStatusBox" style="background:rgba(31,111,235,.08);border:1px solid rgba(31,111,235,.25);border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <div style="color:#1f6feb;font-size:13px;font-weight:600;">Estado geral</div>
+                    <div id="atomStateText" style="color:#888;font-size:12px;margin-top:3px;">Carregando...</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <span id="atomFlagState" style="padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;">--</span>
+                    <button id="atomFlagToggle" onclick="atomToggleFlag()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Toggle</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bloco 2: Progresso -->
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:8px;">Progresso do backfill</div>
+            <div style="background:#0a1018;border-radius:6px;height:24px;overflow:hidden;position:relative;">
+                <div id="atomProgressBar" style="background:linear-gradient(90deg,#3fdf85,#1f6feb);height:100%;width:0%;transition:width .3s;"></div>
+                <div id="atomProgressText" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;text-shadow:0 0 4px #000;">--/-- (--%)</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;color:#888;font-size:11px;margin-top:6px;">
+                <span>Fila: <span id="atomQueueSize" style="color:#ccc;">--</span></span>
+                <span>Pacing atual: <span id="atomPacing" style="color:#ccc;">--</span>/h</span>
+                <span>BUC: <span id="atomBuc" style="color:#ccc;">--</span>%</span>
+                <span>Ultimo fetch: <span id="atomLastFetch" style="color:#ccc;">--</span></span>
+            </div>
+        </div>
+
+        <!-- Bloco 3: Por conta -->
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:8px;">Atoms por conta</div>
+            <div id="atomPerAccount" style="display:grid;gap:6px;font-size:11px;">
+                <div style="color:#888;">Carregando...</div>
+            </div>
+        </div>
+
+        <!-- Bloco 4: Controles -->
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:10px;">Controles</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button onclick="atomFire(5)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+5 atoms agora</button>
+                <button onclick="atomFire(15)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+15 atoms agora</button>
+                <button onclick="atomTogglePause()" id="atomPauseBtn" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Pausar</button>
+                <button onclick="atomPopulateQueue()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Repopular fila</button>
+                <button onclick="loadAtomStatus()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Atualizar</button>
+            </div>
+            <div style="color:#888;font-size:11px;margin-top:8px;">
+                Reversao automatica: <span id="atomDivergCount" style="color:#ccc;">0</span> divergencias na ultima hora
+                (3+ disparam reversao automatica)
+            </div>
+        </div>
+
+        <!-- Bloco 5: Historico -->
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <div style="color:#fff;font-size:13px;font-weight:600;">Historico (ultimas 50)</div>
+                <span style="color:#888;font-size:11px;">Auto-atualiza a cada 5s</span>
+            </div>
+            <div id="atomHistory" style="max-height:300px;overflow-y:auto;font-family:'Courier New',monospace;font-size:11px;line-height:1.6;background:#0a0f1a;border-radius:4px;padding:8px;">
+                <div style="color:#666;">Carregando...</div>
+            </div>
+        </div>
     </div>
 
     <!-- Instrucoes -->
@@ -1688,6 +1766,191 @@ window.fireSchedTest = async function(delay){
         alert('Erro: ' + e.message);
     }
 };
+
+// ─── ATOM MIGRATION PANEL ─────────────────────────────────────────
+var _atomPollTimer = null;
+
+async function loadAtomStatus() {
+    try {
+        var r = await fetch('/api/admin/atom-status');
+        if (!r.ok) {
+            document.getElementById('atomStateText').textContent = 'Erro: HTTP ' + r.status;
+            return;
+        }
+        var d = await r.json();
+        if (!d.ok) {
+            document.getElementById('atomStateText').textContent = 'Erro: ' + (d.error || '?');
+            return;
+        }
+        // Estado e flag
+        var flagEl = document.getElementById('atomFlagState');
+        var toggleBtn = document.getElementById('atomFlagToggle');
+        if (d.use_atoms) {
+            flagEl.textContent = 'ATOMS ATIVO';
+            flagEl.style.background = '#3fdf85';
+            flagEl.style.color = '#0a1018';
+            toggleBtn.textContent = 'Desativar';
+        } else {
+            flagEl.textContent = 'ATOMS DESATIVADO';
+            flagEl.style.background = '#2a2e36';
+            flagEl.style.color = '#ccc';
+            toggleBtn.textContent = 'Ativar';
+        }
+        var stateLines = [];
+        if (d.use_atoms) stateLines.push('Endpoints lendo de atoms (com fallback)');
+        else stateLines.push('Endpoints lendo do cache antigo (atoms populando em background)');
+        if (d.backfill_paused) stateLines.push('&#9208; Backfill PAUSADO');
+        document.getElementById('atomStateText').innerHTML = stateLines.join(' &middot; ');
+
+        // Progresso
+        var p = d.progress || {};
+        document.getElementById('atomProgressBar').style.width = (p.pct || 0) + '%';
+        document.getElementById('atomProgressText').textContent = (p.populated || 0) + '/' + (p.target || 0) + ' (' + (p.pct || 0) + '%)';
+        document.getElementById('atomQueueSize').textContent = p.queue_size != null ? p.queue_size : '--';
+        document.getElementById('atomPacing').textContent = (d.pacing && d.pacing.current_h) || '--';
+        document.getElementById('atomBuc').textContent = d.buc ? d.buc.pct : '--';
+        document.getElementById('atomLastFetch').textContent = (d.pacing && d.pacing.last_fetch_at) ? d.pacing.last_fetch_at.slice(11, 19) : '--';
+
+        // Por conta
+        var paBox = document.getElementById('atomPerAccount');
+        var paHtml = '';
+        (d.per_account || []).forEach(function(a) {
+            var color = a.pct >= 100 ? '#3fdf85' : (a.pct >= 50 ? '#1f6feb' : '#888');
+            paHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #2a2e36;">'
+                + '<span style="color:#ccc;">' + a.acc_id + '</span>'
+                + '<div style="display:flex;gap:10px;align-items:center;">'
+                + '<span style="background:' + color + ';color:#0a1018;padding:2px 8px;border-radius:3px;font-weight:700;">' + a.atoms_count + '/' + a.target + '</span>'
+                + '<span style="color:#888;min-width:50px;text-align:right;">' + a.pct + '%</span>'
+                + '</div>'
+                + '</div>';
+        });
+        paBox.innerHTML = paHtml || '<div style="color:#888;">Nenhuma conta</div>';
+
+        // Divergencias
+        document.getElementById('atomDivergCount').textContent = d.divergences_recent || 0;
+
+        // Pause btn
+        document.getElementById('atomPauseBtn').textContent = d.backfill_paused ? 'Resumir' : 'Pausar';
+
+        // Historico
+        var hist = document.getElementById('atomHistory');
+        var hHtml = '';
+        (d.history || []).forEach(function(h) {
+            var color = '#888';
+            var icon = '&middot;';
+            if (h.event === 'fetch_ok' || h.event === 'validate_ok') { color = '#3fdf85'; icon = '&#10003;'; }
+            else if (h.event === 'fetch_err' || h.event === 'validate_diverge') { color = '#f85149'; icon = '&#9888;'; }
+            else if (h.event === 'auto_revert' || h.event === 'flag_change') { color = '#bc8cff'; icon = '&#9881;'; }
+            else if (h.event === 'backfill_progress' || h.event === 'backfill_queue_populated') { color = '#1f6feb'; icon = '&#8635;'; }
+            var ts = (h.ts || '').slice(11, 19);
+            var data = h.data || {};
+            var summary = '';
+            if (h.event === 'fetch_ok') summary = data.acc + '/' + data.date + ' (' + data.campaigns + ' camps, ' + data.ms + 'ms)';
+            else if (h.event === 'fetch_err') summary = data.acc + '/' + data.date + ' — ' + (data.error || '');
+            else if (h.event === 'validate_diverge') summary = data.label + ' diff=' + data.diff_pct + '% (atom=' + data.atom + ', legacy=' + data.legacy + ')';
+            else if (h.event === 'flag_change') summary = data.from + ' → ' + data.to + ' (' + (data.reason || '') + ')';
+            else if (h.event === 'auto_revert') summary = data.divergences + ' divergencias';
+            else if (h.event === 'backfill_progress') summary = 'remaining=' + data.remaining;
+            else summary = JSON.stringify(data).slice(0, 80);
+            hHtml += '<div style="padding:2px 0;border-bottom:1px solid #1a1f2e;">'
+                + '<span style="color:#666;">[' + ts + ']</span> '
+                + '<span style="color:' + color + ';font-weight:600;">' + icon + ' ' + h.event + '</span> '
+                + '<span style="color:#aaa;">' + summary + '</span>'
+                + '</div>';
+        });
+        hist.innerHTML = hHtml || '<div style="color:#666;">Sem eventos ainda</div>';
+    } catch (e) {
+        document.getElementById('atomStateText').textContent = 'Erro: ' + e.message;
+    }
+}
+
+async function atomToggleFlag() {
+    var current = document.getElementById('atomFlagToggle').textContent;
+    var enable = (current.toLowerCase().indexOf('ativar') === 0);
+    if (!confirm((enable ? 'ATIVAR' : 'DESATIVAR') + ' atoms agora?')) return;
+    try {
+        var r = await fetch('/api/admin/atom-toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enable: enable }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function atomFire(n) {
+    try {
+        var r = await fetch('/api/admin/atom-backfill-fire', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ n: n }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        // Recarrega status em alguns segundos
+        setTimeout(loadAtomStatus, 3000);
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function atomTogglePause() {
+    var btn = document.getElementById('atomPauseBtn');
+    var pause = btn.textContent === 'Pausar';
+    try {
+        var r = await fetch('/api/admin/atom-backfill-pause', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pause: pause }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function atomPopulateQueue() {
+    if (!confirm('Repopular fila com 30 dias × contas?')) return;
+    try {
+        var r = await fetch('/api/admin/atom-populate-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days_back: 30 }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        alert((d.added || 0) + ' atoms adicionados a fila.');
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+// Auto-poll quando aba Atoms estiver ativa
+function _startAtomPolling() {
+    if (_atomPollTimer) return;
+    loadAtomStatus();
+    _atomPollTimer = setInterval(loadAtomStatus, 5000);
+}
+function _stopAtomPolling() {
+    if (_atomPollTimer) clearInterval(_atomPollTimer);
+    _atomPollTimer = null;
+}
+
+// Hook na navegacao das abas
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.adm-nav-btn').forEach(function(b) {
+        b.addEventListener('click', function() {
+            if (b.getAttribute('data-adm-tab') === 'atoms') {
+                _startAtomPolling();
+            } else {
+                _stopAtomPolling();
+            }
+        });
+    });
+    // Se carregou direto na aba atoms (URL param ou localStorage)
+    if (document.body.getAttribute('data-adm-active') === 'atoms') {
+        _startAtomPolling();
+    }
+});
 
 // ── Disparar warmup mensal manualmente ──
 window.fireMonthlyWarmup = async function(){
