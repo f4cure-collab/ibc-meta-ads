@@ -582,6 +582,7 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button onclick="atomFire(5)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+5 atoms agora</button>
                 <button onclick="atomFire(15)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+15 atoms agora</button>
+                <button onclick="atomRevalidateRecent()" style="background:#3fdf85;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#8635; Revalidar ultimos 7d</button>
                 <button onclick="atomValidateNow()" style="background:#bc8cff;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128270; Validar agora (30d)</button>
                 <button onclick="atomTogglePause()" id="atomPauseBtn" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Pausar</button>
                 <button onclick="atomPopulateQueue()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Repopular fila</button>
@@ -1919,6 +1920,21 @@ async function atomTogglePause() {
     } catch (e) { alert('Erro: ' + e.message); }
 }
 
+async function atomRevalidateRecent() {
+    if (!confirm('Refetchar atoms dos ultimos 7 dias?\n\nIsso vai fazer 7 dias × 3 contas = ~21 chamadas Meta.\nUsa pra atualizar com atribuicao tardia. Leva ~1-2 min.')) return;
+    try {
+        var r = await fetch('/api/admin/atom-revalidate-recent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: 7 }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        alert(d.message + '\n\nAguarde ~2 min, depois clique "Validar agora" pra conferir se zerou as diferencas.');
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
 async function atomValidateNow() {
     if (!confirm('Validar atoms vs cache atual em todos os 5 tipos pelos ultimos 30 dias?\n\nIsso pode levar 1-3 minutos e fazer ate ~15 chamadas Meta (1 por conta+tipo).')) return;
     var modal = document.getElementById('atomValidateModal');
@@ -1958,6 +1974,81 @@ async function atomValidateNow() {
         var verdict = allOk ? '&#9989; TUDO IGUAL — pode ativar atoms com seguranca' : (hasDiverge ? '&#10060; DIVERGENCIA SIGNIFICATIVA — investigar antes de ativar' : '&#9888; Pequena diferenca em algum tipo (verifique abaixo)');
         var verdictColor = allOk ? '#3fdf85' : (hasDiverge ? '#f85149' : '#f59e0b');
         html += '<div style="background:rgba(' + (allOk ? '63,223,133' : (hasDiverge ? '248,81,73' : '245,158,11')) + ',.15);border:1px solid ' + verdictColor + ';color:' + verdictColor + ';padding:12px;border-radius:6px;font-weight:700;margin-bottom:18px;">' + verdict + '</div>';
+
+        // ─── DIAGNOSTICO: quais metricas falharam (em portugues) ───
+        var diagnostics = [];
+        var metricNames = {
+            total_spend: 'Spend (gasto)',
+            total_revenue: 'Receita',
+            total_purchases: 'Compras/Leads',
+            total_campaigns: 'Numero de campanhas',
+        };
+        (d.results || []).forEach(function(rs) {
+            if (rs.status === 'skipped' || rs.status === 'ok') return;
+            var m = rs.metrics || {};
+            Object.keys(m).forEach(function(metricKey) {
+                var v = m[metricKey];
+                if (!v || v.diff_pct < 0.01) return;
+                var sev = v.diff_pct < 1 ? 'aviso' : 'divergencia';
+                var diff = Math.abs((parseFloat(v.atoms) || 0) - (parseFloat(v.legacy) || 0));
+                var fmt = (metricKey === 'total_spend' || metricKey === 'total_revenue')
+                    ? ('R$ ' + diff.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}))
+                    : (Math.round(diff).toLocaleString('pt-BR') + ' un');
+                diagnostics.push({
+                    severity: sev,
+                    type: rs.type,
+                    metric: metricNames[metricKey] || metricKey,
+                    diff_pct: v.diff_pct,
+                    diff_abs: fmt,
+                    atoms: v.atoms,
+                    legacy: v.legacy,
+                });
+            });
+        });
+
+        if (diagnostics.length > 0) {
+            // Ordena: divergencias primeiro, depois avisos
+            diagnostics.sort(function(a, b) {
+                if (a.severity !== b.severity) return a.severity === 'divergencia' ? -1 : 1;
+                return b.diff_pct - a.diff_pct;
+            });
+            html += '<div style="background:#0a0f1a;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:18px;">';
+            html += '<div style="color:#fff;font-size:14px;font-weight:700;margin-bottom:10px;">&#128269; DIAGNOSTICO — metricas com diferenca</div>';
+            diagnostics.forEach(function(d) {
+                var color = d.severity === 'divergencia' ? '#f85149' : '#f59e0b';
+                var icon = d.severity === 'divergencia' ? '&#10060;' : '&#9888;';
+                html += '<div style="padding:8px 0;border-bottom:1px solid #1a1f2e;">'
+                    + '<div style="color:' + color + ';font-weight:700;font-size:13px;">'
+                    + icon + ' ' + d.type.toUpperCase() + ' &mdash; ' + d.metric
+                    + ' <span style="float:right;">' + d.diff_pct.toFixed(3) + '% (' + d.diff_abs + ')</span>'
+                    + '</div>'
+                    + '<div style="color:#888;font-size:11px;margin-top:4px;font-family:monospace;">'
+                    + 'atoms = ' + d.atoms + ' | legacy = ' + d.legacy
+                    + '</div>'
+                    + '</div>';
+            });
+            // Sugestoes automaticas
+            var suggs = [];
+            var hasReceita = diagnostics.some(function(d){return d.metric.indexOf('Receita') >= 0;});
+            var hasCompras = diagnostics.some(function(d){return d.metric.indexOf('Compras') >= 0;});
+            var allUnder1 = diagnostics.every(function(d){return d.diff_pct < 1;});
+            if (allUnder1) {
+                suggs.push('Todas as diferencas sao &lt;1% — provavelmente TIMING (Meta atualiza valores em tempo real). Pode ativar.');
+            }
+            if (hasReceita && !hasCompras) {
+                suggs.push('Receita diverge mas Compras OK — atribuicao de revenue da Meta tem janela maior, pode ser timing.');
+            }
+            if (hasCompras && diagnostics.some(function(d){return d.metric.indexOf('Compras') >= 0 && d.diff_pct >= 1;})) {
+                suggs.push('Compras com diff &ge;1% — pode ser bug na agregacao de actions. NAO ativar antes de investigar.');
+            }
+            if (suggs.length) {
+                html += '<div style="margin-top:10px;padding:10px;background:rgba(31,111,235,.08);border-left:3px solid #1f6feb;border-radius:4px;color:#58a6ff;font-size:12px;">';
+                html += '<b>Interpretacao:</b><br>';
+                suggs.forEach(function(s){ html += '&bull; ' + s + '<br>'; });
+                html += '</div>';
+            }
+            html += '</div>';
+        }
 
         // Cards por tipo (mais legivel que tabela)
         function fmtCur(v) { return 'R$ ' + (v || 0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
