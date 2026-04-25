@@ -7100,6 +7100,13 @@ def _refresh_recent_loop():
     except Exception as e:
         print(f"[BOOT] Erro warmup mensal: {e}")
 
+    # Popula fila de backfill de atoms (idempotente — so adiciona faltantes)
+    try:
+        added = _populate_backfill_queue(days_back=30)
+        print(f"[BOOT] Atom backfill queue: +{added} atoms enfileirados")
+    except Exception as e:
+        print(f"[BOOT] Erro popular fila atoms: {e}")
+
     iteration = 1
     # Ranges cobertos pelo loop (30d e 7d apenas — os mais usados).
     LOOP_RANGES = [30, 7]
