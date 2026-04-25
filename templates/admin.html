@@ -610,7 +610,7 @@ async function loadAll() {
         var status = document.getElementById('statusInfo');
         if (r3.ok) {
             var d3 = await r3.json();
-            var pct = d3.data ? d3.data.call_count : 0;
+            var pct = (d3.data && typeof d3.data.pct === 'number') ? d3.data.pct : 0;
             status.innerHTML = '<span style="color:#4caf50;">&#9679;</span> Conectado | API: ' + pct + '% usado';
         } else {
             status.innerHTML = '<span style="color:#f44336;">&#9679;</span> Erro na conexao';
