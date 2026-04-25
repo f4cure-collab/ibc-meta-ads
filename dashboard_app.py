@@ -551,6 +551,214 @@ def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_stat
     return sales_campaigns, daily_rows
 
 
+# ── BACKFILL ENGINE ──────────────────────────────────────────────────
+# Fila persistente em JSON. Worker daemon thread processa 1 atom por vez
+# com pacing adaptativo (10/h normal, 5/h se BUC>50%, 3/h se BUC>70%).
+
+_BACKFILL_QUEUE_FILE = os.path.join(os.path.dirname(__file__), "atom_backfill_queue.json")
+_backfill_lock = threading.Lock()
+_backfill_thread_started = False
+_backfill_paused = False  # toggle via admin button
+_backfill_state = {"last_fetch_at": None, "current_pacing_h": 10}
+
+
+def _load_backfill_queue():
+    try:
+        if not os.path.exists(_BACKFILL_QUEUE_FILE):
+            return []
+        with open(_BACKFILL_QUEUE_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_backfill_queue(queue):
+    try:
+        with open(_BACKFILL_QUEUE_FILE, "w", encoding="utf-8") as f:
+            json.dump(queue, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"[BACKFILL] Erro salvar fila: {e}")
+
+
+def _populate_backfill_queue(days_back=30):
+    """Adiciona atoms faltantes a fila. Idempotente — nao duplica entradas
+    nem refaz atoms ja cacheados. Retorna # de atoms adicionados."""
+    accounts = set()
+    for ct in VALID_CAMP_TYPES:
+        for acc in _get_accounts_for_type(ct):
+            if acc:
+                accounts.add(acc)
+    if ACCOUNT_ID:
+        accounts.add(ACCOUNT_ID)
+
+    with _backfill_lock:
+        queue = _load_backfill_queue()
+        existing = set((q.get('acc'), q.get('date')) for q in queue)
+
+        today = _now_br().replace(hour=0, minute=0, second=0, microsecond=0)
+        added = 0
+        for d_offset in range(1, days_back + 1):
+            target_date = (today - timedelta(days=d_offset)).strftime("%Y-%m-%d")
+            for acc in sorted(accounts):
+                if (acc, target_date) in existing:
+                    continue
+                # Skip se atom ja existe (talvez populado por outro fluxo)
+                if get_atom('acc', acc, target_date) is not None:
+                    continue
+                queue.append({
+                    "acc": acc,
+                    "date": target_date,
+                    "added_at": _now_br().isoformat(timespec="seconds"),
+                    "attempts": 0,
+                })
+                added += 1
+        _save_backfill_queue(queue)
+    if added:
+        _log_atom_event("backfill_queue_populated", {"added": added, "days_back": days_back})
+    return added
+
+
+def _backfill_get_pacing_seconds():
+    """Determina segundos entre fetches:
+        BUC < 50%:  360s (10/h, ritmo padrao)
+        BUC 50-70%: 720s (5/h, throttle leve)
+        BUC > 70%:  1200s (3/h, throttle pesado)"""
+    try:
+        worst_pct, _ = _worst_usage_pct()
+    except Exception:
+        worst_pct = 0
+    if worst_pct >= 70:
+        _backfill_state["current_pacing_h"] = 3
+        return 1200
+    if worst_pct >= 50:
+        _backfill_state["current_pacing_h"] = 5
+        return 720
+    _backfill_state["current_pacing_h"] = 10
+    return 360
+
+
+def _backfill_worker():
+    """Loop principal do backfill. Daemon thread."""
+    print(f"[BACKFILL] Worker iniciado PID {os.getpid()}")
+    # Delay inicial pra app estabilizar
+    time.sleep(60)
+
+    while True:
+        try:
+            if _backfill_paused:
+                time.sleep(60)
+                continue
+
+            with _backfill_lock:
+                queue = _load_backfill_queue()
+            if not queue:
+                # Fila vazia — verifica se precisa popular (talvez novo dia
+                # entrou em D+1 e precisa ser warmed). Re-popula a cada 1h.
+                try:
+                    _populate_backfill_queue(days_back=30)
+                except Exception as e:
+                    print(f"[BACKFILL] Erro re-popular: {e}")
+                time.sleep(600)
+                continue
+
+            # Pega o proximo item
+            with _backfill_lock:
+                queue = _load_backfill_queue()
+                if not queue:
+                    time.sleep(60)
+                    continue
+                item = queue[0]
+                queue = queue[1:]
+                _save_backfill_queue(queue)
+
+            acc = item.get('acc')
+            date = item.get('date')
+            if not acc or not date:
+                continue
+
+            # Skip se atom ja existe
+            if get_atom('acc', acc, date) is not None:
+                continue
+
+            # Circuit breaker: BUC critico = pula esse atom, espera
+            if _buc_is_critical(threshold=85):
+                print(f"[BACKFILL] BUC critico — re-enfileirando {acc}/{date} e pausando 10min")
+                with _backfill_lock:
+                    q = _load_backfill_queue()
+                    q.append(item)
+                    _save_backfill_queue(q)
+                time.sleep(600)
+                continue
+
+            # Fetch atom
+            try:
+                payload = _fetch_atom_acc_for_day(acc, date)
+                if payload is None:
+                    item['attempts'] = item.get('attempts', 0) + 1
+                    if item['attempts'] < 3:
+                        with _backfill_lock:
+                            q = _load_backfill_queue()
+                            q.append(item)
+                            _save_backfill_queue(q)
+                _backfill_state["last_fetch_at"] = _now_br().isoformat(timespec="seconds")
+            except Exception as e:
+                print(f"[BACKFILL] Erro fetch {acc} {date}: {e}")
+                item['attempts'] = item.get('attempts', 0) + 1
+                if item['attempts'] < 3:
+                    with _backfill_lock:
+                        q = _load_backfill_queue()
+                        q.append(item)
+                        _save_backfill_queue(q)
+
+            # Pacing entre fetches
+            sleep_secs = _backfill_get_pacing_seconds()
+            time.sleep(sleep_secs)
+        except Exception as e:
+            print(f"[BACKFILL] Erro loop: {e}")
+            time.sleep(60)
+
+
+def _start_backfill_worker():
+    """Inicia worker daemon (so 1 vez por processo)."""
+    global _backfill_thread_started
+    with _backfill_lock:
+        if _backfill_thread_started:
+            return
+        _backfill_thread_started = True
+    threading.Thread(target=_backfill_worker, daemon=True, name="backfill-worker").start()
+
+
+def _backfill_force_n(n=5):
+    """Forca processamento de N atoms da fila SINCRONO (ignora pacing).
+    Usado pelo botao /admin 'Acelerar'. Retorna lista de resultados."""
+    results = []
+    for _ in range(n):
+        with _backfill_lock:
+            queue = _load_backfill_queue()
+            if not queue:
+                break
+            item = queue[0]
+            queue = queue[1:]
+            _save_backfill_queue(queue)
+        acc = item.get('acc')
+        date = item.get('date')
+        if not acc or not date:
+            continue
+        if get_atom('acc', acc, date) is not None:
+            results.append({"acc": acc, "date": date, "status": "skipped_exists"})
+            continue
+        try:
+            payload = _fetch_atom_acc_for_day(acc, date)
+            results.append({
+                "acc": acc, "date": date,
+                "status": "ok" if payload else "failed",
+            })
+        except Exception as e:
+            results.append({"acc": acc, "date": date, "status": "error", "error": str(e)[:200]})
+        time.sleep(2)  # gap minimo entre forcados
+    return results
+
+
 def _validate_atom_vs_legacy(label, atom_value, legacy_value, tolerance=0.0001):
     """Compara valor calculado via atoms vs valor de cache antigo / Meta direto.
     Loga divergencias. Retorna True se OK (diff < tolerance)."""
@@ -6943,6 +7151,150 @@ def _refresh_recent_loop():
             except Exception: pass
 
 
+# ── ENDPOINTS DA MIGRACAO DE ATOMS ─────────────────────────────────────
+
+@app.route("/api/admin/atom-status")
+def api_admin_atom_status():
+    """Retorna status completo da migracao pra alimentar o painel /admin.
+    Restrito a super_admin (f4cure@gmail.com)."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        # Contadores
+        atoms_meta = list_atoms_metadata(scope='acc')
+        # Por conta+data
+        by_acc = {}
+        atom_dates = set()
+        for m in atoms_meta:
+            by_acc.setdefault(m['key'], set()).add(m['date'])
+            atom_dates.add(m['date'])
+
+        # Fila de backfill
+        with _backfill_lock:
+            queue = _load_backfill_queue()
+        queue_size = len(queue)
+
+        # Total esperado: 30 dias × accounts unicas
+        all_accounts = set()
+        for ct in VALID_CAMP_TYPES:
+            for acc in _get_accounts_for_type(ct):
+                if acc:
+                    all_accounts.add(acc)
+        if ACCOUNT_ID:
+            all_accounts.add(ACCOUNT_ID)
+        target_total = 30 * len(all_accounts)
+        populated = sum(len(dates) for dates in by_acc.values())
+
+        # Historico (ultimas 50 entradas do log)
+        log_path = os.path.join(os.path.dirname(__file__), "atom_migration_log.json")
+        history = []
+        try:
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8") as f:
+                    full_log = json.load(f)
+                    history = full_log[-50:][::-1]  # ultimos 50 invertidos
+        except Exception:
+            pass
+
+        # Por conta — % populado
+        per_account = []
+        for acc in sorted(all_accounts):
+            dates = by_acc.get(acc, set())
+            per_account.append({
+                "acc_id": acc,
+                "atoms_count": len(dates),
+                "target": 30,
+                "pct": round(len(dates) / 30 * 100, 1) if 30 > 0 else 0,
+            })
+
+        # BUC info
+        try:
+            rate_info = get_dashboard_rate_info()
+        except Exception:
+            rate_info = {"pct": 0, "worst_account": ""}
+
+        return jsonify({
+            "ok": True,
+            "use_atoms": USE_ATOMS,
+            "backfill_paused": _backfill_paused,
+            "progress": {
+                "populated": populated,
+                "target": target_total,
+                "queue_size": queue_size,
+                "pct": round(populated / target_total * 100, 1) if target_total > 0 else 0,
+            },
+            "per_account": per_account,
+            "pacing": {
+                "current_h": _backfill_state.get("current_pacing_h", 10),
+                "last_fetch_at": _backfill_state.get("last_fetch_at"),
+            },
+            "buc": {
+                "pct": rate_info.get("pct", 0),
+                "worst_account": rate_info.get("worst_account", ""),
+            },
+            "divergences_recent": len(_atom_recent_divergences),
+            "history": history,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "tb": traceback.format_exc()[:500]}), 500
+
+
+@app.route("/api/admin/atom-toggle", methods=["POST"])
+def api_admin_atom_toggle():
+    """Liga/desliga USE_ATOMS manualmente. Super_admin only."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    body = request.get_json(silent=True) or {}
+    new_value = bool(body.get("enable", False))
+    _set_use_atoms(new_value, reason="manual toggle via /admin")
+    # Reset divergencias quando ligar manualmente
+    if new_value:
+        _atom_recent_divergences.clear()
+    return jsonify({"ok": True, "use_atoms": USE_ATOMS})
+
+
+@app.route("/api/admin/atom-backfill-fire", methods=["POST"])
+def api_admin_atom_backfill_fire():
+    """Acelera o backfill — processa N atoms agora (sincrono, ignora pacing).
+    Super_admin only. Retorna resultado de cada atom processado."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    body = request.get_json(silent=True) or {}
+    n = max(1, min(20, int(body.get("n", 5))))
+
+    def _bg():
+        try:
+            results = _backfill_force_n(n=n)
+            print(f"[BACKFILL] Forced {len(results)} atoms: {sum(1 for r in results if r['status']=='ok')} OK")
+        except Exception as e:
+            print(f"[BACKFILL] Forced error: {e}")
+    threading.Thread(target=_bg, daemon=True).start()
+    return jsonify({"ok": True, "message": f"Disparando {n} atoms em background. Acompanhe no painel."})
+
+
+@app.route("/api/admin/atom-backfill-pause", methods=["POST"])
+def api_admin_atom_backfill_pause():
+    """Pausa/resume worker de backfill. Super_admin only."""
+    global _backfill_paused
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    body = request.get_json(silent=True) or {}
+    _backfill_paused = bool(body.get("pause", False))
+    return jsonify({"ok": True, "paused": _backfill_paused})
+
+
+@app.route("/api/admin/atom-populate-queue", methods=["POST"])
+def api_admin_atom_populate_queue():
+    """Forca repopulacao da fila (ex: bumpou versao de atom). Super_admin only."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    body = request.get_json(silent=True) or {}
+    days = max(1, min(60, int(body.get("days_back", 30))))
+    added = _populate_backfill_queue(days_back=days)
+    return jsonify({"ok": True, "added": added, "days_back": days})
+
+
 # ── Bootstrap dos schedulers (roda tanto em `python` quanto em `gunicorn`) ───
 # Cada worker do gunicorn inicia AMBAS as threads. A disputa pelo lock acontece
 # na HORA de disparar (nao no boot). Assim, se o worker dono do lock morrer
@@ -6957,6 +7309,10 @@ print("[BOOT] Scheduler diario (2:00 BRT) iniciado")
 
 threading.Thread(target=_refresh_recent_loop, daemon=True).start()
 print("[BOOT] Loop de refresh recente (1d/7d a cada 2h) iniciado")
+
+# Worker de backfill de atoms — popula atom cache durante a madrugada
+_start_backfill_worker()
+print("[BOOT] Backfill de atoms iniciado (pacing 10/h, auto-throttle BUC)")
 
 
 # ── Run ────────────────────────────────────────────────────────────────
