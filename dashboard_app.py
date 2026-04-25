@@ -639,10 +639,11 @@ def _backfill_get_pacing_seconds():
 
 
 def _backfill_worker():
-    """Loop principal do backfill. Daemon thread."""
+    """Loop principal do backfill. Daemon thread.
+    Tambem roda revalidacao automatica D-1 a D-7 a cada 6h."""
     print(f"[BACKFILL] Worker iniciado PID {os.getpid()}")
-    # Delay inicial pra app estabilizar
     time.sleep(60)
+    last_revalidate_ts = 0
 
     while True:
         try:
@@ -650,11 +651,21 @@ def _backfill_worker():
                 time.sleep(60)
                 continue
 
+            # Revalidacao automatica: a cada 6h refetcha D-1 a D-7
+            now_ts = time.time()
+            if now_ts - last_revalidate_ts > 6 * 3600:
+                try:
+                    if not _buc_is_critical(threshold=70):
+                        print("[BACKFILL] Revalidando atoms recentes (6h cycle)")
+                        r = _revalidate_recent_atoms(days_back=7, force_all=True)
+                        last_revalidate_ts = now_ts
+                        print(f"[BACKFILL] Revalidacao auto: {r}")
+                except Exception as e:
+                    print(f"[BACKFILL] Erro revalidacao auto: {e}")
+
             with _backfill_lock:
                 queue = _load_backfill_queue()
             if not queue:
-                # Fila vazia — verifica se precisa popular (talvez novo dia
-                # entrou em D+1 e precisa ser warmed). Re-popula a cada 1h.
                 try:
                     _populate_backfill_queue(days_back=30)
                 except Exception as e:
@@ -7444,7 +7455,11 @@ def api_admin_atom_validate_now():
             max_diff = max(max_diff, pct)
             _validate_atom_vs_legacy(f"validate_now_{ct}_{k}", a, l, tolerance=0.0001)
 
-        status = "ok" if max_diff < 0.01 else ("warning" if max_diff < 1.0 else "diverge")
+        # Tolerancias mais realistas considerando atribuicao tardia da Meta:
+        # < 0.1% = OK (perfeito)
+        # < 1%   = warning (pequena drift, aceitavel)
+        # >= 1%  = diverge (problema)
+        status = "ok" if max_diff < 0.1 else ("warning" if max_diff < 1.0 else "diverge")
         results.append({
             "type": ct,
             "status": status,

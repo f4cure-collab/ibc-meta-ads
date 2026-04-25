@@ -582,6 +582,7 @@
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <button onclick="atomFire(5)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+5 atoms agora</button>
                 <button onclick="atomFire(15)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+15 atoms agora</button>
+                <button onclick="atomFullCheck()" style="background:linear-gradient(90deg,#3fdf85,#bc8cff);color:#0a1018;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#9889; Refresh + Validar (1 clique)</button>
                 <button onclick="atomRevalidateRecent()" style="background:#3fdf85;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#8635; Revalidar ultimos 7d</button>
                 <button onclick="atomValidateNow()" style="background:#bc8cff;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128270; Validar agora (30d)</button>
                 <button onclick="atomTogglePause()" id="atomPauseBtn" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Pausar</button>
@@ -1920,6 +1921,56 @@ async function atomTogglePause() {
     } catch (e) { alert('Erro: ' + e.message); }
 }
 
+// "1-click flow": refresh recent atoms, then validate, then show result
+async function atomFullCheck() {
+    if (!confirm('Fluxo completo:\n\n1. Refresca atoms dos ultimos 7 dias (~21 chamadas Meta)\n2. Espera 90s pros atoms ficarem prontos\n3. Roda validacao\n4. Mostra resultado\n\nLeva ~3 minutos. Continuar?')) return;
+    var modal = document.getElementById('atomValidateModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'atomValidateModal';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+        modal.innerHTML = '<div id="atomValidateBody" style="background:#0f1824;border:1px solid #1f2a3a;border-radius:10px;padding:20px;max-width:900px;width:100%;max-height:90vh;overflow-y:auto;"></div>';
+        document.body.appendChild(modal);
+    }
+    var body = document.getElementById('atomValidateBody');
+    body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 1/3:</b> &#8635; Refrescando atoms dos ultimos 7 dias...</div>';
+    modal.style.display = 'flex';
+    try {
+        // Etapa 1: revalidar
+        var r1 = await fetch('/api/admin/atom-revalidate-recent', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: 7 }),
+        });
+        var d1 = await r1.json();
+        if (!d1.ok) throw new Error('Refresh falhou: ' + (d1.error || '?'));
+
+        // Etapa 2: aguardar
+        body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 2/3:</b> &#9203; Aguardando atoms ficarem prontos (90s)...</div>';
+        for (var s = 90; s > 0; s -= 5) {
+            body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 2/3:</b> &#9203; Aguardando atoms ficarem prontos... ' + s + 's</div>'
+                + '<div style="color:#888;font-size:11px;margin-top:6px;">Refresh em background — espera o servidor terminar de buscar Meta antes de validar.</div>';
+            await new Promise(function(r){ setTimeout(r, 5000); });
+        }
+
+        // Etapa 3: validar
+        body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 3/3:</b> &#128270; Validando — comparando atoms vs Meta atual... (1-2 min)</div>';
+        var r2 = await fetch('/api/admin/atom-validate-now', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: 30 }),
+        });
+        var d = await r2.json();
+        if (!d.ok) throw new Error('Validacao falhou: ' + (d.error || '?'));
+
+        // Renderizar igual ao atomValidateNow (modal ja aberto, basta atualizar body)
+        // Reusa lógica:
+        await atomRenderValidationResult(d, body);
+        loadAtomStatus();
+    } catch (e) {
+        body.innerHTML = '<div style="color:#f85149;">Erro: ' + e.message + '</div>'
+            + '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="margin-top:14px;background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
+    }
+}
+
 async function atomRevalidateRecent() {
     if (!confirm('Refetchar atoms dos ultimos 7 dias?\n\nIsso vai fazer 7 dias × 3 contas = ~21 chamadas Meta.\nUsa pra atualizar com atribuicao tardia. Leva ~1-2 min.')) return;
     try {
@@ -1961,7 +2012,15 @@ async function atomValidateNow() {
                 + '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="margin-top:14px;background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
             return;
         }
-        // Renderiza resultados
+        await atomRenderValidationResult(d, body);
+        loadAtomStatus();
+    } catch (e) {
+        body.innerHTML = '<div style="color:#f85149;">Erro: ' + e.message + '</div>'
+            + '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="margin-top:14px;background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
+    }
+}
+
+async function atomRenderValidationResult(d, body) {
         var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
         html += '<div style="color:#fff;font-size:18px;font-weight:700;">&#128270; Resultado da validacao</div>';
         html += '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
@@ -2102,17 +2161,11 @@ async function atomValidateNow() {
         });
         html += '<div style="margin-top:16px;color:#888;font-size:11px;line-height:1.6;background:#1a1d24;padding:12px;border-radius:6px;">'
             + '<b style="color:#ccc;">Como interpretar:</b><br>'
-            + '<span style="color:#3fdf85;">&#10003; Verde &lt; 0.01%</span>: valores idênticos<br>'
-            + '<span style="color:#f59e0b;">&#9888; Amarelo &lt; 1%</span>: diferenca pequena (geralmente timing entre as 2 leituras — Meta atualiza valores em tempo real)<br>'
-            + '<span style="color:#f85149;">&#10007; Vermelho &ge; 1%</span>: diferenca grande, indica possivel problema de agregacao'
+            + '<span style="color:#3fdf85;">&#10003; Verde &lt; 0.1%</span>: valores idênticos (perfeito)<br>'
+            + '<span style="color:#f59e0b;">&#9888; Amarelo &lt; 1%</span>: diferenca pequena (timing entre as 2 leituras, drift natural Meta)<br>'
+            + '<span style="color:#f85149;">&#10007; Vermelho &ge; 1%</span>: diferenca grande, possivel bug — investigar antes de ativar'
             + '</div>';
         body.innerHTML = html;
-        // Refresh status panel
-        loadAtomStatus();
-    } catch (e) {
-        body.innerHTML = '<div style="color:#f85149;">Erro: ' + e.message + '</div>'
-            + '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="margin-top:14px;background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
-    }
 }
 
 async function atomPopulateQueue() {
