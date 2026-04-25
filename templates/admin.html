@@ -1959,49 +1959,62 @@ async function atomValidateNow() {
         var verdictColor = allOk ? '#3fdf85' : (hasDiverge ? '#f85149' : '#f59e0b');
         html += '<div style="background:rgba(' + (allOk ? '63,223,133' : (hasDiverge ? '248,81,73' : '245,158,11')) + ',.15);border:1px solid ' + verdictColor + ';color:' + verdictColor + ';padding:12px;border-radius:6px;font-weight:700;margin-bottom:18px;">' + verdict + '</div>';
 
-        // Tabela por tipo
-        html += '<table style="width:100%;border-collapse:collapse;color:#ccc;font-size:12px;">';
-        html += '<thead><tr style="border-bottom:1px solid #2a2e36;">'
-            + '<th style="text-align:left;padding:8px;">Tipo</th>'
-            + '<th style="text-align:right;padding:8px;">Spend (atoms)</th>'
-            + '<th style="text-align:right;padding:8px;">Spend (legacy)</th>'
-            + '<th style="text-align:right;padding:8px;">Receita (atoms)</th>'
-            + '<th style="text-align:right;padding:8px;">Receita (legacy)</th>'
-            + '<th style="text-align:right;padding:8px;">Compras (atoms)</th>'
-            + '<th style="text-align:right;padding:8px;">Compras (legacy)</th>'
-            + '<th style="text-align:right;padding:8px;">Max Diff</th>'
-            + '<th style="text-align:center;padding:8px;">Status</th>'
-            + '</tr></thead><tbody>';
+        // Cards por tipo (mais legivel que tabela)
+        function fmtCur(v) { return 'R$ ' + (v || 0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
+        function fmtNum(v) { return (v || 0).toLocaleString('pt-BR'); }
+
+        function metricRow(label, atoms, legacy, isCurrency) {
+            var fmt = isCurrency ? fmtCur : fmtNum;
+            var a = parseFloat(atoms) || 0;
+            var l = parseFloat(legacy) || 0;
+            var diff = Math.abs(a - l);
+            var diffPct = (l === 0 && a === 0) ? 0 : (diff / Math.max(Math.abs(l), 1) * 100);
+            var diffColor = diffPct < 0.01 ? '#3fdf85' : (diffPct < 1 ? '#f59e0b' : '#f85149');
+            var diffStr = diffPct < 0.0001 ? '0%' : diffPct.toFixed(4) + '%';
+            return '<div style="display:grid;grid-template-columns:140px 1fr 1fr 100px;gap:8px;padding:6px 0;border-bottom:1px solid #1a1f2e;align-items:center;">'
+                + '<div style="color:#888;font-size:12px;">' + label + '</div>'
+                + '<div style="color:#ccc;font-size:13px;text-align:right;font-family:monospace;">' + fmt(a) + '</div>'
+                + '<div style="color:#ccc;font-size:13px;text-align:right;font-family:monospace;">' + fmt(l) + '</div>'
+                + '<div style="color:' + diffColor + ';font-size:12px;text-align:right;font-weight:700;">' + diffStr + '</div>'
+                + '</div>';
+        }
 
         (d.results || []).forEach(function(rs) {
             if (rs.status === 'skipped') {
-                html += '<tr style="border-bottom:1px solid #1a1f2e;color:#666;">'
-                    + '<td style="padding:8px;">' + rs.type + '</td>'
-                    + '<td colspan="7" style="padding:8px;color:#888;">Pulado: ' + (rs.reason || '') + '</td>'
-                    + '<td style="padding:8px;text-align:center;">--</td>'
-                    + '</tr>';
+                html += '<div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:10px;color:#888;">'
+                    + '<b style="color:#fff;">' + rs.type.toUpperCase() + '</b> &middot; pulado: ' + (rs.reason || '') + '</div>';
                 return;
             }
             var m = rs.metrics || {};
-            var ts = m.total_spend || {}, tr = m.total_revenue || {}, tp = m.total_purchases || {};
+            var ts = m.total_spend || {}, tr = m.total_revenue || {}, tp = m.total_purchases || {}, tc = m.total_campaigns || {};
             var statusColor = rs.status === 'ok' ? '#3fdf85' : (rs.status === 'diverge' ? '#f85149' : '#f59e0b');
-            var statusIcon = rs.status === 'ok' ? '&#10003; OK' : (rs.status === 'diverge' ? '&#10007; DIVERGE' : '&#9888; AVISO');
-            function fmtCur(v) { return 'R$ ' + (v || 0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
-            function fmtNum(v) { return (v || 0).toLocaleString('pt-BR'); }
-            html += '<tr style="border-bottom:1px solid #1a1f2e;">'
-                + '<td style="padding:8px;color:#fff;font-weight:600;">' + rs.type + '</td>'
-                + '<td style="padding:8px;text-align:right;">' + fmtCur(ts.atoms) + '</td>'
-                + '<td style="padding:8px;text-align:right;">' + fmtCur(ts.legacy) + '</td>'
-                + '<td style="padding:8px;text-align:right;">' + fmtCur(tr.atoms) + '</td>'
-                + '<td style="padding:8px;text-align:right;">' + fmtCur(tr.legacy) + '</td>'
-                + '<td style="padding:8px;text-align:right;">' + fmtNum(tp.atoms) + '</td>'
-                + '<td style="padding:8px;text-align:right;">' + fmtNum(tp.legacy) + '</td>'
-                + '<td style="padding:8px;text-align:right;color:' + statusColor + ';font-weight:700;">' + (rs.max_diff_pct || 0) + '%</td>'
-                + '<td style="padding:8px;text-align:center;color:' + statusColor + ';font-weight:700;">' + statusIcon + '</td>'
-                + '</tr>';
+            var statusIcon = rs.status === 'ok' ? '&#10003; IGUAL' : (rs.status === 'diverge' ? '&#10007; DIVERGE' : '&#9888; AVISO');
+            var bgAlpha = rs.status === 'ok' ? '.08' : (rs.status === 'diverge' ? '.12' : '.10');
+            var rgbColor = rs.status === 'ok' ? '63,223,133' : (rs.status === 'diverge' ? '248,81,73' : '245,158,11');
+
+            html += '<div style="background:rgba(' + rgbColor + ',' + bgAlpha + ');border:1px solid ' + statusColor + ';border-radius:8px;padding:14px;margin-bottom:10px;">';
+            // Header do card
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #2a2e36;">'
+                + '<div style="color:#fff;font-size:16px;font-weight:700;text-transform:uppercase;">' + rs.type + '</div>'
+                + '<div style="color:' + statusColor + ';font-size:13px;font-weight:700;">' + statusIcon + ' (max ' + (rs.max_diff_pct || 0) + '%)</div>'
+                + '</div>';
+            // Cabecalho da grid
+            html += '<div style="display:grid;grid-template-columns:140px 1fr 1fr 100px;gap:8px;padding:4px 0;border-bottom:1px solid #2a2e36;color:#666;font-size:11px;text-transform:uppercase;">'
+                + '<div>Metrica</div><div style="text-align:right;">Atoms</div><div style="text-align:right;">Legacy (atual)</div><div style="text-align:right;">Diff</div>'
+                + '</div>';
+            // Rows
+            html += metricRow('Spend (gasto)', ts.atoms, ts.legacy, true);
+            html += metricRow('Receita', tr.atoms, tr.legacy, true);
+            html += metricRow('Compras/Leads', tp.atoms, tp.legacy, false);
+            html += metricRow('Campanhas', tc.atoms, tc.legacy, false);
+            html += '</div>';
         });
-        html += '</tbody></table>';
-        html += '<div style="margin-top:16px;color:#888;font-size:11px;">Tolerancia: 0.01%. Diferencas pequenas (<1%) podem ser timing entre as 2 leituras (Meta atualiza valores em tempo real). Diferencas grandes (>1%) indicam problema de agregacao.</div>';
+        html += '<div style="margin-top:16px;color:#888;font-size:11px;line-height:1.6;background:#1a1d24;padding:12px;border-radius:6px;">'
+            + '<b style="color:#ccc;">Como interpretar:</b><br>'
+            + '<span style="color:#3fdf85;">&#10003; Verde &lt; 0.01%</span>: valores idênticos<br>'
+            + '<span style="color:#f59e0b;">&#9888; Amarelo &lt; 1%</span>: diferenca pequena (geralmente timing entre as 2 leituras — Meta atualiza valores em tempo real)<br>'
+            + '<span style="color:#f85149;">&#10007; Vermelho &ge; 1%</span>: diferenca grande, indica possivel problema de agregacao'
+            + '</div>';
         body.innerHTML = html;
         // Refresh status panel
         loadAtomStatus();
