@@ -669,9 +669,17 @@ def _backfill_worker():
                 time.sleep(60)
                 continue
 
-            # NAO faz auto-revalidacao no worker. Scheduler 2am cuida disso
-            # (1 atom novo por dia + revalidacoes pontuais D+2/D+8). Atoms
-            # >D+8 sao imutaveis — nao tocamos mais.
+            # Revalidacao 1x/dia: APENAS atoms D+2 e D+8 (~6 calls/dia)
+            now_ts = time.time()
+            if now_ts - last_revalidate_ts > 24 * 3600:
+                try:
+                    if not _buc_is_critical(threshold=70):
+                        print("[BACKFILL] Revalidando atoms D+2 e D+8")
+                        r = _revalidate_atoms_due_today()
+                        last_revalidate_ts = now_ts
+                        print(f"[BACKFILL] Revalidacao auto: {r}")
+                except Exception as e:
+                    print(f"[BACKFILL] Erro revalidacao auto: {e}")
 
             with _backfill_lock:
                 queue = _load_backfill_queue()
@@ -748,6 +756,34 @@ def _start_backfill_worker():
             return
         _backfill_thread_started = True
     threading.Thread(target=_backfill_worker, daemon=True, name="backfill-worker").start()
+
+
+def _revalidate_atoms_due_today():
+    """Revalida APENAS atoms na janela D+2 e D+8 (atribuicao tardia da Meta).
+    Custo: 2 ages × N contas atoms/dia = ~6 calls/dia pra 3 contas.
+    Atoms com idade 9+ dias sao IMUTAVEIS — nao toca."""
+    accounts = set()
+    for ct in VALID_CAMP_TYPES:
+        for acc in _get_accounts_for_type(ct):
+            if acc:
+                accounts.add(acc)
+    if ACCOUNT_ID:
+        accounts.add(ACCOUNT_ID)
+
+    today = _now_br().replace(hour=0, minute=0, second=0, microsecond=0)
+    refetched = 0
+    for age_days in (2, 8):
+        target_date = (today - timedelta(days=age_days)).strftime("%Y-%m-%d")
+        for acc in sorted(accounts):
+            try:
+                payload = _fetch_atom_acc_for_day(acc, target_date, force=True)
+                if payload is not None:
+                    refetched += 1
+                time.sleep(2)
+            except Exception as e:
+                print(f"[REVALIDATE-DUE] Erro {acc} {target_date}: {e}")
+    _log_atom_event("revalidate_due_done", {"refetched": refetched})
+    return {"refetched": refetched, "ages": [2, 8]}
 
 
 def _revalidate_recent_atoms(days_back=7, force_all=False):
@@ -7185,6 +7221,21 @@ def _refresh_recent_loop():
         print(f"[BOOT] Atom backfill queue: +{added} atoms enfileirados")
     except Exception as e:
         print(f"[BOOT] Erro popular fila atoms: {e}")
+
+    # Boot one-time: refresh atoms D-1 a D-8 (atualiza dados de ontem
+    # ate semana passada, captura atribuicao tardia acumulada). 8 atoms
+    # × 3 contas = 24 calls UMA VEZ por deploy. Apos isso, so worker
+    # diario faz revalidacao D+2 e D+8 (6 calls/dia). NUNCA refetcha
+    # atoms com idade > 8 dias (imutaveis).
+    def _bg_boot_refresh():
+        try:
+            time.sleep(180)  # 3min apos boot pra app estabilizar
+            print("[BOOT] Boot refresh: atoms D-1 a D-8 (one-time)")
+            r = _revalidate_recent_atoms(days_back=8, force_all=True)
+            print(f"[BOOT] Boot refresh concluido: {r}")
+        except Exception as e:
+            print(f"[BOOT] Erro boot refresh: {e}")
+    threading.Thread(target=_bg_boot_refresh, daemon=True).start()
 
     iteration = 1
     # Ranges cobertos pelo loop (30d e 7d apenas — os mais usados).
