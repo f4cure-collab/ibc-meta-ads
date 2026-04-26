@@ -1921,9 +1921,9 @@ async function atomTogglePause() {
     } catch (e) { alert('Erro: ' + e.message); }
 }
 
-// "1-click flow": refresh recent atoms, then validate, then show result
+// "1-click flow": refresh ALL atoms 30d, then validate, then show result
 async function atomFullCheck() {
-    if (!confirm('Fluxo completo:\n\n1. Refresca atoms dos ultimos 7 dias (~21 chamadas Meta)\n2. Espera 90s pros atoms ficarem prontos\n3. Roda validacao\n4. Mostra resultado\n\nLeva ~3 minutos. Continuar?')) return;
+    if (!confirm('Fluxo completo:\n\n1. Refresca atoms dos ultimos 30 dias (~90 chamadas Meta, todos os atoms ficam fresh)\n2. Espera ate 4 minutos pros atoms terminarem\n3. Roda validacao\n4. Mostra resultado\n\nLeva ~5-6 minutos total. Continuar?')) return;
     var modal = document.getElementById('atomValidateModal');
     if (!modal) {
         modal = document.createElement('div');
@@ -1933,22 +1933,23 @@ async function atomFullCheck() {
         document.body.appendChild(modal);
     }
     var body = document.getElementById('atomValidateBody');
-    body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 1/3:</b> &#8635; Refrescando atoms dos ultimos 7 dias...</div>';
+    body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 1/3:</b> &#8635; Refrescando atoms dos ultimos 30 dias...</div>';
     modal.style.display = 'flex';
     try {
-        // Etapa 1: revalidar
+        // Etapa 1: revalidar 30 dias
         var r1 = await fetch('/api/admin/atom-revalidate-recent', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ days: 7 }),
+            body: JSON.stringify({ days: 30 }),
         });
         var d1 = await r1.json();
         if (!d1.ok) throw new Error('Refresh falhou: ' + (d1.error || '?'));
 
-        // Etapa 2: aguardar
-        body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 2/3:</b> &#9203; Aguardando atoms ficarem prontos (90s)...</div>';
-        for (var s = 90; s > 0; s -= 5) {
-            body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 2/3:</b> &#9203; Aguardando atoms ficarem prontos... ' + s + 's</div>'
-                + '<div style="color:#888;font-size:11px;margin-top:6px;">Refresh em background — espera o servidor terminar de buscar Meta antes de validar.</div>';
+        // Etapa 2: aguardar (90 atoms × 2s = 180s + buffer = 240s)
+        var totalWait = 240;
+        body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 2/3:</b> &#9203; Aguardando 90 atoms ficarem prontos...</div>';
+        for (var s = totalWait; s > 0; s -= 5) {
+            body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 2/3:</b> &#9203; Aguardando atoms... ' + s + 's restantes (' + Math.round((totalWait-s)/totalWait*100) + '%)</div>'
+                + '<div style="color:#888;font-size:11px;margin-top:6px;">Refresh em background — esperando servidor refetchar 90 atoms da Meta.</div>';
             await new Promise(function(r){ setTimeout(r, 5000); });
         }
 
