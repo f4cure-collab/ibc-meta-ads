@@ -2584,7 +2584,10 @@ def api_campaigns():
         result.sort(key=lambda x: x.get("spend", 0), reverse=True)
 
         summary = {
-            "total_campaigns": len(sales_campaigns),
+            # Conta apenas campanhas com IMPRESSAO no periodo (result),
+            # nao TODAS as campanhas do tipo (sales_campaigns inclui paused/archived
+            # sem atividade no periodo). Isso reflete o que Meta UI mostra.
+            "total_campaigns": len(result),
             "total_spend": round(total_spend, 2),
             "total_revenue": round(total_revenue, 2),
             "total_purchases": total_purchases,
