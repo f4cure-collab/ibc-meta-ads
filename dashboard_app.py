@@ -686,15 +686,15 @@ def _populate_backfill_queue(days_back=30):
 def _backfill_get_pacing_seconds():
     """Determina segundos entre fetches.
 
-    Meta hard-limit: ~95-99% BUC. Abaixo disso ainda da pra chamar, com
-    cuidado. Throttling tem que deixar headroom pros usuarios reais sem
-    paralisar o backfill quando BUC so flertou com a zona amarela.
+    Meta hard-limit: ~95-99% BUC. Abaixo disso ainda da pra chamar com
+    cuidado. Throttling deixa headroom pros usuarios reais sem paralisar
+    o backfill por flertar com zona amarela. Escala SUAVE pra evitar cliff.
 
         BUC >= 85%: 1200s (3/h, critico — beira do bloqueio)
-        BUC >= 70%: 360s  (10/h, zona vermelha)
-        BUC >= 55%: 90s   (40/h, zona amarela — ainda produtivo)
-        BUC < 55% normal: 360s (10/h padrao)
-        BUC < 55% + BOOST: configurado (ex 40s = 90/h)"""
+        BUC >= 75%: 180s  (20/h, zona vermelha — ainda produtivo)
+        BUC >= 60%: 60s   (60/h, zona amarela — pouco mais devagar)
+        BUC < 60% normal: 360s (10/h padrao)
+        BUC < 60% + BOOST: configurado (ex 30s = 120/h)"""
     _load_backfill_persistent_state()
     try:
         worst_pct, _ = _worst_usage_pct()
@@ -705,15 +705,15 @@ def _backfill_get_pacing_seconds():
         _backfill_state["current_pacing_h"] = 3
         _save_backfill_persistent_state()
         return 1200
-    if worst_pct >= 70:
-        _backfill_state["current_pacing_h"] = 10
+    if worst_pct >= 75:
+        _backfill_state["current_pacing_h"] = 20
         _save_backfill_persistent_state()
-        return 360
-    if worst_pct >= 55:
-        _backfill_state["current_pacing_h"] = 40
+        return 180
+    if worst_pct >= 60:
+        _backfill_state["current_pacing_h"] = 60
         _save_backfill_persistent_state()
-        return 90
-    # BUC saudavel (<55%) — checa boost
+        return 60
+    # BUC saudavel (<60%) — checa boost
     if _backfill_boost.get("active"):
         if time.time() < _backfill_boost.get("until_ts", 0):
             _backfill_state["current_pacing_h"] = _backfill_boost.get("pacing_h", 90)

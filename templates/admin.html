@@ -580,7 +580,7 @@
         <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
             <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:10px;">Controles</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button onclick="atomBoostStart(365, 120, 14)" style="background:linear-gradient(90deg,#f59e0b,#f85149);color:#fff;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128640; Boost 365d</button>
+                <button onclick="atomBoostStart(365, 120, 24)" style="background:linear-gradient(90deg,#f59e0b,#f85149);color:#fff;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128640; Boost 365d</button>
                 <button onclick="atomValidateNow()" style="background:#bc8cff;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128270; Validar (30d)</button>
                 <button onclick="atomTogglePause()" id="atomPauseBtn" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Pausar</button>
                 <button onclick="loadAtomStatus()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Atualizar</button>
@@ -1921,12 +1921,12 @@ async function atomBoostStart(days_back, pacing_h, duration_h) {
     var totalAtoms = days_back * 3; // 3 contas
     var hoursEst = Math.ceil(totalAtoms / pacing_h);
     var msg = 'BOOST BACKFILL\n\n'
-        + '- Popular fila com ' + days_back + ' dias × 3 contas = ' + totalAtoms + ' atoms\n'
-        + '- Pacing acelerado: ' + pacing_h + '/h (vs ' + 10 + '/h normal)\n'
-        + '- Duracao maxima do boost: ' + duration_h + 'h\n'
+        + '- Popular fila com ' + days_back + ' dias x 3 contas = ' + totalAtoms + ' atoms\n'
+        + '- Pacing acelerado: ' + pacing_h + '/h (vs 10/h normal)\n'
+        + '- Janela do boost: ' + duration_h + 'h\n'
         + '- Tempo estimado de fetch: ~' + hoursEst + 'h\n\n'
-        + 'O worker ainda respeita BUC critico (>=70% volta pra pacing seguro).\n'
-        + 'Voce pode parar o boost a qualquer momento.\n\n'
+        + 'O worker respeita BUC critico (>=85% pausa).\n'
+        + 'Voce pode parar a qualquer momento.\n\n'
         + 'Continuar?';
     if (!confirm(msg)) return;
     try {
