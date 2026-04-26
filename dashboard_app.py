@@ -686,34 +686,27 @@ def _populate_backfill_queue(days_back=30):
 def _backfill_get_pacing_seconds():
     """Determina segundos entre fetches.
 
-    Meta hard-limit: ~95-99% BUC. Abaixo disso ainda da pra chamar com
-    cuidado. Throttling deixa headroom pros usuarios reais sem paralisar
-    o backfill por flertar com zona amarela. Escala SUAVE pra evitar cliff.
+    Meta hard-block real: BUC ~95-100%. Throttle agressivo, mantendo
+    producao alta ate beira do bloqueio.
 
-        BUC >= 85%: 1200s (3/h, critico — beira do bloqueio)
-        BUC >= 75%: 180s  (20/h, zona vermelha — ainda produtivo)
-        BUC >= 60%: 60s   (60/h, zona amarela — pouco mais devagar)
-        BUC < 60% normal: 360s (10/h padrao)
-        BUC < 60% + BOOST: configurado (ex 30s = 120/h)"""
+        BUC >= 92%: 1200s (3/h, beira do bloqueio real)
+        BUC >= 82%: 60s   (60/h, ainda muito produtivo)
+        BUC < 82% normal: 360s (10/h padrao)
+        BUC < 82% + BOOST: configurado (ex 24s = 150/h)"""
     _load_backfill_persistent_state()
     try:
         worst_pct, _ = _worst_usage_pct()
     except Exception:
         worst_pct = 0
-    # Throttling tem prioridade sobre boost
-    if worst_pct >= 85:
+    if worst_pct >= 92:
         _backfill_state["current_pacing_h"] = 3
         _save_backfill_persistent_state()
         return 1200
-    if worst_pct >= 75:
-        _backfill_state["current_pacing_h"] = 20
-        _save_backfill_persistent_state()
-        return 180
-    if worst_pct >= 60:
+    if worst_pct >= 82:
         _backfill_state["current_pacing_h"] = 60
         _save_backfill_persistent_state()
         return 60
-    # BUC saudavel (<60%) — checa boost
+    # BUC saudavel (<82%) — checa boost
     if _backfill_boost.get("active"):
         if time.time() < _backfill_boost.get("until_ts", 0):
             _backfill_state["current_pacing_h"] = _backfill_boost.get("pacing_h", 90)
@@ -781,14 +774,17 @@ def _backfill_worker():
             if get_atom('acc', acc, date) is not None:
                 continue
 
-            # Circuit breaker: BUC critico = pula esse atom, espera
-            if _buc_is_critical(threshold=85):
-                print(f"[BACKFILL] BUC critico — re-enfileirando {acc}/{date} e pausando 10min")
+            # Circuit breaker: BUC beira do hard-block (>=92%) = pula esse
+            # atom, espera 2min. Threshold subiu pra 92% pra nao desperdicar
+            # tempo travando em BUC moderado — pacing function ja desacelera
+            # gradualmente (60/h em 82%+).
+            if _buc_is_critical(threshold=92):
+                print(f"[BACKFILL] BUC critico — re-enfileirando {acc}/{date} e pausando 2min")
                 with _backfill_lock:
                     q = _load_backfill_queue()
                     q.append(item)
                     _save_backfill_queue(q)
-                time.sleep(600)
+                time.sleep(120)
                 continue
 
             # Fetch atom
