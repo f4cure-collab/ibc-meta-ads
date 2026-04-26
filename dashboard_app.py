@@ -669,19 +669,9 @@ def _backfill_worker():
                 time.sleep(60)
                 continue
 
-            # Revalidacao automatica EFICIENTE: 1x por dia atoms recentes
-            # (D-1 a D-8, onde Meta ainda ajusta atribuicao). Atoms >D+8
-            # sao imutaveis — nao revalida. Total: ~24 calls/dia, nao 360.
-            now_ts = time.time()
-            if now_ts - last_revalidate_ts > 24 * 3600:
-                try:
-                    if not _buc_is_critical(threshold=70):
-                        print("[BACKFILL] Revalidando atoms recentes (D-1 a D-8)")
-                        r = _revalidate_recent_atoms(days_back=8, force_all=True)
-                        last_revalidate_ts = now_ts
-                        print(f"[BACKFILL] Revalidacao auto: {r}")
-                except Exception as e:
-                    print(f"[BACKFILL] Erro revalidacao auto: {e}")
+            # NAO faz auto-revalidacao no worker. Scheduler 2am cuida disso
+            # (1 atom novo por dia + revalidacoes pontuais D+2/D+8). Atoms
+            # >D+8 sao imutaveis — nao tocamos mais.
 
             with _backfill_lock:
                 queue = _load_backfill_queue()
@@ -7195,18 +7185,6 @@ def _refresh_recent_loop():
         print(f"[BOOT] Atom backfill queue: +{added} atoms enfileirados")
     except Exception as e:
         print(f"[BOOT] Erro popular fila atoms: {e}")
-
-    # FORCA refresh de TODOS os atoms 30d (captura atribuicao tardia que
-    # acumulou desde o ultimo deploy). Roda em background pra nao travar boot.
-    def _bg_refresh_30d():
-        try:
-            time.sleep(120)  # 2min depois do boot pra app estabilizar
-            print("[BOOT] Iniciando refresh forcado de 30d atoms")
-            r = _revalidate_recent_atoms(days_back=30, force_all=True)
-            print(f"[BOOT] Refresh 30d concluido: {r}")
-        except Exception as e:
-            print(f"[BOOT] Erro refresh 30d: {e}")
-    threading.Thread(target=_bg_refresh_30d, daemon=True).start()
 
     iteration = 1
     # Ranges cobertos pelo loop (30d e 7d apenas — os mais usados).
