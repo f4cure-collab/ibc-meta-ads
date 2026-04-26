@@ -684,26 +684,36 @@ def _populate_backfill_queue(days_back=30):
 
 
 def _backfill_get_pacing_seconds():
-    """Determina segundos entre fetches:
-        BUC > 70%:  1200s (3/h, throttle pesado)
-        BUC 50-70%: 720s (5/h, throttle leve)
-        BUC < 50% + BOOST ativo:  configurado (ex 40s = 90/h)
-        BUC < 50% normal: 360s (10/h, ritmo padrao)"""
+    """Determina segundos entre fetches.
+
+    Meta hard-limit: ~95-99% BUC. Abaixo disso ainda da pra chamar, com
+    cuidado. Throttling tem que deixar headroom pros usuarios reais sem
+    paralisar o backfill quando BUC so flertou com a zona amarela.
+
+        BUC >= 85%: 1200s (3/h, critico — beira do bloqueio)
+        BUC >= 70%: 360s  (10/h, zona vermelha)
+        BUC >= 55%: 90s   (40/h, zona amarela — ainda produtivo)
+        BUC < 55% normal: 360s (10/h padrao)
+        BUC < 55% + BOOST: configurado (ex 40s = 90/h)"""
     _load_backfill_persistent_state()
     try:
         worst_pct, _ = _worst_usage_pct()
     except Exception:
         worst_pct = 0
-    # Throttling sempre tem prioridade sobre boost
-    if worst_pct >= 70:
+    # Throttling tem prioridade sobre boost
+    if worst_pct >= 85:
         _backfill_state["current_pacing_h"] = 3
         _save_backfill_persistent_state()
         return 1200
-    if worst_pct >= 50:
-        _backfill_state["current_pacing_h"] = 5
+    if worst_pct >= 70:
+        _backfill_state["current_pacing_h"] = 10
         _save_backfill_persistent_state()
-        return 720
-    # BUC saudavel — checa boost
+        return 360
+    if worst_pct >= 55:
+        _backfill_state["current_pacing_h"] = 40
+        _save_backfill_persistent_state()
+        return 90
+    # BUC saudavel (<55%) — checa boost
     if _backfill_boost.get("active"):
         if time.time() < _backfill_boost.get("until_ts", 0):
             _backfill_state["current_pacing_h"] = _backfill_boost.get("pacing_h", 90)
