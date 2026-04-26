@@ -669,14 +669,15 @@ def _backfill_worker():
                 time.sleep(60)
                 continue
 
-            # Revalidacao automatica: a cada 6h refetcha TODOS os 30 dias
-            # (atribuicao tardia pode atualizar D-15, D-20 etc)
+            # Revalidacao automatica EFICIENTE: 1x por dia atoms recentes
+            # (D-1 a D-8, onde Meta ainda ajusta atribuicao). Atoms >D+8
+            # sao imutaveis — nao revalida. Total: ~24 calls/dia, nao 360.
             now_ts = time.time()
-            if now_ts - last_revalidate_ts > 6 * 3600:
+            if now_ts - last_revalidate_ts > 24 * 3600:
                 try:
                     if not _buc_is_critical(threshold=70):
-                        print("[BACKFILL] Revalidando atoms 30d (6h cycle)")
-                        r = _revalidate_recent_atoms(days_back=30, force_all=True)
+                        print("[BACKFILL] Revalidando atoms recentes (D-1 a D-8)")
+                        r = _revalidate_recent_atoms(days_back=8, force_all=True)
                         last_revalidate_ts = now_ts
                         print(f"[BACKFILL] Revalidacao auto: {r}")
                 except Exception as e:
