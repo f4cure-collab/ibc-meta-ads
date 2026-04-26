@@ -575,6 +575,7 @@ def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_stat
 # com pacing adaptativo (10/h normal, 5/h se BUC>50%, 3/h se BUC>70%).
 
 _BACKFILL_QUEUE_FILE = os.path.join(os.path.dirname(__file__), "atom_backfill_queue.json")
+_BACKFILL_STATE_FILE = os.path.join(os.path.dirname(__file__), "atom_backfill_state.json")
 _backfill_lock = threading.Lock()
 _backfill_thread_started = False
 _backfill_paused = False  # toggle via admin button
@@ -583,6 +584,43 @@ _backfill_state = {"last_fetch_at": None, "current_pacing_h": 10, "target_days":
 # Ativado via /api/admin/atom-boost. Respeita BUC critico (>=85% pausa,
 # >=70% volta pra 3/h, >=50% volta pra 5/h). Auto-desliga ao expirar.
 _backfill_boost = {"active": False, "until_ts": 0, "seconds_between": 40, "pacing_h": 90}
+
+
+def _save_backfill_persistent_state():
+    """Persiste boost+target+pacing em arquivo pra que workers gunicorn
+    paralelos vejam o mesmo estado (memoria nao e compartilhada entre eles)."""
+    try:
+        with open(_BACKFILL_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump({
+                "boost": dict(_backfill_boost),
+                "target_days": _backfill_state.get("target_days", 30),
+                "last_fetch_at": _backfill_state.get("last_fetch_at"),
+                "current_pacing_h": _backfill_state.get("current_pacing_h", 10),
+            }, f)
+    except Exception as e:
+        print(f"[BACKFILL] Erro salvar state: {e}")
+
+
+def _load_backfill_persistent_state():
+    """Carrega state do arquivo (se existir) — chamado nos endpoints/worker
+    pra ter sempre a versao atual em qualquer worker."""
+    try:
+        if not os.path.exists(_BACKFILL_STATE_FILE):
+            return
+        with open(_BACKFILL_STATE_FILE, "r", encoding="utf-8") as f:
+            d = json.load(f) or {}
+        boost = d.get("boost") or {}
+        for k in ("active", "until_ts", "seconds_between", "pacing_h"):
+            if k in boost:
+                _backfill_boost[k] = boost[k]
+        if "target_days" in d:
+            _backfill_state["target_days"] = d["target_days"]
+        if d.get("last_fetch_at"):
+            _backfill_state["last_fetch_at"] = d["last_fetch_at"]
+        if "current_pacing_h" in d:
+            _backfill_state["current_pacing_h"] = d["current_pacing_h"]
+    except Exception:
+        pass
 
 
 def _load_backfill_queue():
@@ -606,8 +644,10 @@ def _save_backfill_queue(queue):
 def _populate_backfill_queue(days_back=30):
     """Adiciona atoms faltantes a fila. Idempotente — nao duplica entradas
     nem refaz atoms ja cacheados. Retorna # de atoms adicionados."""
+    _load_backfill_persistent_state()
     if days_back > _backfill_state.get("target_days", 30):
         _backfill_state["target_days"] = days_back
+        _save_backfill_persistent_state()
     accounts = set()
     for ct in VALID_CAMP_TYPES:
         for acc in _get_accounts_for_type(ct):
@@ -649,6 +689,7 @@ def _backfill_get_pacing_seconds():
         BUC 50-70%: 720s (5/h, throttle leve)
         BUC < 50% + BOOST ativo:  configurado (ex 40s = 90/h)
         BUC < 50% normal: 360s (10/h, ritmo padrao)"""
+    _load_backfill_persistent_state()
     try:
         worst_pct, _ = _worst_usage_pct()
     except Exception:
@@ -656,19 +697,23 @@ def _backfill_get_pacing_seconds():
     # Throttling sempre tem prioridade sobre boost
     if worst_pct >= 70:
         _backfill_state["current_pacing_h"] = 3
+        _save_backfill_persistent_state()
         return 1200
     if worst_pct >= 50:
         _backfill_state["current_pacing_h"] = 5
+        _save_backfill_persistent_state()
         return 720
     # BUC saudavel — checa boost
     if _backfill_boost.get("active"):
         if time.time() < _backfill_boost.get("until_ts", 0):
             _backfill_state["current_pacing_h"] = _backfill_boost.get("pacing_h", 90)
+            _save_backfill_persistent_state()
             return _backfill_boost.get("seconds_between", 40)
         # Boost expirou — auto-desliga
         _backfill_boost["active"] = False
         _log_atom_event("boost_ended", {"reason": "expired"})
     _backfill_state["current_pacing_h"] = 10
+    _save_backfill_persistent_state()
     return 360
 
 
@@ -747,6 +792,7 @@ def _backfill_worker():
                             q.append(item)
                             _save_backfill_queue(q)
                 _backfill_state["last_fetch_at"] = _now_br().isoformat(timespec="seconds")
+                _save_backfill_persistent_state()
             except Exception as e:
                 print(f"[BACKFILL] Erro fetch {acc} {date}: {e}")
                 item['attempts'] = item.get('attempts', 0) + 1
@@ -7316,6 +7362,7 @@ def api_admin_atom_status():
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     try:
+        _load_backfill_persistent_state()
         # Contadores
         atoms_meta = list_atoms_metadata(scope='acc')
         # Por conta+data
@@ -7701,6 +7748,7 @@ def api_admin_atom_boost():
     _backfill_boost["until_ts"] = until_ts
     _backfill_boost["seconds_between"] = seconds_between
     _backfill_boost["pacing_h"] = pacing_h
+    _save_backfill_persistent_state()
     _log_atom_event("boost_started", {
         "days_back": days,
         "pacing_h": pacing_h,
@@ -7724,6 +7772,7 @@ def api_admin_atom_boost_stop():
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     _backfill_boost["active"] = False
+    _save_backfill_persistent_state()
     _log_atom_event("boost_ended", {"reason": "manual_stop"})
     return jsonify({"ok": True})
 

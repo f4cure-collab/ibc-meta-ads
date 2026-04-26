@@ -530,13 +530,9 @@
 
     <!-- Migracao de Atoms (super_admin only) -->
     <div class="card" id="atomMigCard" data-adm-section="atoms" style="display:none;">
-        <h2>&#128640; Migracao de Atoms</h2>
-        <p style="color:#888;font-size:13px;margin-bottom:16px;">
-            Migracao do cache pra modelo de atoms diarios imutaveis.
-            Cada atom = 1 dia de UMA conta de anuncios.
-            Range queries (30d, 7d, etc) viram soma de atoms — depois de
-            populados, atoms nunca sao re-fetched (excepto revalidacao D+2 e D+8).
-            Reduz ~80-90% das chamadas Meta no regime permanente.
+        <h2>&#128640; Atoms</h2>
+        <p style="color:#888;font-size:12px;margin-bottom:14px;">
+            Cache diario imutavel — 1 atom = 1 dia de 1 conta. Apos populados, dashboard nao chama mais a Meta nesses ranges.
         </p>
 
         <!-- Bloco 1: Estado geral -->
@@ -584,20 +580,13 @@
         <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
             <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:10px;">Controles</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <button onclick="atomBoostStart(365, 90, 14)" style="background:linear-gradient(90deg,#f59e0b,#f85149);color:#fff;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128640; Boost 365d (90/h, 14h)</button>
-                <button onclick="atomFire(5)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+5 atoms agora</button>
-                <button onclick="atomFire(15)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+15 atoms agora</button>
-                <button onclick="atomFullCheck()" style="background:linear-gradient(90deg,#3fdf85,#bc8cff);color:#0a1018;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#9889; Refresh + Validar (1 clique)</button>
-                <button onclick="atomRevalidateRecent()" style="background:#3fdf85;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#8635; Revalidar ultimos 7d</button>
-                <button onclick="atomValidateNow()" style="background:#bc8cff;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128270; Validar agora (30d)</button>
-                <button onclick="atomDebugCampaigns('vendas')" style="background:#f59e0b;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128269; Debug: ver 734 campanhas Vendas</button>
+                <button onclick="atomBoostStart(365, 90, 14)" style="background:linear-gradient(90deg,#f59e0b,#f85149);color:#fff;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128640; Boost 365d</button>
+                <button onclick="atomValidateNow()" style="background:#bc8cff;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128270; Validar (30d)</button>
                 <button onclick="atomTogglePause()" id="atomPauseBtn" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Pausar</button>
-                <button onclick="atomPopulateQueue()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Repopular fila</button>
                 <button onclick="loadAtomStatus()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Atualizar</button>
             </div>
-            <div style="color:#888;font-size:11px;margin-top:8px;">
-                Reversao automatica: <span id="atomDivergCount" style="color:#ccc;">0</span> divergencias na ultima hora
-                (3+ disparam reversao automatica)
+            <div id="atomDivergRow" style="color:#888;font-size:11px;margin-top:8px;display:none;">
+                &#9888; <span id="atomDivergCount" style="color:#f59e0b;">0</span> divergencia(s) na ultima hora (3+ revertem atoms automaticamente)
             </div>
         </div>
 
@@ -1844,8 +1833,11 @@ async function loadAtomStatus() {
         });
         paBox.innerHTML = paHtml || '<div style="color:#888;">Nenhuma conta</div>';
 
-        // Divergencias
-        document.getElementById('atomDivergCount').textContent = d.divergences_recent || 0;
+        // Divergencias (so mostra a linha se houver)
+        var divCount = d.divergences_recent || 0;
+        document.getElementById('atomDivergCount').textContent = divCount;
+        var divRow = document.getElementById('atomDivergRow');
+        if (divRow) divRow.style.display = divCount > 0 ? 'block' : 'none';
 
         // Boost status
         var bb = d.boost || {};
