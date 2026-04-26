@@ -808,9 +808,22 @@ def _backfill_worker():
                         q.append(item)
                         _save_backfill_queue(q)
 
-            # Pacing entre fetches
+            # Pacing entre fetches — dorme em CHUNKS de 60s pra reavaliar
+            # BUC frequentemente. Se BUC cair, sai do sleep early e volta
+            # pra pacing mais rapido na proxima iteracao. Antes ficava
+            # travado por 1200s (20min) mesmo quando BUC ja tinha decaido.
             sleep_secs = _backfill_get_pacing_seconds()
-            time.sleep(sleep_secs)
+            slept = 0
+            while slept < sleep_secs:
+                chunk = min(60, sleep_secs - slept)
+                time.sleep(chunk)
+                slept += chunk
+                # Se BUC caiu drasticamente, encurta o sleep
+                if slept >= 60:
+                    new_secs = _backfill_get_pacing_seconds()
+                    if new_secs < sleep_secs:
+                        # Pacing acelerou — sai do sleep
+                        break
         except Exception as e:
             print(f"[BACKFILL] Erro loop: {e}")
             time.sleep(60)
