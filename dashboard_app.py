@@ -482,37 +482,55 @@ def _fetch_atoms_for_range(acc_ids, date_from, date_to):
     return result
 
 
-def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to):
-    """Constroi um dict no formato {campaigns, insights_by_id} a partir dos
-    atoms — DROP-IN replacement pra _fetch_account_raw_v1.
-    Soma metricas across days dos atoms. Reconstroi listas (actions, etc).
+def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_type=None):
+    """Constroi a estrutura {campaigns, atom_parsed_metrics_by_id} a partir
+    dos atoms. ABORDAGEM CORRETA: parse_insights de CADA DIA separado, depois
+    soma os valores parsed (nao reconstroi a lista de actions).
+
+    Isso garante que sum-of-days == range-query, sem perder dados em conflitos
+    de priorizacao de action_types entre dias.
+
+    camp_type: passa pra parse_insights aplicar a logica especifica do tipo
+    (VENDAS prioriza purchases, METEORICOS prioriza leads, etc).
+
     Retorna None se atoms incompletos pra esse range."""
     atoms_list, missing = get_atoms_for_range('acc', acc_id, date_from, date_to)
     if missing:
         return None
 
     all_campaigns = {}
-    combined = {}
+    accumulated_per_cid = {}  # cid -> {metric_name: sum_value}
+
     for atom in atoms_list:
         payload = atom['payload']
         for c in payload.get('campaigns') or []:
             cid = c.get('id')
             if cid and cid not in all_campaigns:
                 all_campaigns[cid] = dict(c)
-        for cid, ins in (payload.get('insights_by_id') or {}).items():
-            if cid not in combined:
-                combined[cid] = {}
-            _accumulate_insight_row(combined[cid], ins)
+        for cid, raw_ins in (payload.get('insights_by_id') or {}).items():
+            day_metrics = parse_insights(raw_ins, camp_type=camp_type)
+            if cid not in accumulated_per_cid:
+                accumulated_per_cid[cid] = {}
+            for k, v in day_metrics.items():
+                if isinstance(v, (int, float)):
+                    accumulated_per_cid[cid][k] = accumulated_per_cid[cid].get(k, 0) + v
 
-    insights_by_id = {}
-    for cid, c_combined in combined.items():
-        finalized = _finalize_combined_insight(c_combined)
-        finalized["campaign_id"] = cid
-        insights_by_id[cid] = finalized
+    # Recalcula derivadas a partir dos somatorios das bases (nao some derivadas!)
+    for cid, m in accumulated_per_cid.items():
+        spend = float(m.get("spend", 0) or 0)
+        purch = float(m.get("purchases", 0) or 0)
+        rev = float(m.get("revenue", 0) or 0)
+        impr = float(m.get("impressions", 0) or 0)
+        clk = float(m.get("clicks", 0) or 0)
+        m["roas"] = round(rev / spend, 2) if spend > 0 else 0
+        m["cpa"] = round(spend / purch, 2) if purch > 0 else 0
+        m["cpm"] = round(spend / impr * 1000, 2) if impr > 0 else 0
+        m["ctr"] = round(clk / impr * 100, 2) if impr > 0 else 0
+        m["cpc"] = round(spend / clk, 2) if clk > 0 else 0
 
     return {
         "campaigns": list(all_campaigns.values()),
-        "insights_by_id": insights_by_id,
+        "atom_parsed_metrics_by_id": accumulated_per_cid,  # marker do atom path
     }
 
 
@@ -2385,8 +2403,8 @@ def api_campaigns():
                 return jsonify(cached)
 
         # 1. Buscar RAW (campanhas + insights) por conta.
-        # DUAL-READ: se USE_ATOMS ativo, tenta atoms primeiro (drop-in); senao
-        # cai no campaigns_raw_v1 (caminho antigo, hits Meta range).
+        # DUAL-READ: se USE_ATOMS ativo, tenta atoms primeiro com parsing
+        # per-day (sum-of-days); senao cai no campaigns_raw_v1.
         all_campaigns = []
         insights_map = {}
         for acc in _get_accounts_for_type(camp_type):
@@ -2394,16 +2412,25 @@ def api_campaigns():
                 continue
             raw = None
             if USE_ATOMS:
-                raw = _build_pseudo_raw_per_account_from_atoms(acc, date_from, date_to)
-            if raw is None:
-                raw = _fetch_account_raw_v1(acc, camp_status, date_from, date_to)
-            for c in (raw.get("campaigns") or []):
-                cc = dict(c)
-                cc["_account_id"] = acc
-                all_campaigns.append(cc)
-            for cid, ins in (raw.get("insights_by_id") or {}).items():
-                if cid not in insights_map:
-                    insights_map[cid] = parse_insights(ins, camp_type=camp_type)
+                raw = _build_pseudo_raw_per_account_from_atoms(acc, date_from, date_to, camp_type=camp_type)
+            if raw is not None and "atom_parsed_metrics_by_id" in raw:
+                # ATOM PATH: metricas ja parsed e somadas per-day
+                for c in (raw.get("campaigns") or []):
+                    cc = dict(c); cc["_account_id"] = acc
+                    all_campaigns.append(cc)
+                for cid, parsed in raw.get("atom_parsed_metrics_by_id", {}).items():
+                    if cid not in insights_map:
+                        insights_map[cid] = parsed
+            else:
+                # LEGACY PATH: raw insights da Meta (range query)
+                if raw is None:
+                    raw = _fetch_account_raw_v1(acc, camp_status, date_from, date_to)
+                for c in (raw.get("campaigns") or []):
+                    cc = dict(c); cc["_account_id"] = acc
+                    all_campaigns.append(cc)
+                for cid, ins in (raw.get("insights_by_id") or {}).items():
+                    if cid not in insights_map:
+                        insights_map[cid] = parse_insights(ins, camp_type=camp_type)
 
         # 2. Filtrar por tipo (aplica classificacao ATUAL em cima do bruto)
         sales_campaigns = _filter_campaigns_by_type(all_campaigns, camp_type)
@@ -7390,12 +7417,21 @@ def api_admin_atom_validate_now():
         all_camps = []
         ins_map = {}
         for acc, raw in raw_per_acc.items():
-            for c in (raw.get("campaigns") or []):
-                cc = dict(c); cc["_account_id"] = acc
-                all_camps.append(cc)
-            for cid, ins in (raw.get("insights_by_id") or {}).items():
-                if cid not in ins_map:
-                    ins_map[cid] = parse_insights(ins, camp_type=camp_type)
+            # Atom path tem 'atom_parsed_metrics_by_id', legacy tem 'insights_by_id'
+            if "atom_parsed_metrics_by_id" in raw:
+                for c in (raw.get("campaigns") or []):
+                    cc = dict(c); cc["_account_id"] = acc
+                    all_camps.append(cc)
+                for cid, parsed in raw.get("atom_parsed_metrics_by_id", {}).items():
+                    if cid not in ins_map:
+                        ins_map[cid] = parsed
+            else:
+                for c in (raw.get("campaigns") or []):
+                    cc = dict(c); cc["_account_id"] = acc
+                    all_camps.append(cc)
+                for cid, ins in (raw.get("insights_by_id") or {}).items():
+                    if cid not in ins_map:
+                        ins_map[cid] = parse_insights(ins, camp_type=camp_type)
         sales = _filter_campaigns_by_type(all_camps, camp_type)
         ts = tr = tp = 0
         for c in sales:
@@ -7420,7 +7456,7 @@ def api_admin_atom_validate_now():
         atoms_raw = {}
         atoms_complete = True
         for acc in accounts:
-            r = _build_pseudo_raw_per_account_from_atoms(acc, date_from, date_to)
+            r = _build_pseudo_raw_per_account_from_atoms(acc, date_from, date_to, camp_type=ct)
             if r is None:
                 atoms_complete = False
                 break
