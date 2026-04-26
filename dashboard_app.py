@@ -669,13 +669,14 @@ def _backfill_worker():
                 time.sleep(60)
                 continue
 
-            # Revalidacao automatica: a cada 6h refetcha D-1 a D-7
+            # Revalidacao automatica: a cada 6h refetcha TODOS os 30 dias
+            # (atribuicao tardia pode atualizar D-15, D-20 etc)
             now_ts = time.time()
             if now_ts - last_revalidate_ts > 6 * 3600:
                 try:
                     if not _buc_is_critical(threshold=70):
-                        print("[BACKFILL] Revalidando atoms recentes (6h cycle)")
-                        r = _revalidate_recent_atoms(days_back=7, force_all=True)
+                        print("[BACKFILL] Revalidando atoms 30d (6h cycle)")
+                        r = _revalidate_recent_atoms(days_back=30, force_all=True)
                         last_revalidate_ts = now_ts
                         print(f"[BACKFILL] Revalidacao auto: {r}")
                 except Exception as e:
@@ -7193,6 +7194,18 @@ def _refresh_recent_loop():
         print(f"[BOOT] Atom backfill queue: +{added} atoms enfileirados")
     except Exception as e:
         print(f"[BOOT] Erro popular fila atoms: {e}")
+
+    # FORCA refresh de TODOS os atoms 30d (captura atribuicao tardia que
+    # acumulou desde o ultimo deploy). Roda em background pra nao travar boot.
+    def _bg_refresh_30d():
+        try:
+            time.sleep(120)  # 2min depois do boot pra app estabilizar
+            print("[BOOT] Iniciando refresh forcado de 30d atoms")
+            r = _revalidate_recent_atoms(days_back=30, force_all=True)
+            print(f"[BOOT] Refresh 30d concluido: {r}")
+        except Exception as e:
+            print(f"[BOOT] Erro refresh 30d: {e}")
+    threading.Thread(target=_bg_refresh_30d, daemon=True).start()
 
     iteration = 1
     # Ranges cobertos pelo loop (30d e 7d apenas — os mais usados).
