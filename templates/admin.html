@@ -585,6 +585,7 @@
                 <button onclick="atomFullCheck()" style="background:linear-gradient(90deg,#3fdf85,#bc8cff);color:#0a1018;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#9889; Refresh + Validar (1 clique)</button>
                 <button onclick="atomRevalidateRecent()" style="background:#3fdf85;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#8635; Revalidar ultimos 7d</button>
                 <button onclick="atomValidateNow()" style="background:#bc8cff;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128270; Validar agora (30d)</button>
+                <button onclick="atomDebugCampaigns('vendas')" style="background:#f59e0b;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128269; Debug: ver 734 campanhas Vendas</button>
                 <button onclick="atomTogglePause()" id="atomPauseBtn" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Pausar</button>
                 <button onclick="atomPopulateQueue()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Repopular fila</button>
                 <button onclick="loadAtomStatus()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Atualizar</button>
@@ -2167,6 +2168,81 @@ async function atomRenderValidationResult(d, body) {
             + '<span style="color:#f85149;">&#10007; Vermelho &ge; 1%</span>: diferenca grande, possivel bug — investigar antes de ativar'
             + '</div>';
         body.innerHTML = html;
+}
+
+async function atomDebugCampaigns(camp_type) {
+    var modal = document.getElementById('atomValidateModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'atomValidateModal';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+        modal.innerHTML = '<div id="atomValidateBody" style="background:#0f1824;border:1px solid #1f2a3a;border-radius:10px;padding:20px;max-width:1100px;width:100%;max-height:90vh;overflow-y:auto;"></div>';
+        document.body.appendChild(modal);
+    }
+    var body = document.getElementById('atomValidateBody');
+    body.innerHTML = '<div style="color:#fff;">&#9203; Carregando lista de campanhas...</div>';
+    modal.style.display = 'flex';
+    try {
+        var r = await fetch('/api/admin/atom-debug-campaigns', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ camp_type: camp_type, days: 30 }),
+        });
+        var d = await r.json();
+        if (!d.ok) {
+            body.innerHTML = '<div style="color:#f85149;">Erro: ' + (d.error || '?') + '</div>';
+            return;
+        }
+        function fmtCur(v) { return 'R$ ' + (v || 0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
+        function fmtNum(v) { return (v || 0).toLocaleString('pt-BR'); }
+        var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
+        html += '<div style="color:#fff;font-size:18px;font-weight:700;">&#128269; Debug — ' + d.camp_type.toUpperCase() + ' (' + d.date_from + ' a ' + d.date_to + ')</div>';
+        html += '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
+        html += '</div>';
+
+        // Resumo por status
+        html += '<div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">';
+        html += '<div style="color:#fff;font-weight:700;margin-bottom:10px;">Total: ' + d.total_campaigns + ' campanhas</div>';
+        html += '<table style="width:100%;color:#ccc;font-size:13px;border-collapse:collapse;">';
+        html += '<tr style="border-bottom:1px solid #2a2e36;"><th style="text-align:left;padding:6px;">Status</th><th style="text-align:right;padding:6px;">Qtd</th><th style="text-align:right;padding:6px;">Spend total</th><th style="text-align:right;padding:6px;">Compras</th></tr>';
+        Object.keys(d.by_status || {}).forEach(function(status) {
+            var s = d.by_status[status];
+            var color = status === 'ACTIVE' ? '#3fdf85' : (status === 'ARCHIVED' ? '#f85149' : '#f59e0b');
+            html += '<tr style="border-bottom:1px solid #1a1f2e;">'
+                + '<td style="padding:8px;color:' + color + ';font-weight:700;">' + status + '</td>'
+                + '<td style="padding:8px;text-align:right;">' + fmtNum(s.count) + '</td>'
+                + '<td style="padding:8px;text-align:right;">' + fmtCur(s.spend) + '</td>'
+                + '<td style="padding:8px;text-align:right;">' + fmtNum(s.purchases) + '</td>'
+                + '</tr>';
+        });
+        html += '</table>';
+        html += '</div>';
+
+        function renderCampList(title, list, color) {
+            if (!list.length) return '';
+            var h = '<div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">';
+            h += '<div style="color:' + color + ';font-weight:700;margin-bottom:10px;">' + title + ' (' + list.length + ' top)</div>';
+            h += '<table style="width:100%;color:#ccc;font-size:11px;border-collapse:collapse;font-family:monospace;">';
+            h += '<tr style="border-bottom:1px solid #2a2e36;color:#888;"><th style="text-align:left;padding:6px;">Nome</th><th style="text-align:right;padding:6px;">Spend</th><th style="text-align:right;padding:6px;">Compras</th><th style="text-align:left;padding:6px;">Conta</th></tr>';
+            list.forEach(function(c) {
+                h += '<tr style="border-bottom:1px solid #1a1f2e;">'
+                    + '<td style="padding:6px;color:#ccc;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (c.name || '').replace(/"/g, '&quot;') + '">' + (c.name || '(sem nome)') + '</td>'
+                    + '<td style="padding:6px;text-align:right;">' + fmtCur(c.spend) + '</td>'
+                    + '<td style="padding:6px;text-align:right;">' + fmtNum(c.purchases) + '</td>'
+                    + '<td style="padding:6px;color:#888;">' + (c.account_id || '') + '</td>'
+                    + '</tr>';
+            });
+            h += '</table></div>';
+            return h;
+        }
+
+        html += renderCampList('&#128276; ARCHIVED com spend (suspeitas — voce as reconhece?)', d.top_archived || [], '#f85149');
+        html += renderCampList('&#9888; PAUSED com spend', d.top_paused || [], '#f59e0b');
+        html += renderCampList('&#10003; ACTIVE com spend (deve estar no Meta UI)', d.top_active || [], '#3fdf85');
+
+        body.innerHTML = html;
+    } catch (e) {
+        body.innerHTML = '<div style="color:#f85149;">Erro: ' + e.message + '</div>';
+    }
 }
 
 async function atomPopulateQueue() {

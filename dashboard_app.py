@@ -7443,6 +7443,95 @@ def api_admin_atom_revalidate_recent():
     })
 
 
+@app.route("/api/admin/atom-debug-campaigns", methods=["POST"])
+def api_admin_atom_debug_campaigns():
+    """Debug: lista campanhas no cache por status, mostrando spend/compras.
+    NAO chama Meta API — so le cache existente. Super_admin only."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    try:
+        body = request.get_json(silent=True) or {}
+        camp_type = body.get("camp_type", CAMP_TYPE_VENDAS)
+        days = max(1, min(60, int(body.get("days", 30))))
+        date_to = (_now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
+        date_from = (_now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+        accounts = [a for a in _get_accounts_for_type(camp_type) if a]
+        all_campaigns = []
+        insights_map = {}
+        for acc in accounts:
+            raw = _fetch_account_raw_v1(acc, "all", date_from, date_to)
+            if raw is None:
+                continue
+            for c in (raw.get("campaigns") or []):
+                cc = dict(c); cc["_account_id"] = acc
+                all_campaigns.append(cc)
+            for cid, ins in (raw.get("insights_by_id") or {}).items():
+                if cid not in insights_map:
+                    insights_map[cid] = parse_insights(ins, camp_type=camp_type)
+
+        # Filtra pelo tipo
+        sales = _filter_campaigns_by_type(all_campaigns, camp_type)
+
+        # Agrupa por status
+        by_status = {}
+        all_with_spend = []
+        for c in sales:
+            cid = c.get("id")
+            status = c.get("status", "UNKNOWN")
+            metrics = insights_map.get(cid, {})
+            spend = float(metrics.get("spend", 0) or 0)
+            purch = int(metrics.get("purchases", 0) or 0)
+            entry = {
+                "id": cid,
+                "name": c.get("name", ""),
+                "status": status,
+                "objective": c.get("objective", ""),
+                "spend": round(spend, 2),
+                "purchases": purch,
+                "account_id": c.get("_account_id", ""),
+            }
+            if status not in by_status:
+                by_status[status] = {"count": 0, "spend": 0, "purchases": 0, "campaigns": []}
+            by_status[status]["count"] += 1
+            by_status[status]["spend"] = round(by_status[status]["spend"] + spend, 2)
+            by_status[status]["purchases"] += purch
+            by_status[status]["campaigns"].append(entry)
+            if spend > 0:
+                all_with_spend.append(entry)
+
+        # Top 30 campanhas archived com spend
+        archived_with_spend = sorted(
+            [e for e in all_with_spend if e["status"] == "ARCHIVED"],
+            key=lambda x: x["spend"], reverse=True
+        )[:30]
+        # Top 30 paused com spend
+        paused_with_spend = sorted(
+            [e for e in all_with_spend if e["status"] == "PAUSED"],
+            key=lambda x: x["spend"], reverse=True
+        )[:30]
+        # Top 30 active com spend
+        active_with_spend = sorted(
+            [e for e in all_with_spend if e["status"] == "ACTIVE"],
+            key=lambda x: x["spend"], reverse=True
+        )[:30]
+
+        return jsonify({
+            "ok": True,
+            "camp_type": camp_type,
+            "date_from": date_from,
+            "date_to": date_to,
+            "total_campaigns": len(sales),
+            "by_status": {k: {"count": v["count"], "spend": v["spend"], "purchases": v["purchases"]} for k, v in by_status.items()},
+            "top_archived": archived_with_spend,
+            "top_paused": paused_with_spend,
+            "top_active": active_with_spend,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "tb": traceback.format_exc()[:500]}), 500
+
+
 @app.route("/api/admin/atom-validate-now", methods=["POST"])
 def api_admin_atom_validate_now():
     """Valida atoms vs legacy SINCRONO. Compara 3 metricas principais
