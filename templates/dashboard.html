@@ -3076,12 +3076,6 @@ $$('#camp-tbl thead th[data-key]').forEach(th=>{th.addEventListener('click',()=>
 });});
 $('#search-camp').addEventListener('input',()=>renderCampTbl(campData));
 $('#btn-load').addEventListener('click',function(){
-    // Confirma apenas para chamadas pesadas: campanhas pausadas ou "todas" (ativas + pausadas).
-    // Ativas sozinhas e uma chamada leve — roda direto.
-    if(campStatusFilter && campStatusFilter !== 'active'){
-        var label = campStatusFilter === 'paused' ? 'pausadas' : 'ativas + pausadas';
-        if(!confirmApiCall('Carregar campanhas '+label+' faz varias chamadas a API da Meta e consome parte do limite diario.\n\nDeseja continuar?')) return;
-    }
     loadCamp();
 });
 var _btnRefresh=$('#btn-refresh');

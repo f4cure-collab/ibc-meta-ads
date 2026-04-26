@@ -82,6 +82,7 @@
         body[data-adm-active="system"]   [data-adm-section]:not([data-adm-section="system"])  {display:none !important}
         body[data-adm-active="campaigns"] [data-adm-section]:not([data-adm-section="campaigns"]){display:none !important}
         body[data-adm-active="usage"]    [data-adm-section]:not([data-adm-section="usage"])   {display:none !important}
+        body[data-adm-active="atoms"]    [data-adm-section]:not([data-adm-section="atoms"])   {display:none !important}
         body[data-adm-active="help"]     [data-adm-section]:not([data-adm-section="help"])    {display:none !important}
     </style>
 </head>
@@ -100,6 +101,7 @@
         <button class="adm-nav-btn" data-adm-tab="system" data-super-only>Sistema</button>
         <button class="adm-nav-btn" data-adm-tab="campaigns" data-super-only>Campanhas</button>
         <button class="adm-nav-btn" data-adm-tab="usage" data-super-only>Diagnostico API</button>
+        <button class="adm-nav-btn" data-adm-tab="atoms" data-super-only>Migracao Atoms</button>
         <button class="adm-nav-btn" data-adm-tab="help">Ajuda</button>
     </div>
 
@@ -526,6 +528,91 @@
         </details>
     </div>
 
+    <!-- Migracao de Atoms (super_admin only) -->
+    <div class="card" id="atomMigCard" data-adm-section="atoms" style="display:none;">
+        <h2>&#128640; Migracao de Atoms</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:16px;">
+            Migracao do cache pra modelo de atoms diarios imutaveis.
+            Cada atom = 1 dia de UMA conta de anuncios.
+            Range queries (30d, 7d, etc) viram soma de atoms — depois de
+            populados, atoms nunca sao re-fetched (excepto revalidacao D+2 e D+8).
+            Reduz ~80-90% das chamadas Meta no regime permanente.
+        </p>
+
+        <!-- Bloco 1: Estado geral -->
+        <div id="atomStatusBox" style="background:rgba(31,111,235,.08);border:1px solid rgba(31,111,235,.25);border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <div style="color:#1f6feb;font-size:13px;font-weight:600;">Estado geral</div>
+                    <div id="atomStateText" style="color:#888;font-size:12px;margin-top:3px;">Carregando...</div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <span id="atomFlagState" style="padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;">--</span>
+                    <button id="atomFlagToggle" onclick="atomToggleFlag()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Toggle</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bloco 2: Progresso -->
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:8px;">Progresso do backfill</div>
+            <div style="background:#0a1018;border-radius:6px;height:24px;overflow:hidden;position:relative;">
+                <div id="atomProgressBar" style="background:linear-gradient(90deg,#3fdf85,#1f6feb);height:100%;width:0%;transition:width .3s;"></div>
+                <div id="atomProgressText" style="position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;text-shadow:0 0 4px #000;">--/-- (--%)</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;color:#888;font-size:11px;margin-top:6px;">
+                <span>Fila: <span id="atomQueueSize" style="color:#ccc;">--</span></span>
+                <span>Pacing atual: <span id="atomPacing" style="color:#ccc;">--</span>/h</span>
+                <span>BUC: <span id="atomBuc" style="color:#ccc;">--</span>%</span>
+                <span>Ultimo fetch: <span id="atomLastFetch" style="color:#ccc;">--</span></span>
+            </div>
+            <div id="atomBoostStatus" style="display:none;margin-top:10px;padding:8px 12px;background:rgba(245,158,11,.10);border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;font-size:12px;font-weight:600;">
+                <span id="atomBoostStatusText">Boost: --</span>
+                <button onclick="atomBoostStop()" style="margin-left:10px;background:transparent;color:#f59e0b;border:1px solid #f59e0b;padding:2px 10px;border-radius:4px;font-size:11px;cursor:pointer;">Parar boost</button>
+            </div>
+        </div>
+
+        <!-- Bloco 3: Por conta -->
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:8px;">Atoms por conta</div>
+            <div id="atomPerAccount" style="display:grid;gap:6px;font-size:11px;">
+                <div style="color:#888;">Carregando...</div>
+            </div>
+        </div>
+
+        <!-- Bloco 4: Controles -->
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
+            <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:10px;">Controles</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button onclick="atomBoostStart(365, 90, 14)" style="background:linear-gradient(90deg,#f59e0b,#f85149);color:#fff;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128640; Boost 365d (90/h, 14h)</button>
+                <button onclick="atomFire(5)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+5 atoms agora</button>
+                <button onclick="atomFire(15)" style="background:#1f6feb;color:#fff;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">+15 atoms agora</button>
+                <button onclick="atomFullCheck()" style="background:linear-gradient(90deg,#3fdf85,#bc8cff);color:#0a1018;border:none;padding:6px 18px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#9889; Refresh + Validar (1 clique)</button>
+                <button onclick="atomRevalidateRecent()" style="background:#3fdf85;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#8635; Revalidar ultimos 7d</button>
+                <button onclick="atomValidateNow()" style="background:#bc8cff;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128270; Validar agora (30d)</button>
+                <button onclick="atomDebugCampaigns('vendas')" style="background:#f59e0b;color:#0a1018;border:none;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;">&#128269; Debug: ver 734 campanhas Vendas</button>
+                <button onclick="atomTogglePause()" id="atomPauseBtn" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Pausar</button>
+                <button onclick="atomPopulateQueue()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Repopular fila</button>
+                <button onclick="loadAtomStatus()" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;">Atualizar</button>
+            </div>
+            <div style="color:#888;font-size:11px;margin-top:8px;">
+                Reversao automatica: <span id="atomDivergCount" style="color:#ccc;">0</span> divergencias na ultima hora
+                (3+ disparam reversao automatica)
+            </div>
+        </div>
+
+        <!-- Bloco 5: Historico -->
+        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <div style="color:#fff;font-size:13px;font-weight:600;">Historico (ultimas 50)</div>
+                <span style="color:#888;font-size:11px;">Auto-atualiza a cada 5s</span>
+            </div>
+            <div id="atomHistory" style="max-height:300px;overflow-y:auto;font-family:'Courier New',monospace;font-size:11px;line-height:1.6;background:#0a0f1a;border-radius:4px;padding:8px;">
+                <div style="color:#666;">Carregando...</div>
+            </div>
+        </div>
+    </div>
+
     <!-- Instrucoes -->
     <div class="card" data-adm-section="help">
         <h2>Como gerar novo token</h2>
@@ -707,6 +794,13 @@ async function loadUsers() {
         if (usgCard) {
             usgCard.style.display = _isSuper ? 'block' : 'none';
             if (_isSuper && document.body.getAttribute('data-adm-active') === 'usage') loadUsageStats();
+        }
+        var atomCard = document.getElementById('atomMigCard');
+        if (atomCard) {
+            atomCard.style.display = _isSuper ? 'block' : 'none';
+            if (_isSuper && document.body.getAttribute('data-adm-active') === 'atoms') {
+                if (typeof _startAtomPolling === 'function') _startAtomPolling();
+            }
         }
         if (_isSuper) checkUpdate();
 
@@ -1654,6 +1748,8 @@ function hide(id) { document.getElementById(id).style.display='none'; }
         });
         localStorage.setItem('admActiveTab', tab);
         if (tab === 'usage') loadUsageStats();
+        if (tab === 'atoms' && typeof _startAtomPolling === 'function') _startAtomPolling();
+        else if (typeof _stopAtomPolling === 'function') _stopAtomPolling();
     }
     setActive(saved);
     document.querySelectorAll('.adm-nav-btn').forEach(function(b){
@@ -1688,6 +1784,565 @@ window.fireSchedTest = async function(delay){
         alert('Erro: ' + e.message);
     }
 };
+
+// ─── ATOM MIGRATION PANEL ─────────────────────────────────────────
+var _atomPollTimer = null;
+
+async function loadAtomStatus() {
+    try {
+        var r = await fetch('/api/admin/atom-status');
+        if (!r.ok) {
+            document.getElementById('atomStateText').textContent = 'Erro: HTTP ' + r.status;
+            return;
+        }
+        var d = await r.json();
+        if (!d.ok) {
+            document.getElementById('atomStateText').textContent = 'Erro: ' + (d.error || '?');
+            return;
+        }
+        // Estado e flag
+        var flagEl = document.getElementById('atomFlagState');
+        var toggleBtn = document.getElementById('atomFlagToggle');
+        if (d.use_atoms) {
+            flagEl.textContent = 'ATOMS ATIVO';
+            flagEl.style.background = '#3fdf85';
+            flagEl.style.color = '#0a1018';
+            toggleBtn.textContent = 'Desativar';
+        } else {
+            flagEl.textContent = 'ATOMS DESATIVADO';
+            flagEl.style.background = '#2a2e36';
+            flagEl.style.color = '#ccc';
+            toggleBtn.textContent = 'Ativar';
+        }
+        var stateLines = [];
+        if (d.use_atoms) stateLines.push('Endpoints lendo de atoms (com fallback)');
+        else stateLines.push('Endpoints lendo do cache antigo (atoms populando em background)');
+        if (d.backfill_paused) stateLines.push('&#9208; Backfill PAUSADO');
+        document.getElementById('atomStateText').innerHTML = stateLines.join(' &middot; ');
+
+        // Progresso
+        var p = d.progress || {};
+        document.getElementById('atomProgressBar').style.width = (p.pct || 0) + '%';
+        document.getElementById('atomProgressText').textContent = (p.populated || 0) + '/' + (p.target || 0) + ' (' + (p.pct || 0) + '%)';
+        document.getElementById('atomQueueSize').textContent = p.queue_size != null ? p.queue_size : '--';
+        document.getElementById('atomPacing').textContent = (d.pacing && d.pacing.current_h) || '--';
+        document.getElementById('atomBuc').textContent = d.buc ? d.buc.pct : '--';
+        document.getElementById('atomLastFetch').textContent = (d.pacing && d.pacing.last_fetch_at) ? d.pacing.last_fetch_at.slice(11, 19) : '--';
+
+        // Por conta
+        var paBox = document.getElementById('atomPerAccount');
+        var paHtml = '';
+        (d.per_account || []).forEach(function(a) {
+            var color = a.pct >= 100 ? '#3fdf85' : (a.pct >= 50 ? '#1f6feb' : '#888');
+            paHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #2a2e36;">'
+                + '<span style="color:#ccc;">' + a.acc_id + '</span>'
+                + '<div style="display:flex;gap:10px;align-items:center;">'
+                + '<span style="background:' + color + ';color:#0a1018;padding:2px 8px;border-radius:3px;font-weight:700;">' + a.atoms_count + '/' + a.target + '</span>'
+                + '<span style="color:#888;min-width:50px;text-align:right;">' + a.pct + '%</span>'
+                + '</div>'
+                + '</div>';
+        });
+        paBox.innerHTML = paHtml || '<div style="color:#888;">Nenhuma conta</div>';
+
+        // Divergencias
+        document.getElementById('atomDivergCount').textContent = d.divergences_recent || 0;
+
+        // Boost status
+        var bb = d.boost || {};
+        var boostBox = document.getElementById('atomBoostStatus');
+        var boostText = document.getElementById('atomBoostStatusText');
+        if (bb.active && boostBox && boostText) {
+            var hh = Math.floor(bb.remaining_minutes / 60);
+            var mm = bb.remaining_minutes % 60;
+            boostText.textContent = '⚡ BOOST ATIVO — pacing ' + bb.pacing_h + '/h, restam ' + hh + 'h' + mm + 'min';
+            boostBox.style.display = 'block';
+        } else if (boostBox) {
+            boostBox.style.display = 'none';
+        }
+
+        // Pause btn
+        document.getElementById('atomPauseBtn').textContent = d.backfill_paused ? 'Resumir' : 'Pausar';
+
+        // Historico
+        var hist = document.getElementById('atomHistory');
+        var hHtml = '';
+        (d.history || []).forEach(function(h) {
+            var color = '#888';
+            var icon = '&middot;';
+            if (h.event === 'fetch_ok' || h.event === 'validate_ok') { color = '#3fdf85'; icon = '&#10003;'; }
+            else if (h.event === 'fetch_err' || h.event === 'validate_diverge') { color = '#f85149'; icon = '&#9888;'; }
+            else if (h.event === 'auto_revert' || h.event === 'flag_change') { color = '#bc8cff'; icon = '&#9881;'; }
+            else if (h.event === 'backfill_progress' || h.event === 'backfill_queue_populated') { color = '#1f6feb'; icon = '&#8635;'; }
+            var ts = (h.ts || '').slice(11, 19);
+            var data = h.data || {};
+            var summary = '';
+            if (h.event === 'fetch_ok') summary = data.acc + '/' + data.date + ' (' + data.campaigns + ' camps, ' + data.ms + 'ms)';
+            else if (h.event === 'fetch_err') summary = data.acc + '/' + data.date + ' — ' + (data.error || '');
+            else if (h.event === 'validate_diverge') summary = data.label + ' diff=' + data.diff_pct + '% (atom=' + data.atom + ', legacy=' + data.legacy + ')';
+            else if (h.event === 'flag_change') summary = data.from + ' → ' + data.to + ' (' + (data.reason || '') + ')';
+            else if (h.event === 'auto_revert') summary = data.divergences + ' divergencias';
+            else if (h.event === 'backfill_progress') summary = 'remaining=' + data.remaining;
+            else summary = JSON.stringify(data).slice(0, 80);
+            hHtml += '<div style="padding:2px 0;border-bottom:1px solid #1a1f2e;">'
+                + '<span style="color:#666;">[' + ts + ']</span> '
+                + '<span style="color:' + color + ';font-weight:600;">' + icon + ' ' + h.event + '</span> '
+                + '<span style="color:#aaa;">' + summary + '</span>'
+                + '</div>';
+        });
+        hist.innerHTML = hHtml || '<div style="color:#666;">Sem eventos ainda</div>';
+    } catch (e) {
+        document.getElementById('atomStateText').textContent = 'Erro: ' + e.message;
+    }
+}
+
+async function atomToggleFlag() {
+    var current = document.getElementById('atomFlagToggle').textContent;
+    var enable = (current.toLowerCase().indexOf('ativar') === 0);
+    if (!confirm((enable ? 'ATIVAR' : 'DESATIVAR') + ' atoms agora?')) return;
+    try {
+        var r = await fetch('/api/admin/atom-toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enable: enable }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function atomFire(n) {
+    try {
+        var r = await fetch('/api/admin/atom-backfill-fire', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ n: n }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        // Recarrega status em alguns segundos
+        setTimeout(loadAtomStatus, 3000);
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function atomBoostStart(days_back, pacing_h, duration_h) {
+    var totalAtoms = days_back * 3; // 3 contas
+    var hoursEst = Math.ceil(totalAtoms / pacing_h);
+    var msg = 'BOOST BACKFILL\n\n'
+        + '- Popular fila com ' + days_back + ' dias × 3 contas = ' + totalAtoms + ' atoms\n'
+        + '- Pacing acelerado: ' + pacing_h + '/h (vs ' + 10 + '/h normal)\n'
+        + '- Duracao maxima do boost: ' + duration_h + 'h\n'
+        + '- Tempo estimado de fetch: ~' + hoursEst + 'h\n\n'
+        + 'O worker ainda respeita BUC critico (>=70% volta pra pacing seguro).\n'
+        + 'Voce pode parar o boost a qualquer momento.\n\n'
+        + 'Continuar?';
+    if (!confirm(msg)) return;
+    try {
+        var r = await fetch('/api/admin/atom-boost', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days_back: days_back, pacing_h: pacing_h, duration_h: duration_h }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        alert('Boost iniciado! ' + d.added_to_queue + ' atoms adicionados a fila.\nPacing: ' + d.pacing_h + '/h por ate ' + d.duration_h + 'h.');
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function atomBoostStop() {
+    if (!confirm('Parar o boost agora? Worker volta pro pacing normal (10/h).')) return;
+    try {
+        var r = await fetch('/api/admin/atom-boost-stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function atomTogglePause() {
+    var btn = document.getElementById('atomPauseBtn');
+    var pause = btn.textContent === 'Pausar';
+    try {
+        var r = await fetch('/api/admin/atom-backfill-pause', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pause: pause }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+// "1-click flow": refresh ALL atoms 30d, then validate, then show result
+async function atomFullCheck() {
+    if (!confirm('Fluxo completo:\n\n1. Refresca atoms dos ultimos 30 dias (~90 chamadas Meta, todos os atoms ficam fresh)\n2. Espera ate 4 minutos pros atoms terminarem\n3. Roda validacao\n4. Mostra resultado\n\nLeva ~5-6 minutos total. Continuar?')) return;
+    var modal = document.getElementById('atomValidateModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'atomValidateModal';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+        modal.innerHTML = '<div id="atomValidateBody" style="background:#0f1824;border:1px solid #1f2a3a;border-radius:10px;padding:20px;max-width:900px;width:100%;max-height:90vh;overflow-y:auto;"></div>';
+        document.body.appendChild(modal);
+    }
+    var body = document.getElementById('atomValidateBody');
+    body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 1/3:</b> &#8635; Refrescando atoms dos ultimos 30 dias...</div>';
+    modal.style.display = 'flex';
+    try {
+        // Etapa 1: revalidar 30 dias
+        var r1 = await fetch('/api/admin/atom-revalidate-recent', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: 30 }),
+        });
+        var d1 = await r1.json();
+        if (!d1.ok) throw new Error('Refresh falhou: ' + (d1.error || '?'));
+
+        // Etapa 2: aguardar (90 atoms × 2s = 180s + buffer = 240s)
+        var totalWait = 240;
+        body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 2/3:</b> &#9203; Aguardando 90 atoms ficarem prontos...</div>';
+        for (var s = totalWait; s > 0; s -= 5) {
+            body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 2/3:</b> &#9203; Aguardando atoms... ' + s + 's restantes (' + Math.round((totalWait-s)/totalWait*100) + '%)</div>'
+                + '<div style="color:#888;font-size:11px;margin-top:6px;">Refresh em background — esperando servidor refetchar 90 atoms da Meta.</div>';
+            await new Promise(function(r){ setTimeout(r, 5000); });
+        }
+
+        // Etapa 3: validar
+        body.innerHTML = '<div style="color:#fff;font-size:14px;"><b>Etapa 3/3:</b> &#128270; Validando — comparando atoms vs Meta atual... (1-2 min)</div>';
+        var r2 = await fetch('/api/admin/atom-validate-now', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: 30 }),
+        });
+        var d = await r2.json();
+        if (!d.ok) throw new Error('Validacao falhou: ' + (d.error || '?'));
+
+        // Renderizar igual ao atomValidateNow (modal ja aberto, basta atualizar body)
+        // Reusa lógica:
+        await atomRenderValidationResult(d, body);
+        loadAtomStatus();
+    } catch (e) {
+        body.innerHTML = '<div style="color:#f85149;">Erro: ' + e.message + '</div>'
+            + '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="margin-top:14px;background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
+    }
+}
+
+async function atomRevalidateRecent() {
+    if (!confirm('Refetchar atoms dos ultimos 7 dias?\n\nIsso vai fazer 7 dias × 3 contas = ~21 chamadas Meta.\nUsa pra atualizar com atribuicao tardia. Leva ~1-2 min.')) return;
+    try {
+        var r = await fetch('/api/admin/atom-revalidate-recent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: 7 }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        alert(d.message + '\n\nAguarde ~2 min, depois clique "Validar agora" pra conferir se zerou as diferencas.');
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+async function atomValidateNow() {
+    if (!confirm('Validar atoms vs cache atual em todos os 5 tipos pelos ultimos 30 dias?\n\nIsso pode levar 1-3 minutos e fazer ate ~15 chamadas Meta (1 por conta+tipo).')) return;
+    var modal = document.getElementById('atomValidateModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'atomValidateModal';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+        modal.innerHTML = '<div id="atomValidateBody" style="background:#0f1824;border:1px solid #1f2a3a;border-radius:10px;padding:20px;max-width:900px;width:100%;max-height:90vh;overflow-y:auto;"></div>';
+        document.body.appendChild(modal);
+    }
+    var body = document.getElementById('atomValidateBody');
+    body.innerHTML = '<div style="color:#fff;font-size:14px;">&#9203; Validando — chamando Meta pra comparar com atoms... (pode levar ate 3min)</div>';
+    modal.style.display = 'flex';
+
+    try {
+        var r = await fetch('/api/admin/atom-validate-now', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days: 30 }),
+        });
+        var d = await r.json();
+        if (!d.ok) {
+            body.innerHTML = '<div style="color:#f85149;">Erro: ' + (d.error || '?') + '</div>'
+                + '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="margin-top:14px;background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
+            return;
+        }
+        await atomRenderValidationResult(d, body);
+        loadAtomStatus();
+    } catch (e) {
+        body.innerHTML = '<div style="color:#f85149;">Erro: ' + e.message + '</div>'
+            + '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="margin-top:14px;background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
+    }
+}
+
+async function atomRenderValidationResult(d, body) {
+        var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
+        html += '<div style="color:#fff;font-size:18px;font-weight:700;">&#128270; Resultado da validacao</div>';
+        html += '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
+        html += '</div>';
+        html += '<div style="color:#888;font-size:12px;margin-bottom:14px;">Range: ' + d.date_from + ' a ' + d.date_to + '</div>';
+
+        var allOk = (d.results || []).every(function(r) { return r.status === 'ok' || r.status === 'skipped'; });
+        var hasDiverge = (d.results || []).some(function(r) { return r.status === 'diverge'; });
+
+        var verdict = allOk ? '&#9989; TUDO IGUAL — pode ativar atoms com seguranca' : (hasDiverge ? '&#10060; DIVERGENCIA SIGNIFICATIVA — investigar antes de ativar' : '&#9888; Pequena diferenca em algum tipo (verifique abaixo)');
+        var verdictColor = allOk ? '#3fdf85' : (hasDiverge ? '#f85149' : '#f59e0b');
+        html += '<div style="background:rgba(' + (allOk ? '63,223,133' : (hasDiverge ? '248,81,73' : '245,158,11')) + ',.15);border:1px solid ' + verdictColor + ';color:' + verdictColor + ';padding:12px;border-radius:6px;font-weight:700;margin-bottom:18px;">' + verdict + '</div>';
+
+        // ─── DIAGNOSTICO: quais metricas falharam (em portugues) ───
+        var diagnostics = [];
+        var metricNames = {
+            total_spend: 'Spend (gasto)',
+            total_revenue: 'Receita',
+            total_purchases: 'Compras/Leads',
+            total_campaigns: 'Numero de campanhas',
+        };
+        (d.results || []).forEach(function(rs) {
+            if (rs.status === 'skipped' || rs.status === 'ok') return;
+            var m = rs.metrics || {};
+            Object.keys(m).forEach(function(metricKey) {
+                var v = m[metricKey];
+                if (!v || v.diff_pct < 0.01) return;
+                var sev = v.diff_pct < 1 ? 'aviso' : 'divergencia';
+                var diff = Math.abs((parseFloat(v.atoms) || 0) - (parseFloat(v.legacy) || 0));
+                var fmt = (metricKey === 'total_spend' || metricKey === 'total_revenue')
+                    ? ('R$ ' + diff.toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2}))
+                    : (Math.round(diff).toLocaleString('pt-BR') + ' un');
+                diagnostics.push({
+                    severity: sev,
+                    type: rs.type,
+                    metric: metricNames[metricKey] || metricKey,
+                    diff_pct: v.diff_pct,
+                    diff_abs: fmt,
+                    atoms: v.atoms,
+                    legacy: v.legacy,
+                });
+            });
+        });
+
+        if (diagnostics.length > 0) {
+            // Ordena: divergencias primeiro, depois avisos
+            diagnostics.sort(function(a, b) {
+                if (a.severity !== b.severity) return a.severity === 'divergencia' ? -1 : 1;
+                return b.diff_pct - a.diff_pct;
+            });
+            html += '<div style="background:#0a0f1a;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:18px;">';
+            html += '<div style="color:#fff;font-size:14px;font-weight:700;margin-bottom:10px;">&#128269; DIAGNOSTICO — metricas com diferenca</div>';
+            diagnostics.forEach(function(d) {
+                var color = d.severity === 'divergencia' ? '#f85149' : '#f59e0b';
+                var icon = d.severity === 'divergencia' ? '&#10060;' : '&#9888;';
+                html += '<div style="padding:8px 0;border-bottom:1px solid #1a1f2e;">'
+                    + '<div style="color:' + color + ';font-weight:700;font-size:13px;">'
+                    + icon + ' ' + d.type.toUpperCase() + ' &mdash; ' + d.metric
+                    + ' <span style="float:right;">' + d.diff_pct.toFixed(3) + '% (' + d.diff_abs + ')</span>'
+                    + '</div>'
+                    + '<div style="color:#888;font-size:11px;margin-top:4px;font-family:monospace;">'
+                    + 'atoms = ' + d.atoms + ' | legacy = ' + d.legacy
+                    + '</div>'
+                    + '</div>';
+            });
+            // Sugestoes automaticas
+            var suggs = [];
+            var hasReceita = diagnostics.some(function(d){return d.metric.indexOf('Receita') >= 0;});
+            var hasCompras = diagnostics.some(function(d){return d.metric.indexOf('Compras') >= 0;});
+            var allUnder1 = diagnostics.every(function(d){return d.diff_pct < 1;});
+            if (allUnder1) {
+                suggs.push('Todas as diferencas sao &lt;1% — provavelmente TIMING (Meta atualiza valores em tempo real). Pode ativar.');
+            }
+            if (hasReceita && !hasCompras) {
+                suggs.push('Receita diverge mas Compras OK — atribuicao de revenue da Meta tem janela maior, pode ser timing.');
+            }
+            if (hasCompras && diagnostics.some(function(d){return d.metric.indexOf('Compras') >= 0 && d.diff_pct >= 1;})) {
+                suggs.push('Compras com diff &ge;1% — pode ser bug na agregacao de actions. NAO ativar antes de investigar.');
+            }
+            if (suggs.length) {
+                html += '<div style="margin-top:10px;padding:10px;background:rgba(31,111,235,.08);border-left:3px solid #1f6feb;border-radius:4px;color:#58a6ff;font-size:12px;">';
+                html += '<b>Interpretacao:</b><br>';
+                suggs.forEach(function(s){ html += '&bull; ' + s + '<br>'; });
+                html += '</div>';
+            }
+            html += '</div>';
+        }
+
+        // Cards por tipo (mais legivel que tabela)
+        function fmtCur(v) { return 'R$ ' + (v || 0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
+        function fmtNum(v) { return (v || 0).toLocaleString('pt-BR'); }
+
+        function metricRow(label, atoms, legacy, isCurrency) {
+            var fmt = isCurrency ? fmtCur : fmtNum;
+            var a = parseFloat(atoms) || 0;
+            var l = parseFloat(legacy) || 0;
+            var diff = Math.abs(a - l);
+            var diffPct = (l === 0 && a === 0) ? 0 : (diff / Math.max(Math.abs(l), 1) * 100);
+            var diffColor = diffPct < 0.01 ? '#3fdf85' : (diffPct < 1 ? '#f59e0b' : '#f85149');
+            var diffStr = diffPct < 0.0001 ? '0%' : diffPct.toFixed(4) + '%';
+            return '<div style="display:grid;grid-template-columns:140px 1fr 1fr 100px;gap:8px;padding:6px 0;border-bottom:1px solid #1a1f2e;align-items:center;">'
+                + '<div style="color:#888;font-size:12px;">' + label + '</div>'
+                + '<div style="color:#ccc;font-size:13px;text-align:right;font-family:monospace;">' + fmt(a) + '</div>'
+                + '<div style="color:#ccc;font-size:13px;text-align:right;font-family:monospace;">' + fmt(l) + '</div>'
+                + '<div style="color:' + diffColor + ';font-size:12px;text-align:right;font-weight:700;">' + diffStr + '</div>'
+                + '</div>';
+        }
+
+        (d.results || []).forEach(function(rs) {
+            if (rs.status === 'skipped') {
+                html += '<div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:10px;color:#888;">'
+                    + '<b style="color:#fff;">' + rs.type.toUpperCase() + '</b> &middot; pulado: ' + (rs.reason || '') + '</div>';
+                return;
+            }
+            var m = rs.metrics || {};
+            var ts = m.total_spend || {}, tr = m.total_revenue || {}, tp = m.total_purchases || {}, tc = m.total_campaigns || {};
+            var statusColor = rs.status === 'ok' ? '#3fdf85' : (rs.status === 'diverge' ? '#f85149' : '#f59e0b');
+            var statusIcon = rs.status === 'ok' ? '&#10003; IGUAL' : (rs.status === 'diverge' ? '&#10007; DIVERGE' : '&#9888; AVISO');
+            var bgAlpha = rs.status === 'ok' ? '.08' : (rs.status === 'diverge' ? '.12' : '.10');
+            var rgbColor = rs.status === 'ok' ? '63,223,133' : (rs.status === 'diverge' ? '248,81,73' : '245,158,11');
+
+            html += '<div style="background:rgba(' + rgbColor + ',' + bgAlpha + ');border:1px solid ' + statusColor + ';border-radius:8px;padding:14px;margin-bottom:10px;">';
+            // Header do card
+            html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #2a2e36;">'
+                + '<div style="color:#fff;font-size:16px;font-weight:700;text-transform:uppercase;">' + rs.type + '</div>'
+                + '<div style="color:' + statusColor + ';font-size:13px;font-weight:700;">' + statusIcon + ' (max ' + (rs.max_diff_pct || 0) + '%)</div>'
+                + '</div>';
+            // Cabecalho da grid
+            html += '<div style="display:grid;grid-template-columns:140px 1fr 1fr 100px;gap:8px;padding:4px 0;border-bottom:1px solid #2a2e36;color:#666;font-size:11px;text-transform:uppercase;">'
+                + '<div>Metrica</div><div style="text-align:right;">Atoms</div><div style="text-align:right;">Legacy (atual)</div><div style="text-align:right;">Diff</div>'
+                + '</div>';
+            // Rows
+            html += metricRow('Spend (gasto)', ts.atoms, ts.legacy, true);
+            html += metricRow('Receita', tr.atoms, tr.legacy, true);
+            html += metricRow('Compras/Leads', tp.atoms, tp.legacy, false);
+            html += metricRow('Campanhas', tc.atoms, tc.legacy, false);
+            html += '</div>';
+        });
+        html += '<div style="margin-top:16px;color:#888;font-size:11px;line-height:1.6;background:#1a1d24;padding:12px;border-radius:6px;">'
+            + '<b style="color:#ccc;">Como interpretar:</b><br>'
+            + '<span style="color:#3fdf85;">&#10003; Verde &lt; 0.1%</span>: valores idênticos (perfeito)<br>'
+            + '<span style="color:#f59e0b;">&#9888; Amarelo &lt; 1%</span>: diferenca pequena (timing entre as 2 leituras, drift natural Meta)<br>'
+            + '<span style="color:#f85149;">&#10007; Vermelho &ge; 1%</span>: diferenca grande, possivel bug — investigar antes de ativar'
+            + '</div>';
+        body.innerHTML = html;
+}
+
+async function atomDebugCampaigns(camp_type) {
+    var modal = document.getElementById('atomValidateModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'atomValidateModal';
+        modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+        modal.innerHTML = '<div id="atomValidateBody" style="background:#0f1824;border:1px solid #1f2a3a;border-radius:10px;padding:20px;max-width:1100px;width:100%;max-height:90vh;overflow-y:auto;"></div>';
+        document.body.appendChild(modal);
+    }
+    var body = document.getElementById('atomValidateBody');
+    body.innerHTML = '<div style="color:#fff;">&#9203; Carregando lista de campanhas...</div>';
+    modal.style.display = 'flex';
+    try {
+        var r = await fetch('/api/admin/atom-debug-campaigns', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ camp_type: camp_type, days: 30 }),
+        });
+        var d = await r.json();
+        if (!d.ok) {
+            body.innerHTML = '<div style="color:#f85149;">Erro: ' + (d.error || '?') + '</div>';
+            return;
+        }
+        function fmtCur(v) { return 'R$ ' + (v || 0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
+        function fmtNum(v) { return (v || 0).toLocaleString('pt-BR'); }
+        var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">';
+        html += '<div style="color:#fff;font-size:18px;font-weight:700;">&#128269; Debug — ' + d.camp_type.toUpperCase() + ' (' + d.date_from + ' a ' + d.date_to + ')</div>';
+        html += '<button onclick="document.getElementById(\'atomValidateModal\').style.display=\'none\'" style="background:#2a2e36;color:#ccc;border:1px solid #3a3e46;padding:6px 14px;border-radius:6px;cursor:pointer;">Fechar</button>';
+        html += '</div>';
+
+        // Resumo por status
+        html += '<div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">';
+        html += '<div style="color:#fff;font-weight:700;margin-bottom:10px;">Total: ' + d.total_campaigns + ' campanhas</div>';
+        html += '<table style="width:100%;color:#ccc;font-size:13px;border-collapse:collapse;">';
+        html += '<tr style="border-bottom:1px solid #2a2e36;"><th style="text-align:left;padding:6px;">Status</th><th style="text-align:right;padding:6px;">Qtd</th><th style="text-align:right;padding:6px;">Spend total</th><th style="text-align:right;padding:6px;">Compras</th></tr>';
+        Object.keys(d.by_status || {}).forEach(function(status) {
+            var s = d.by_status[status];
+            var color = status === 'ACTIVE' ? '#3fdf85' : (status === 'ARCHIVED' ? '#f85149' : '#f59e0b');
+            html += '<tr style="border-bottom:1px solid #1a1f2e;">'
+                + '<td style="padding:8px;color:' + color + ';font-weight:700;">' + status + '</td>'
+                + '<td style="padding:8px;text-align:right;">' + fmtNum(s.count) + '</td>'
+                + '<td style="padding:8px;text-align:right;">' + fmtCur(s.spend) + '</td>'
+                + '<td style="padding:8px;text-align:right;">' + fmtNum(s.purchases) + '</td>'
+                + '</tr>';
+        });
+        html += '</table>';
+        html += '</div>';
+
+        function renderCampList(title, list, color) {
+            if (!list.length) return '';
+            var h = '<div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">';
+            h += '<div style="color:' + color + ';font-weight:700;margin-bottom:10px;">' + title + ' (' + list.length + ' top)</div>';
+            h += '<table style="width:100%;color:#ccc;font-size:11px;border-collapse:collapse;font-family:monospace;">';
+            h += '<tr style="border-bottom:1px solid #2a2e36;color:#888;"><th style="text-align:left;padding:6px;">Nome</th><th style="text-align:right;padding:6px;">Spend</th><th style="text-align:right;padding:6px;">Compras</th><th style="text-align:left;padding:6px;">Conta</th></tr>';
+            list.forEach(function(c) {
+                h += '<tr style="border-bottom:1px solid #1a1f2e;">'
+                    + '<td style="padding:6px;color:#ccc;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + (c.name || '').replace(/"/g, '&quot;') + '">' + (c.name || '(sem nome)') + '</td>'
+                    + '<td style="padding:6px;text-align:right;">' + fmtCur(c.spend) + '</td>'
+                    + '<td style="padding:6px;text-align:right;">' + fmtNum(c.purchases) + '</td>'
+                    + '<td style="padding:6px;color:#888;">' + (c.account_id || '') + '</td>'
+                    + '</tr>';
+            });
+            h += '</table></div>';
+            return h;
+        }
+
+        html += renderCampList('&#128276; ARCHIVED com spend (suspeitas — voce as reconhece?)', d.top_archived || [], '#f85149');
+        html += renderCampList('&#9888; PAUSED com spend', d.top_paused || [], '#f59e0b');
+        html += renderCampList('&#10003; ACTIVE com spend (deve estar no Meta UI)', d.top_active || [], '#3fdf85');
+
+        body.innerHTML = html;
+    } catch (e) {
+        body.innerHTML = '<div style="color:#f85149;">Erro: ' + e.message + '</div>';
+    }
+}
+
+async function atomPopulateQueue() {
+    if (!confirm('Repopular fila com 30 dias × contas?')) return;
+    try {
+        var r = await fetch('/api/admin/atom-populate-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ days_back: 30 }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        alert((d.added || 0) + ' atoms adicionados a fila.');
+        loadAtomStatus();
+    } catch (e) { alert('Erro: ' + e.message); }
+}
+
+// Auto-poll quando aba Atoms estiver ativa
+function _startAtomPolling() {
+    if (_atomPollTimer) return;
+    loadAtomStatus();
+    _atomPollTimer = setInterval(loadAtomStatus, 5000);
+}
+function _stopAtomPolling() {
+    if (_atomPollTimer) clearInterval(_atomPollTimer);
+    _atomPollTimer = null;
+}
+
+// Hook na navegacao das abas
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.adm-nav-btn').forEach(function(b) {
+        b.addEventListener('click', function() {
+            if (b.getAttribute('data-adm-tab') === 'atoms') {
+                _startAtomPolling();
+            } else {
+                _stopAtomPolling();
+            }
+        });
+    });
+    // Se carregou direto na aba atoms (URL param ou localStorage)
+    if (document.body.getAttribute('data-adm-active') === 'atoms') {
+        _startAtomPolling();
+    }
+});
 
 // ── Disparar warmup mensal manualmente ──
 window.fireMonthlyWarmup = async function(){

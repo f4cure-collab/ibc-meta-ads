@@ -578,7 +578,11 @@ _BACKFILL_QUEUE_FILE = os.path.join(os.path.dirname(__file__), "atom_backfill_qu
 _backfill_lock = threading.Lock()
 _backfill_thread_started = False
 _backfill_paused = False  # toggle via admin button
-_backfill_state = {"last_fetch_at": None, "current_pacing_h": 10}
+_backfill_state = {"last_fetch_at": None, "current_pacing_h": 10, "target_days": 30}
+# Boost mode: pacing acelerado (90/h = 40s) por janela limitada de tempo.
+# Ativado via /api/admin/atom-boost. Respeita BUC critico (>=85% pausa,
+# >=70% volta pra 3/h, >=50% volta pra 5/h). Auto-desliga ao expirar.
+_backfill_boost = {"active": False, "until_ts": 0, "seconds_between": 40, "pacing_h": 90}
 
 
 def _load_backfill_queue():
@@ -602,6 +606,8 @@ def _save_backfill_queue(queue):
 def _populate_backfill_queue(days_back=30):
     """Adiciona atoms faltantes a fila. Idempotente — nao duplica entradas
     nem refaz atoms ja cacheados. Retorna # de atoms adicionados."""
+    if days_back > _backfill_state.get("target_days", 30):
+        _backfill_state["target_days"] = days_back
     accounts = set()
     for ct in VALID_CAMP_TYPES:
         for acc in _get_accounts_for_type(ct):
@@ -639,19 +645,29 @@ def _populate_backfill_queue(days_back=30):
 
 def _backfill_get_pacing_seconds():
     """Determina segundos entre fetches:
-        BUC < 50%:  360s (10/h, ritmo padrao)
+        BUC > 70%:  1200s (3/h, throttle pesado)
         BUC 50-70%: 720s (5/h, throttle leve)
-        BUC > 70%:  1200s (3/h, throttle pesado)"""
+        BUC < 50% + BOOST ativo:  configurado (ex 40s = 90/h)
+        BUC < 50% normal: 360s (10/h, ritmo padrao)"""
     try:
         worst_pct, _ = _worst_usage_pct()
     except Exception:
         worst_pct = 0
+    # Throttling sempre tem prioridade sobre boost
     if worst_pct >= 70:
         _backfill_state["current_pacing_h"] = 3
         return 1200
     if worst_pct >= 50:
         _backfill_state["current_pacing_h"] = 5
         return 720
+    # BUC saudavel — checa boost
+    if _backfill_boost.get("active"):
+        if time.time() < _backfill_boost.get("until_ts", 0):
+            _backfill_state["current_pacing_h"] = _backfill_boost.get("pacing_h", 90)
+            return _backfill_boost.get("seconds_between", 40)
+        # Boost expirou — auto-desliga
+        _backfill_boost["active"] = False
+        _log_atom_event("boost_ended", {"reason": "expired"})
     _backfill_state["current_pacing_h"] = 10
     return 360
 
@@ -7322,7 +7338,8 @@ def api_admin_atom_status():
                     all_accounts.add(acc)
         if ACCOUNT_ID:
             all_accounts.add(ACCOUNT_ID)
-        target_total = 30 * len(all_accounts)
+        target_days = _backfill_state.get("target_days", 30)
+        target_total = target_days * len(all_accounts)
         populated = sum(len(dates) for dates in by_acc.values())
 
         # Historico (ultimas 50 entradas do log)
@@ -7343,8 +7360,8 @@ def api_admin_atom_status():
             per_account.append({
                 "acc_id": acc,
                 "atoms_count": len(dates),
-                "target": 30,
-                "pct": round(len(dates) / 30 * 100, 1) if 30 > 0 else 0,
+                "target": target_days,
+                "pct": round(len(dates) / target_days * 100, 1) if target_days > 0 else 0,
             })
 
         # BUC info
@@ -7367,6 +7384,12 @@ def api_admin_atom_status():
             "pacing": {
                 "current_h": _backfill_state.get("current_pacing_h", 10),
                 "last_fetch_at": _backfill_state.get("last_fetch_at"),
+            },
+            "boost": {
+                "active": bool(_backfill_boost.get("active") and time.time() < _backfill_boost.get("until_ts", 0)),
+                "until_ts": _backfill_boost.get("until_ts", 0),
+                "pacing_h": _backfill_boost.get("pacing_h", 90),
+                "remaining_minutes": max(0, int((_backfill_boost.get("until_ts", 0) - time.time()) / 60)),
             },
             "buc": {
                 "pct": rate_info.get("pct", 0),
@@ -7653,9 +7676,56 @@ def api_admin_atom_populate_queue():
     if not session.get("logged_in") or not _is_super_admin(session.get("username")):
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     body = request.get_json(silent=True) or {}
-    days = max(1, min(60, int(body.get("days_back", 30))))
+    days = max(1, min(400, int(body.get("days_back", 30))))
     added = _populate_backfill_queue(days_back=days)
     return jsonify({"ok": True, "added": added, "days_back": days})
+
+
+@app.route("/api/admin/atom-boost", methods=["POST"])
+def api_admin_atom_boost():
+    """Ativa boost mode no backfill worker: pacing acelerado por janela limitada.
+    Body: {days_back: int (1-400), pacing_h: int (10-200), duration_h: float (0.1-48)}
+    Faz tudo em 1 chamada: popula fila e ativa boost.
+    Boost respeita BUC critico (>=70% volta pro pacing seguro). Super_admin only."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    body = request.get_json(silent=True) or {}
+    days = max(1, min(400, int(body.get("days_back", 365))))
+    pacing_h = max(10, min(200, int(body.get("pacing_h", 90))))
+    duration_h = max(0.1, min(48.0, float(body.get("duration_h", 14.0))))
+    seconds_between = max(18, int(round(3600 / pacing_h)))
+    until_ts = time.time() + duration_h * 3600
+
+    added = _populate_backfill_queue(days_back=days)
+    _backfill_boost["active"] = True
+    _backfill_boost["until_ts"] = until_ts
+    _backfill_boost["seconds_between"] = seconds_between
+    _backfill_boost["pacing_h"] = pacing_h
+    _log_atom_event("boost_started", {
+        "days_back": days,
+        "pacing_h": pacing_h,
+        "seconds_between": seconds_between,
+        "duration_h": duration_h,
+        "added_to_queue": added,
+    })
+    return jsonify({
+        "ok": True,
+        "days_back": days,
+        "pacing_h": pacing_h,
+        "duration_h": duration_h,
+        "added_to_queue": added,
+        "until_ts": until_ts,
+    })
+
+
+@app.route("/api/admin/atom-boost-stop", methods=["POST"])
+def api_admin_atom_boost_stop():
+    """Desliga boost mode imediatamente. Super_admin only."""
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    _backfill_boost["active"] = False
+    _log_atom_event("boost_ended", {"reason": "manual_stop"})
+    return jsonify({"ok": True})
 
 
 # ── Bootstrap dos schedulers (roda tanto em `python` quanto em `gunicorn`) ───
