@@ -547,8 +547,8 @@
             </div>
         </div>
 
-        <!-- Bloco 2: Progresso -->
-        <div style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
+        <!-- Bloco 2: Progresso (escondido quando 100% e sem boost ativo) -->
+        <div id="atomProgressCard" style="background:#1a1d24;border:1px solid #2a2e36;border-radius:8px;padding:14px;margin-bottom:14px;">
             <div style="color:#fff;font-size:13px;font-weight:600;margin-bottom:8px;">Progresso do backfill</div>
             <div style="background:#0a1018;border-radius:6px;height:24px;overflow:hidden;position:relative;">
                 <div id="atomProgressBar" style="background:linear-gradient(90deg,#3fdf85,#1f6feb);height:100%;width:0%;transition:width .3s;"></div>
@@ -1839,6 +1839,20 @@ async function loadAtomStatus() {
             boostBox.style.display = 'block';
         } else if (boostBox) {
             boostBox.style.display = 'none';
+        }
+
+        // Esconde card "Progresso do backfill" quando atoms estao 100%
+        // e nao tem boost ativo nem fila pendente — backfill e migracao
+        // estao concluidos, painel fica mais limpo.
+        var progCard = document.getElementById('atomProgressCard');
+        if (progCard) {
+            var pctNum = parseFloat(p.pct) || 0;
+            var queueEmpty = (p.queue_size || 0) === 0;
+            if (pctNum >= 100 && queueEmpty && !bb.active) {
+                progCard.style.display = 'none';
+            } else {
+                progCard.style.display = 'block';
+            }
         }
 
         // Pause btn
