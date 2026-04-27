@@ -70,8 +70,8 @@
         .unid-page-btn:disabled{opacity:.4;cursor:default}
 
         /* Submenu de navegacao */
-        .adm-nav{display:flex;gap:4px;margin:16px 0 24px;border-bottom:1px solid #2a2a4a;flex-wrap:wrap}
-        .adm-nav-btn{background:none;border:none;color:#888;padding:10px 18px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:color .15s,border-color .15s}
+        .adm-nav{display:flex;gap:2px;margin:16px 0 24px;border-bottom:1px solid #2a2a4a;flex-wrap:wrap}
+        .adm-nav-btn{background:none;border:none;color:#888;padding:10px 14px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:color .15s,border-color .15s}
         .adm-nav-btn:hover{color:#ccc}
         .adm-nav-btn.active{color:#4f8cff;border-bottom-color:#4f8cff}
         .adm-nav-btn[data-super-only]{display:none}
@@ -83,7 +83,6 @@
         body[data-adm-active="campaigns"] [data-adm-section]:not([data-adm-section="campaigns"]){display:none !important}
         body[data-adm-active="usage"]    [data-adm-section]:not([data-adm-section="usage"])   {display:none !important}
         body[data-adm-active="atoms"]    [data-adm-section]:not([data-adm-section="atoms"])   {display:none !important}
-        body[data-adm-active="help"]     [data-adm-section]:not([data-adm-section="help"])    {display:none !important}
     </style>
 </head>
 <body>
@@ -100,9 +99,8 @@
         <button class="adm-nav-btn" data-adm-tab="users">Usuarios</button>
         <button class="adm-nav-btn" data-adm-tab="system" data-super-only>Sistema</button>
         <button class="adm-nav-btn" data-adm-tab="campaigns" data-super-only>Campanhas</button>
-        <button class="adm-nav-btn" data-adm-tab="usage" data-super-only>Diagnostico API</button>
-        <button class="adm-nav-btn" data-adm-tab="atoms" data-super-only>Migracao Atoms</button>
-        <button class="adm-nav-btn" data-adm-tab="help">Ajuda</button>
+        <button class="adm-nav-btn" data-adm-tab="usage" data-super-only>API</button>
+        <button class="adm-nav-btn" data-adm-tab="atoms" data-super-only>Atoms</button>
     </div>
 
     <!-- Status -->
@@ -602,17 +600,6 @@
         </div>
     </div>
 
-    <!-- Instrucoes -->
-    <div class="card" data-adm-section="help">
-        <h2>Como gerar novo token</h2>
-        <p style="color:#888;font-size:13px;">
-            1. Acesse developers.facebook.com/tools/explorer<br>
-            2. Selecione o app correto<br>
-            3. Marque: ads_management, ads_read, business_management<br>
-            4. Clique "Generate Access Token"<br>
-            5. Cole aqui e salve
-        </p>
-    </div>
 </div>
 
 <!-- Modal Log de Atividade do Usuario -->
@@ -1729,7 +1716,9 @@ function hide(id) { document.getElementById(id).style.display='none'; }
 
 // ── Submenu de navegacao do admin ──
 (function() {
+    var validTabs = ['overview', 'users', 'system', 'campaigns', 'usage', 'atoms'];
     var saved = localStorage.getItem('admActiveTab') || 'overview';
+    if (validTabs.indexOf(saved) === -1) saved = 'overview';
     function setActive(tab) {
         document.body.setAttribute('data-adm-active', tab);
         document.querySelectorAll('.adm-nav-btn').forEach(function(b){
