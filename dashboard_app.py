@@ -266,9 +266,33 @@ def _fetch_account_raw_v1(acc_id, camp_status, date_from, date_to):
 # Sistema com dual-read: USE_ATOMS=True usa atoms+aggregar, fallback no
 # range cache antigo se atoms ainda nao cobrem o range completo.
 
-# Flag global de feature. Inicia em False — so ativa apos backfill completo
-# + validacao OK. Painel /admin tem botao pra ativar manualmente.
-USE_ATOMS = False
+# Flag global de feature. Persistida em arquivo pra sobreviver reinicio
+# de container / deploy. Inicia em False na primeira vez (sem arquivo);
+# depois disso, le do arquivo. Painel /admin tem botao pra ativar.
+_USE_ATOMS_FILE = os.path.join(os.path.dirname(__file__), "use_atoms_flag.json")
+
+
+def _load_use_atoms_from_file():
+    """Le o estado persistido. Retorna False se arquivo nao existe ou
+    falha de leitura — fail-closed (atoms so ativam se explicit ON)."""
+    try:
+        if not os.path.exists(_USE_ATOMS_FILE):
+            return False
+        with open(_USE_ATOMS_FILE, "r", encoding="utf-8") as f:
+            return bool((json.load(f) or {}).get("use_atoms", False))
+    except Exception:
+        return False
+
+
+def _save_use_atoms_to_file(value):
+    try:
+        with open(_USE_ATOMS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"use_atoms": bool(value), "saved_at": _now_br().isoformat(timespec="seconds")}, f)
+    except Exception as e:
+        print(f"[ATOMS] Erro salvar flag: {e}")
+
+
+USE_ATOMS = _load_use_atoms_from_file()
 
 # Lock pra mudancas concorrentes na flag
 _use_atoms_lock = threading.Lock()
@@ -280,7 +304,8 @@ _DIVERGENCE_THRESHOLD = 3  # 3 divergencias em 1h = desativa
 
 
 def _set_use_atoms(value, reason=""):
-    """Atomically set USE_ATOMS flag. Loga a mudanca."""
+    """Atomically set USE_ATOMS flag. Loga a mudanca e persiste em arquivo
+    pra sobreviver reinicio de container."""
     global USE_ATOMS
     with _use_atoms_lock:
         old = USE_ATOMS
@@ -288,6 +313,20 @@ def _set_use_atoms(value, reason=""):
         if old != USE_ATOMS:
             print(f"[ATOMS] USE_ATOMS {old} -> {USE_ATOMS} ({reason})")
             _log_atom_event("flag_change", {"from": old, "to": USE_ATOMS, "reason": reason})
+        _save_use_atoms_to_file(USE_ATOMS)
+
+
+def _sync_use_atoms_from_file():
+    """Sincroniza USE_ATOMS in-memory com o arquivo. Chamado nos endpoints
+    pra que workers gunicorn paralelos vejam mudancas feitas em outro
+    worker (memoria nao e compartilhada entre workers)."""
+    global USE_ATOMS
+    try:
+        new_value = _load_use_atoms_from_file()
+        if new_value != USE_ATOMS:
+            USE_ATOMS = new_value
+    except Exception:
+        pass
 
 
 def _log_atom_event(event_type, data):
@@ -2453,6 +2492,7 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
         return cached.get("campaigns", []), cached.get("rows", [])
 
     # DUAL-READ: se USE_ATOMS ativo, tenta atoms primeiro
+    _sync_use_atoms_from_file()
     if USE_ATOMS:
         atom_result = _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_status)
         if atom_result is not None:
@@ -2514,6 +2554,7 @@ def api_campaigns():
         # 1. Buscar RAW (campanhas + insights) por conta.
         # DUAL-READ: se USE_ATOMS ativo, tenta atoms primeiro com parsing
         # per-day (sum-of-days); senao cai no campaigns_raw_v1.
+        _sync_use_atoms_from_file()
         all_campaigns = []
         insights_map = {}
         for acc in _get_accounts_for_type(camp_type):
@@ -7382,6 +7423,7 @@ def api_admin_atom_status():
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     try:
         _load_backfill_persistent_state()
+        _sync_use_atoms_from_file()
         # Contadores
         atoms_meta = list_atoms_metadata(scope='acc')
         # Por conta+data
