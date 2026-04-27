@@ -5681,7 +5681,7 @@ function renderResumoTypeTable(perType){
 
 // Lazy-load da lista de campanhas Outros (drill-down)
 async function _loadResumoUnmapped(parent){
-    var tb = $('#rs-types-tbody');
+    var tb = $('#rs-type-tbody');
     if (!tb) return;
     var row = tb.querySelector('tr.rs-type-row[data-type="' + parent + '"]');
     if (!row) return;
