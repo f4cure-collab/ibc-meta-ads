@@ -879,9 +879,19 @@ def _start_backfill_worker():
 
 
 def _revalidate_atoms_due_today():
-    """Revalida APENAS atoms na janela D+2 e D+8 (atribuicao tardia da Meta).
-    Custo: 2 ages × N contas atoms/dia = ~6 calls/dia pra 3 contas.
-    Atoms com idade 9+ dias sao IMUTAVEIS — nao toca."""
+    """Garante que existam atoms pra D-1 (ontem) e revalida atoms na janela
+    D+2 e D+8 (atribuicao tardia da Meta).
+
+    D-1: atom de ontem precisa existir todo dia — apos boost historico, o
+    backfill nao cria automaticamente o D-1 do dia seguinte. Sem isso,
+    primeiro request da manha cai no legado porque atoms nao cobrem o
+    range padrao (date_to=yesterday).
+
+    D+2 e D+8: refetch pra capturar atribuicao tardia (compras que entram
+    em campanhas dias depois do gasto).
+
+    Atoms com idade 9+ dias sao IMUTAVEIS — nao toca.
+    Custo: 3 ages × N contas = ~9 calls/dia pra 3 contas."""
     accounts = set()
     for ct in VALID_CAMP_TYPES:
         for acc in _get_accounts_for_type(ct):
@@ -892,7 +902,7 @@ def _revalidate_atoms_due_today():
 
     today = _now_br().replace(hour=0, minute=0, second=0, microsecond=0)
     refetched = 0
-    for age_days in (2, 8):
+    for age_days in (1, 2, 8):
         target_date = (today - timedelta(days=age_days)).strftime("%Y-%m-%d")
         for acc in sorted(accounts):
             try:
@@ -902,8 +912,8 @@ def _revalidate_atoms_due_today():
                 time.sleep(2)
             except Exception as e:
                 print(f"[REVALIDATE-DUE] Erro {acc} {target_date}: {e}")
-    _log_atom_event("revalidate_due_done", {"refetched": refetched})
-    return {"refetched": refetched, "ages": [2, 8]}
+    _log_atom_event("revalidate_due_done", {"refetched": refetched, "ages": [1, 2, 8]})
+    return {"refetched": refetched, "ages": [1, 2, 8]}
 
 
 def _revalidate_recent_atoms(days_back=7, force_all=False):
