@@ -521,7 +521,18 @@ def _fetch_atoms_for_range(acc_ids, date_from, date_to):
     return result
 
 
-def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_type=None):
+def _atom_status_allowed(camp_status):
+    """Retorna o set de status permitidos pro filtro pedido pelo usuario.
+    Mesma logica de _camp_status_filter mas pra filtragem in-memory dos
+    atoms (nao da pra passar effective_status pra atom ja cacheado)."""
+    if camp_status == "paused":
+        return {"PAUSED", "ARCHIVED"}
+    if camp_status == "all":
+        return {"ACTIVE", "PAUSED", "ARCHIVED"}
+    return {"ACTIVE"}  # default
+
+
+def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_type=None, camp_status="all"):
     """Constroi a estrutura {campaigns, atom_parsed_metrics_by_id} a partir
     dos atoms. ABORDAGEM CORRETA: parse_insights de CADA DIA separado, depois
     soma os valores parsed (nao reconstroi a lista de actions).
@@ -531,6 +542,9 @@ def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_ty
 
     camp_type: passa pra parse_insights aplicar a logica especifica do tipo
     (VENDAS prioriza purchases, METEORICOS prioriza leads, etc).
+    camp_status: filtra campanhas pelo status atual ('active', 'paused', 'all').
+    Status e tirado do atom mais recente (D-1 normalmente) pra refletir o
+    estado atual da campanha.
 
     Retorna None se atoms incompletos pra esse range."""
     atoms_list, missing = get_atoms_for_range('acc', acc_id, date_from, date_to)
@@ -540,7 +554,10 @@ def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_ty
     all_campaigns = {}
     accumulated_per_cid = {}  # cid -> {metric_name: sum_value}
 
-    for atom in atoms_list:
+    # Atom mais recente vence pra metadata (status, name) — refletir estado
+    # atual da campanha. Atoms vem ordenados por data ascendente em
+    # get_atoms_for_range, entao processamos do mais novo pro mais velho.
+    for atom in reversed(atoms_list):
         payload = atom['payload']
         for c in payload.get('campaigns') or []:
             cid = c.get('id')
@@ -553,6 +570,16 @@ def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_ty
             for k, v in day_metrics.items():
                 if isinstance(v, (int, float)):
                     accumulated_per_cid[cid][k] = accumulated_per_cid[cid].get(k, 0) + v
+
+    # Filtra por status atual da campanha (post-aggregation)
+    allowed_status = _atom_status_allowed(camp_status)
+    filtered_campaigns = {}
+    for cid, c in all_campaigns.items():
+        if c.get("status", "").upper() in allowed_status:
+            filtered_campaigns[cid] = c
+    all_campaigns = filtered_campaigns
+    # Remove insights de campanhas que nao passaram no filtro
+    accumulated_per_cid = {cid: m for cid, m in accumulated_per_cid.items() if cid in all_campaigns}
 
     # Recalcula derivadas a partir dos somatorios das bases (nao some derivadas!)
     for cid, m in accumulated_per_cid.items():
@@ -576,7 +603,10 @@ def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_ty
 def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_status="all"):
     """Constroi (sales_campaigns, daily_rows) no formato de _get_shared_daily_insights
     a partir dos atoms. Cada atom vira N rows (um por campanha-dia) com date_start.
-    Retorna None se atoms incompletos."""
+    Retorna None se atoms incompletos.
+
+    camp_status filtra campanhas pelo status atual ('active', 'paused', 'all').
+    Status do atom mais recente vence (refletindo estado atual da campanha)."""
     accounts = [a for a in _get_accounts_for_type(camp_type) if a]
     if not accounts:
         return None
@@ -587,7 +617,8 @@ def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_stat
     daily_rows = []
     for acc in accounts:
         atoms_list, _ = get_atoms_for_range('acc', acc, date_from, date_to)
-        for atom in atoms_list:
+        # Atom mais recente vence pra metadata (status). Reverso = mais novo primeiro.
+        for atom in reversed(atoms_list):
             atom_date = atom['date']
             payload = atom['payload']
             for c in payload.get('campaigns') or []:
@@ -604,6 +635,9 @@ def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_stat
                 daily_rows.append(row)
 
     sales_campaigns = _filter_campaigns_by_type(list(all_campaigns.values()), camp_type)
+    # Filtra por status atual
+    allowed_status = _atom_status_allowed(camp_status)
+    sales_campaigns = [c for c in sales_campaigns if (c.get("status") or "").upper() in allowed_status]
     sales_ids = {c['id'] for c in sales_campaigns}
     daily_rows = [r for r in daily_rows if r.get('campaign_id') in sales_ids]
     return sales_campaigns, daily_rows
@@ -2496,7 +2530,7 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
 
     Retorna (sales_campaigns, daily_rows).
     """
-    cache_key = f"shared_daily_v3_{camp_type}_{camp_status}_{date_from}_{date_to}"
+    cache_key = f"shared_daily_v4_{camp_type}_{camp_status}_{date_from}_{date_to}"
     cached = get_cached(cache_key)
     if cached is not None:
         return cached.get("campaigns", []), cached.get("rows", [])
@@ -2555,7 +2589,7 @@ def api_campaigns():
 
         # v3: attribution baseada em profile_visits (campo results). Bumpado pra
         # invalidar cache antigo que ainda usava link_click como proxy.
-        cache_key = f"campaigns_v7_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"campaigns_v8_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -2572,7 +2606,7 @@ def api_campaigns():
                 continue
             raw = None
             if USE_ATOMS:
-                raw = _build_pseudo_raw_per_account_from_atoms(acc, date_from, date_to, camp_type=camp_type)
+                raw = _build_pseudo_raw_per_account_from_atoms(acc, date_from, date_to, camp_type=camp_type, camp_status=camp_status)
             if raw is not None and "atom_parsed_metrics_by_id" in raw:
                 # ATOM PATH: metricas ja parsed e somadas per-day
                 for c in (raw.get("campaigns") or []):
@@ -4038,7 +4072,7 @@ def api_resumo():
                  sufixo do mes corrente) fazem fetch Meta, e em range pequeno.
             Evita timeout do NGINX em ranges multi-mes cold."""
             kpi_field = type_meta[ct]["kpi"]
-            key_camp = f"campaigns_v7_{ct}_all_{d_from}_{d_to}"
+            key_camp = f"campaigns_v8_{ct}_all_{d_from}_{d_to}"
             key_daily = f"daily_summary_v9_{ct}_all_{d_from}_{d_to}"
             camp_cached = get_cached(key_camp)
             daily_cached = get_cached(key_daily) if want_detail else None
@@ -4061,7 +4095,7 @@ def api_resumo():
                             sess["role"] = "super_admin"
                         hdr = {"X-Internal-Scheduler": "resumo_chunked"}
                         for seg_from, seg_to in segments:
-                            sk_camp = f"campaigns_v7_{ct}_all_{seg_from}_{seg_to}"
+                            sk_camp = f"campaigns_v8_{ct}_all_{seg_from}_{seg_to}"
                             sk_daily = f"daily_summary_v9_{ct}_all_{seg_from}_{seg_to}"
                             sc = get_cached(sk_camp)
                             sd = get_cached(sk_daily) if want_detail else None
@@ -6824,7 +6858,7 @@ def _monthly_cache_keys(dt_from, dt_to):
     """Todas as chaves de cache relacionadas a um range mensal. Usado pra pinar."""
     keys = [f"resumo_v16_{dt_from}_{dt_to}"]
     for ct in VALID_CAMP_TYPES:
-        keys.append(f"campaigns_v7_{ct}_all_{dt_from}_{dt_to}")
+        keys.append(f"campaigns_v8_{ct}_all_{dt_from}_{dt_to}")
         keys.append(f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}")
     return keys
 
@@ -7231,7 +7265,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
         for days in days_list:
             dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
             try:
-                k_camp = f"campaigns_v7_{ct}_all_{dt_from}_{dt_to}"
+                k_camp = f"campaigns_v8_{ct}_all_{dt_from}_{dt_to}"
                 k_daily = f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}"
                 k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
@@ -7391,7 +7425,7 @@ def _refresh_recent_loop():
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
-                            k_camp = f"campaigns_v7_{ct}_all_{dt_from}_{dt_to}"
+                            k_camp = f"campaigns_v8_{ct}_all_{dt_from}_{dt_to}"
                             k_daily = f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}"
                             k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
