@@ -504,6 +504,7 @@ function renderList(comps) {
                     <button class="btn btn-primary" onclick="refreshCompetitor('${c.id}')" ${isRefreshing ? 'disabled' : ''}>
                         ${isRefreshing ? '<span class="spinner"></span>Buscando...' : '&#8635; Atualizar'}
                     </button>
+                    <button class="btn" onclick="editCompetitor('${c.id}', '${escapeHtml(c.name)}', '${escapeHtml(c.url)}')">Editar</button>
                     <button class="btn btn-danger" onclick="removeCompetitor('${c.id}', '${escapeHtml(c.name)}')">Remover</button>
                 </div>
             </div>
@@ -849,6 +850,32 @@ async function addCompetitor() {
         $('#newName').value = '';
         $('#newUrl').value = '';
         await loadList();
+    } catch(e) {
+        showError(e.message);
+    }
+}
+
+async function editCompetitor(id, currentName, currentUrl) {
+    var newName = prompt('Nome do concorrente:', currentName);
+    if (newName == null) return;
+    var newUrl = prompt('URL da pagina FB (deve conter facebook.com):', currentUrl);
+    if (newUrl == null) return;
+    newName = newName.trim();
+    newUrl = newUrl.trim();
+    if (!newName || !newUrl) { showError('Nome e URL nao podem estar vazios.'); return; }
+    try {
+        await api('/api/competitors/edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id, name: newName, url: newUrl }),
+        });
+        await loadList();
+        if (id === _activeId) {
+            _currentAds = [];
+            $('#adsGrid').innerHTML = '<div class="empty">URL atualizada. Clique em <b>Atualizar</b> no card pra buscar anuncios da pagina nova.</div>';
+            $('#adsInfo').textContent = '0 anuncio(s)';
+            $('#adsRefreshedAt').style.display = 'none';
+        }
     } catch(e) {
         showError(e.message);
     }

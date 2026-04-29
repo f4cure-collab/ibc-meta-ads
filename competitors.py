@@ -197,10 +197,9 @@ def _filter_ads_to_competitor(raw_ads, competitor_name, expected_page_id=None):
         else:
             rejected += 1
 
-    # Safety: se filtrou TUDO, retorna original. Melhor ver dados errados
-    # do que nenhum dado e o usuario achar que esta bugado.
-    if not matching and raw_ads:
-        return raw_ads, 0
+    # Se filtrou TUDO: NAO devolve original — significa que a URL/page_id
+    # provavelmente esta errada. Melhor mostrar zero ads (com warning) e
+    # voce ajustar a URL do que mostrar dezenas de ads de outras paginas.
     return matching, rejected
 
 
@@ -685,6 +684,49 @@ def api_add():
     comps.append({"id": cid, "name": name, "url": url})
     _save_competitors(comps)
     return jsonify({"ok": True, "id": cid})
+
+
+@competitors_bp.route("/api/competitors/edit", methods=["POST"])
+def api_edit():
+    """Edita URL e/ou nome de um concorrente. Limpa page_id cacheado e
+    cache de ads pra forcar re-extracao no proximo refresh."""
+    if not _is_super_admin():
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    body = request.get_json(silent=True) or {}
+    cid = (body.get("id") or "").strip()
+    new_url = (body.get("url") or "").strip()
+    new_name = (body.get("name") or "").strip()
+    if not cid or (not new_url and not new_name):
+        return jsonify({"ok": False, "error": "id + url ou name obrigatorio"}), 400
+    if new_url and "facebook.com" not in new_url:
+        return jsonify({"ok": False, "error": "URL precisa ser do facebook.com"}), 400
+    comps = _load_competitors()
+    found = False
+    for c in comps:
+        if c.get("id") == cid:
+            if new_url:
+                c["url"] = new_url
+                # Reseta page_id pra forcar re-extracao
+                c.pop("page_id", None)
+            if new_name:
+                c["name"] = new_name
+            found = True
+            break
+    if not found:
+        return jsonify({"ok": False, "error": "Concorrente nao encontrado"}), 404
+    _save_competitors(comps)
+    # Limpa cache dos ads antigos
+    try:
+        from cache_manager import _get_db
+        conn = _get_db()
+        try:
+            conn.execute("DELETE FROM api_cache WHERE cache_key = ?", (f"competitors_ads_v1_{cid}",))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    return jsonify({"ok": True})
 
 
 @competitors_bp.route("/api/competitors/remove", methods=["POST"])
