@@ -207,6 +207,10 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .ad-info-pill.media-image { background: rgba(187, 140, 255, 0.12); color: #bc8cff; }
 .ad-info-pill.media-carousel { background: rgba(187, 140, 255, 0.12); color: #bc8cff; }
 .ad-info-pill.media-dpa { background: rgba(245, 158, 11, 0.12); color: var(--orange); }
+.ad-info-pill.dest-external { background: rgba(79, 140, 255, 0.12); color: var(--primary); }
+.ad-info-pill.dest-internal { background: rgba(187, 140, 255, 0.12); color: #bc8cff; }
+.ad-info-pill.dest-lead_form { background: rgba(63, 223, 133, 0.12); color: var(--green); }
+.ad-info-pill.dest-no_link { background: rgba(136, 136, 136, 0.15); color: var(--t3); }
 
 .ad-link {
     display: block; padding: 6px 10px; margin-top: 8px;
@@ -226,19 +230,69 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
     padding: 20px;
 }
 .video-modal-inner {
-    position: relative; max-width: 540px; width: 100%;
-    background: #000; border-radius: 8px; overflow: hidden;
+    position: relative; max-width: 1100px; width: 100%;
+    max-height: 90vh; overflow: hidden;
+    background: var(--card); border: 1px solid var(--border2);
+    border-radius: 10px;
 }
-.video-modal-inner video { width: 100%; display: block; max-height: 80vh; }
+.video-modal-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 0;
+    max-height: 90vh;
+}
+.video-modal-left {
+    background: #000; display: flex; align-items: center; justify-content: center;
+    min-height: 300px;
+}
+.video-modal-left video { width: 100%; display: block; max-height: 90vh; object-fit: contain; }
+.video-modal-right {
+    padding: 18px 20px;
+    overflow-y: auto; max-height: 90vh;
+    display: flex; flex-direction: column; gap: 12px;
+}
+.vside-title { color: var(--t1); font-size: 15px; font-weight: 700; }
+.vside-meta { display: flex; flex-wrap: wrap; gap: 4px; }
+.vside-body {
+    color: var(--t2); font-size: 13px; line-height: 1.55;
+    white-space: pre-wrap; word-wrap: break-word;
+    flex: 1; min-height: 60px;
+    background: var(--bg); border: 1px solid var(--border2);
+    border-radius: 6px; padding: 12px;
+    overflow-y: auto; max-height: 50vh;
+}
+.vside-actions { display: flex; flex-direction: column; gap: 8px; }
+.vside-btn {
+    display: block; text-align: center;
+    padding: 10px 14px; border-radius: 6px;
+    font-size: 13px; font-weight: 600;
+    text-decoration: none; cursor: pointer; border: none;
+    word-break: break-all; line-height: 1.3;
+}
+.vside-btn-primary {
+    background: var(--primary); color: #fff;
+}
+.vside-btn-primary:hover { background: #3d7eff; }
+.vside-btn-secondary {
+    background: transparent; color: var(--t2);
+    border: 1px solid var(--border2);
+}
+.vside-btn-secondary:hover { background: var(--card2); color: var(--t1); border-color: var(--primary); }
+.vside-btn small { display: block; font-size: 10px; opacity: 0.8; font-weight: 400; margin-top: 2px; }
 .video-close {
-    position: absolute; top: 8px; right: 8px;
-    background: rgba(0,0,0,0.6); color: #fff;
-    border: none; width: 30px; height: 30px;
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(0,0,0,0.7); color: #fff;
+    border: none; width: 32px; height: 32px;
     border-radius: 50%; cursor: pointer;
-    font-size: 20px; line-height: 1;
+    font-size: 22px; line-height: 1;
     display: flex; align-items: center; justify-content: center;
+    z-index: 5;
 }
-.video-close:hover { background: rgba(0,0,0,0.85); }
+.video-close:hover { background: rgba(0,0,0,0.95); }
+@media (max-width: 760px) {
+    .video-modal-grid { grid-template-columns: 1fr; }
+    .video-modal-right { max-height: 40vh; }
+}
 </style>
 </head>
 <body>
@@ -315,6 +369,16 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
                 <label>Min. dias ativo</label>
                 <input id="filterMinDays" type="number" min="0" placeholder="0" style="width:70px;">
             </div>
+            <div class="filter-group">
+                <label>Destino</label>
+                <select id="filterDest">
+                    <option value="all">Todos</option>
+                    <option value="external">Link externo (LP, etc)</option>
+                    <option value="internal">Instagram / Facebook</option>
+                    <option value="lead_form">Formulario instantaneo</option>
+                    <option value="no_link">Sem link</option>
+                </select>
+            </div>
             <div class="filter-group" style="flex:1;min-width:180px;">
                 <label>Buscar texto</label>
                 <input id="filterSearch" type="text" placeholder="Palavra no copy...">
@@ -330,7 +394,17 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
     <div id="videoModal" class="video-modal" style="display:none;" onclick="closeVideo(event)">
         <div class="video-modal-inner" onclick="event.stopPropagation();">
             <button class="video-close" onclick="closeVideo()">&times;</button>
-            <video id="videoPlayer" controls autoplay></video>
+            <div class="video-modal-grid">
+                <div class="video-modal-left">
+                    <video id="videoPlayer" controls autoplay></video>
+                </div>
+                <div class="video-modal-right">
+                    <div id="videoSideTitle" class="vside-title" style="display:none;"></div>
+                    <div id="videoSideMeta" class="vside-meta"></div>
+                    <div id="videoSideBody" class="vside-body"></div>
+                    <div id="videoSideActions" class="vside-actions"></div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -459,9 +533,31 @@ async function selectCompetitor(id) {
     }
 }
 
+function classifyDestination(a) {
+    // Retorna 'external' | 'internal' | 'lead_form' | 'no_link'
+    var url = (a.link_url || '').toLowerCase();
+    var cta = (a.cta_type || '').toUpperCase();
+    var ctaText = (a.cta_text || '').toLowerCase();
+
+    // Formulario instantaneo: CTA marca explicita OU URL aponta pra lead form
+    if (
+        cta.indexOf('LEAD') >= 0 ||
+        url.indexOf('/lead_form') >= 0 ||
+        url.indexOf('/leadgen') >= 0 ||
+        url.indexOf('fb.me/lead') >= 0 ||
+        ctaText.indexOf('cadastr') >= 0 && (!url || /facebook\.com|instagram\.com|fb\.me/i.test(url))
+    ) {
+        return 'lead_form';
+    }
+    if (!url) return 'no_link';
+    if (/instagram\.com|facebook\.com|fb\.me|fb\.com/i.test(url)) return 'internal';
+    return 'external';
+}
+
 function applyFilters(ads) {
     var status = $('#filterStatus').value;
     var media = $('#filterMedia').value;
+    var dest = $('#filterDest') ? $('#filterDest').value : 'all';
     var minDays = parseInt($('#filterMinDays').value || '0', 10) || 0;
     var search = ($('#filterSearch').value || '').toLowerCase().trim();
     return ads.filter(function(a) {
@@ -473,6 +569,7 @@ function applyFilters(ads) {
             if (bodyStr.indexOf('{{product.') >= 0) effMedia = 'dpa';
             if (effMedia !== media) return false;
         }
+        if (dest !== 'all' && classifyDestination(a) !== dest) return false;
         if (minDays > 0 && (a.days_active == null || a.days_active < minDays)) return false;
         if (search) {
             var hay = ((a.body || '') + ' ' + (a.title || '') + ' ' + (a.cta_text || '')).toLowerCase();
@@ -480,6 +577,15 @@ function applyFilters(ads) {
         }
         return true;
     });
+}
+
+function destLabel(dest) {
+    return {
+        'external': 'Link externo',
+        'internal': 'Instagram/Facebook',
+        'lead_form': 'Formulario instantaneo',
+        'no_link': 'Sem link',
+    }[dest] || dest;
 }
 
 function renderAds(refreshedAt) {
@@ -548,6 +654,8 @@ function renderAds(refreshedAt) {
         if (a.cta_text) {
             infoPills.push(`<span class="ad-info-pill cta">CTA: ${escapeHtml(a.cta_text)}</span>`);
         }
+        var destClass = classifyDestination(a);
+        infoPills.push(`<span class="ad-info-pill dest-${destClass}">${escapeHtml(destLabel(destClass))}</span>`);
 
         // Platforms
         var platforms = (a.platforms || []).slice(0, 4).map(p =>
@@ -591,8 +699,53 @@ function playVideo(idx) {
     var ads = applyFilters(_currentAds);
     var ad = ads[idx];
     if (!ad || !ad.video_url) return;
+
     var v = $('#videoPlayer');
     v.src = ad.video_url;
+
+    // Title
+    var t = $('#videoSideTitle');
+    if (ad.title) {
+        t.textContent = ad.title;
+        t.style.display = 'block';
+    } else {
+        t.style.display = 'none';
+    }
+
+    // Meta pills
+    var metaHtml = [];
+    metaHtml.push(ad.is_active === false
+        ? '<span class="ad-status inactive">inativo</span>'
+        : '<span class="ad-status active">ativo</span>');
+    if (ad.days_active != null) metaHtml.push('<span class="ad-info-pill days">' + ad.days_active + 'd ativo</span>');
+    if (ad.cta_text) metaHtml.push('<span class="ad-info-pill cta">CTA: ' + escapeHtml(ad.cta_text) + '</span>');
+    var dest = classifyDestination(ad);
+    metaHtml.push('<span class="ad-info-pill">' + destLabel(dest) + '</span>');
+    if (ad.start_date) metaHtml.push('<span class="ad-info-pill">Inicio: ' + escapeHtml(ad.start_date) + '</span>');
+    $('#videoSideMeta').innerHTML = metaHtml.join(' ');
+
+    // Body (copy completa)
+    $('#videoSideBody').textContent = ad.body || '(sem texto)';
+
+    // Actions
+    var actions = [];
+    if (ad.link_url) {
+        actions.push(
+            '<a class="vside-btn vside-btn-primary" href="' + escapeHtml(ad.link_url) + '" target="_blank" rel="noopener">'
+            + '&#128279; Ir pro destino do anuncio'
+            + '<small>' + escapeHtml(ad.link_url.length > 70 ? ad.link_url.substring(0, 70) + '...' : ad.link_url) + '</small>'
+            + '</a>'
+        );
+    }
+    if (ad.library_url) {
+        actions.push(
+            '<a class="vside-btn vside-btn-secondary" href="' + escapeHtml(ad.library_url) + '" target="_blank" rel="noopener">'
+            + 'Abrir na Ads Library &rarr;'
+            + '</a>'
+        );
+    }
+    $('#videoSideActions').innerHTML = actions.join('');
+
     $('#videoModal').style.display = 'flex';
 }
 
@@ -606,12 +759,13 @@ function closeVideo(e) {
 function clearFilters() {
     $('#filterStatus').value = 'all';
     $('#filterMedia').value = 'all';
+    if ($('#filterDest')) $('#filterDest').value = 'all';
     $('#filterMinDays').value = '';
     $('#filterSearch').value = '';
     renderAds(undefined);
 }
 
-['filterStatus', 'filterMedia', 'filterMinDays', 'filterSearch'].forEach(function(id) {
+['filterStatus', 'filterMedia', 'filterDest', 'filterMinDays', 'filterSearch'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {
         el.addEventListener('input', function() { renderAds(undefined); });
