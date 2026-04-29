@@ -662,9 +662,13 @@ function renderAds(refreshedAt) {
             `<span class="ad-plat">${escapeHtml(p)}</span>`
         ).join(' ');
 
-        // Datas
+        // Datas — so mostra "Fim" se o ad estiver realmente inativo
+        // (ad ativo as vezes traz end_date de campanhas/pausas anteriores
+        // que nao refletem o estado atual)
         var dateInfo = 'Inicio: ' + escapeHtml(a.start_date || '--');
-        if (a.end_date) dateInfo += ' &bull; Fim: ' + escapeHtml(a.end_date);
+        if (a.end_date && a.is_active === false) {
+            dateInfo += ' &bull; Fim: ' + escapeHtml(a.end_date);
+        }
 
         // Link de destino
         var linkBlock = '';

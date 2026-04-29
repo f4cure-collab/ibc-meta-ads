@@ -239,6 +239,49 @@ def _has_placeholder(text):
     return "{{product." in text or "{{ product." in text
 
 
+_VIDEO_KEY_HINTS = (
+    "video_hd_url", "video_sd_url", "video_url", "videoUrl",
+    "video_high_quality_url", "video_low_quality_url",
+)
+_THUMB_KEY_HINTS = ("video_preview_image_url", "video_thumbnail_url")
+
+
+def _recursive_find_video(node, depth=0, max_depth=8):
+    """Busca recursiva por URL de video em qualquer parte do JSON.
+    Retorna (video_url, thumb_url). Util pra estruturas onde video
+    nao esta em snap.videos nem em dynamic_versions."""
+    if depth > max_depth or node is None:
+        return None, None
+    if isinstance(node, dict):
+        # Tenta keys diretas primeiro
+        for k in _VIDEO_KEY_HINTS:
+            v = node.get(k)
+            if isinstance(v, str) and v.startswith("http"):
+                # Procura thumb no mesmo nivel
+                thumb = None
+                for tk in _THUMB_KEY_HINTS:
+                    tv = node.get(tk)
+                    if isinstance(tv, str) and tv.startswith("http"):
+                        thumb = tv
+                        break
+                return v, thumb
+        # Recursivo
+        for k, v in node.items():
+            # Pula thumbnails pra nao confundir com video
+            kl = k.lower()
+            if "thumb" in kl or "image" in kl or "icon" in kl or "profile" in kl:
+                continue
+            r = _recursive_find_video(v, depth + 1, max_depth)
+            if r[0]:
+                return r
+    elif isinstance(node, list):
+        for item in node:
+            r = _recursive_find_video(item, depth + 1, max_depth)
+            if r[0]:
+                return r
+    return None, None
+
+
 def _extract_from_dynamic_versions(snap):
     """Procura em dynamic_versions por uma versao com conteudo REAL
     (sem placeholder). Anuncios DCO (Dynamic Creative Optimization) tem
@@ -358,16 +401,53 @@ def _normalize_ad(a):
     if not image_url:
         image_url = snap.get("page_profile_picture_url") or snap.get("pageProfilePictureUrl")
 
-    # Video (URL + thumb)
+    # Video (URL + thumb) — busca em multiplos lugares
     video_url = None
     video_thumb = None
-    if videos and isinstance(videos[0], dict):
-        video_url = (
-            videos[0].get("video_hd_url")
-            or videos[0].get("video_sd_url")
-            or videos[0].get("video_url")
+
+    def _video_from_obj(o):
+        if not isinstance(o, dict):
+            return None, None
+        u = (
+            o.get("video_hd_url")
+            or o.get("video_sd_url")
+            or o.get("video_url")
+            or o.get("videoUrl")
+            or o.get("video_high_quality_url")
+            or o.get("video_low_quality_url")
         )
-        video_thumb = videos[0].get("video_preview_image_url")
+        t = o.get("video_preview_image_url") or o.get("video_thumbnail_url")
+        return u, t
+
+    # 1) snap.videos (principal)
+    if videos and isinstance(videos[0], dict):
+        video_url, video_thumb = _video_from_obj(videos[0])
+
+    # 2) snap.extra_videos
+    if not video_url:
+        extra_v = snap.get("extra_videos") or snap.get("extraVideos") or []
+        if extra_v and isinstance(extra_v[0], dict):
+            v_url, v_thumb = _video_from_obj(extra_v[0])
+            video_url = video_url or v_url
+            video_thumb = video_thumb or v_thumb
+
+    # 3) cards (para carrosseis com video)
+    if not video_url and cards:
+        for card in cards:
+            if isinstance(card, dict):
+                cv = card.get("videos") or []
+                if cv and isinstance(cv[0], dict):
+                    v_url, v_thumb = _video_from_obj(cv[0])
+                    if v_url:
+                        video_url = v_url
+                        video_thumb = video_thumb or v_thumb
+                        break
+                # video direto no card
+                v_url, v_thumb = _video_from_obj(card)
+                if v_url:
+                    video_url = v_url
+                    video_thumb = video_thumb or v_thumb
+                    break
 
     # DCO override: se o body principal tem placeholder, busca em
     # dynamic_versions/cards uma versao renderizada e SOBRESCREVE os
@@ -387,6 +467,14 @@ def _normalize_ad(a):
                 video_thumb = dco_override["video_thumb"]
             if dco_override.get("image_url") and not image_url:
                 image_url = dco_override["image_url"]
+
+    # Ultimo recurso: busca recursiva por URL de video em qualquer lugar
+    # do snapshot. Pega o primeiro link http que seja .mp4 ou contenha
+    # 'video' em chave video_*. Limita profundidade pra evitar loops.
+    if not video_url:
+        video_url, found_thumb = _recursive_find_video(snap)
+        if video_url and not video_thumb:
+            video_thumb = found_thumb
 
     # Archive ID (varias casing variations)
     archive_id = (
