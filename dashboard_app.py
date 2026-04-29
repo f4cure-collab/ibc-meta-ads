@@ -7220,8 +7220,12 @@ def _scheduled_refresh():
             print("[SCHEDULER] Etapa 5/5: Carregando todos criativos (30d apenas)...")
             dt_from_30_main = (now_br - timedelta(days=30)).strftime("%Y-%m-%d")
             for ct in VALID_CAMP_TYPES:
-                print(f"[SCHEDULER]   All-creatives {ct} 30d")
-                client.get(f"/api/dashboard/all-creatives?camp_type={ct}&date_from={dt_from_30_main}&date_to={dt_to}&camp_status=active", headers={"X-Internal-Scheduler":"daily"})
+                # Meteoricos: usa status=all pra incluir eventos ja encerrados
+                # (campanhas viram ARCHIVED rapido, default 'active' deixa
+                # a aba vazia entre eventos).
+                cs = "all" if ct == CAMP_TYPE_METEORICOS else "active"
+                print(f"[SCHEDULER]   All-creatives {ct} 30d (status={cs})")
+                client.get(f"/api/dashboard/all-creatives?camp_type={ct}&date_from={dt_from_30_main}&date_to={dt_to}&camp_status={cs}", headers={"X-Internal-Scheduler":"daily"})
                 time.sleep(30)
             print("[SCHEDULER] Todos criativos OK")
         except Exception as e:

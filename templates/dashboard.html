@@ -3241,9 +3241,12 @@ async function loadCr(force){
     // Limpar banner anterior
     const oldBanner=$('#cr-warnings');if(oldBanner)oldBanner.remove();
     try{
-        // Criativos SEMPRE busca com camp_status=active para nao explodir cache.
-        // (Campanhas pausadas tem muitos anuncios que inflam o payload e usam API.)
-        const r=await api(`/api/dashboard/all-creatives?date_from=${df}&date_to=${dt}&camp_status=active${fq}`);
+        // Criativos: status=active por padrao pra nao explodir cache.
+        // EXCECAO: Meteoricos — eventos terminam rapido e campanhas viram
+        // ARCHIVED, entao usar 'all' pra incluir os encerrados (senao a aba
+        // fica vazia entre eventos).
+        const status = isMeteoricos() ? 'all' : 'active';
+        const r=await api(`/api/dashboard/all-creatives?date_from=${df}&date_to=${dt}&camp_status=${status}${fq}`);
         crData=r.data||[];activeChips.clear();
         buildStableCampaignOrder();
         buildChips();renderCr();
