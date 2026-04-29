@@ -245,7 +245,8 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
     background: #000; display: flex; align-items: center; justify-content: center;
     min-height: 300px;
 }
-.video-modal-left video { width: 100%; display: block; max-height: 90vh; object-fit: contain; }
+.video-modal-left video,
+.video-modal-left img { width: 100%; display: block; max-height: 90vh; object-fit: contain; }
 .video-modal-right {
     padding: 18px 20px;
     overflow-y: auto; max-height: 90vh;
@@ -396,7 +397,8 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
             <button class="video-close" onclick="closeVideo()">&times;</button>
             <div class="video-modal-grid">
                 <div class="video-modal-left">
-                    <video id="videoPlayer" controls autoplay></video>
+                    <video id="videoPlayer" controls style="display:none;"></video>
+                    <img id="modalImage" style="display:none;" alt="">
                 </div>
                 <div class="video-modal-right">
                     <div id="videoSideTitle" class="vside-title" style="display:none;"></div>
@@ -579,6 +581,10 @@ function applyFilters(ads) {
     });
 }
 
+function a_img_for_modal(ad) {
+    return ad.image_url || ad.video_thumb || null;
+}
+
 function destLabel(dest) {
     return {
         'external': 'Link externo',
@@ -620,14 +626,16 @@ function renderAds(refreshedAt) {
         if (a.video_url || a.video_thumb) {
             var thumb = a.video_thumb || '';
             var hasVideoUrl = !!a.video_url;
-            var clickAttr = hasVideoUrl ? `onclick="playVideo(${idx})"` : '';
+            var clickAttr = hasVideoUrl ? `onclick="openAd(${idx})"` : '';
             var clsClick = hasVideoUrl ? ' clickable' : '';
             media = `<div class="ad-media${clsClick}" ${clickAttr}>
                 ${thumb ? `<img src="${escapeHtml(thumb)}" alt="" loading="lazy">` : '<div class="placeholder">video</div>'}
                 <span class="video-badge">&#9654; video</span>
             </div>`;
         } else if (a.image_url) {
-            media = `<div class="ad-media"><img src="${escapeHtml(a.image_url)}" alt="" loading="lazy"></div>`;
+            media = `<div class="ad-media clickable" onclick="openAd(${idx})">
+                <img src="${escapeHtml(a.image_url)}" alt="" loading="lazy">
+            </div>`;
         } else if (a.media_type === 'dpa') {
             media = `<div class="ad-media"><div class="placeholder" style="line-height:1.5">
                 <div style="font-size:24px;margin-bottom:8px">&#128230;</div>
@@ -699,13 +707,35 @@ function renderAds(refreshedAt) {
     }).join('');
 }
 
-function playVideo(idx) {
+function openAd(idx) {
     var ads = applyFilters(_currentAds);
     var ad = ads[idx];
-    if (!ad || !ad.video_url) return;
+    if (!ad) return;
 
     var v = $('#videoPlayer');
-    v.src = ad.video_url;
+    var img = $('#modalImage');
+
+    // Reseta ambos
+    try { v.pause(); v.removeAttribute('src'); v.load(); } catch(_) {}
+    v.style.display = 'none';
+    img.style.display = 'none';
+    img.removeAttribute('src');
+
+    if (ad.video_url) {
+        v.src = ad.video_url;
+        v.style.display = 'block';
+        v.autoplay = true;
+        try { v.play(); } catch(_) {}
+    } else if (a_img_for_modal(ad)) {
+        img.src = a_img_for_modal(ad);
+        img.style.display = 'block';
+    } else {
+        // Sem midia: mostra placeholder simples
+        var leftBox = v.parentElement;
+        leftBox.innerHTML = '<div style="color:#888;padding:40px;text-align:center;">Anuncio sem midia visualizavel</div>'
+            + '<video id="videoPlayer" controls style="display:none;"></video>'
+            + '<img id="modalImage" style="display:none;" alt="">';
+    }
 
     // Title
     var t = $('#videoSideTitle');
@@ -757,6 +787,9 @@ function closeVideo(e) {
     if (e && e.target.id !== 'videoModal' && !e.target.classList.contains('video-close')) return;
     var v = $('#videoPlayer');
     try { v.pause(); v.removeAttribute('src'); v.load(); } catch(_) {}
+    var img = $('#modalImage');
+    if (img) { img.removeAttribute('src'); img.style.display = 'none'; }
+    if (v) v.style.display = 'none';
     $('#videoModal').style.display = 'none';
 }
 
