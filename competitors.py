@@ -30,9 +30,9 @@ _LIST_LOCK = threading.Lock()
 # Apify actor: configuravel via env var pra trocar sem deploy se preciso.
 # curious_coder/facebook-ads-library-scraper e popular e estavel.
 _APIFY_ACTOR = os.getenv("APIFY_ACTOR", "curious_coder~facebook-ads-library-scraper")
-_APIFY_TIMEOUT_SEC = 180  # 3min — Apify roda em ate 1-2min normalmente
+_APIFY_TIMEOUT_SEC = 290  # ~5min (limite max do sync run-sync-get-dataset-items)
 _APIFY_COUNTRY = "BR"
-_APIFY_MAX_ACTIVE = 500     # ads ATIVOS: tras tudo (limite alto)
+_APIFY_MAX_ACTIVE = 5000     # ads ATIVOS: efetivamente sem limite (ate 5k)
 _APIFY_MAX_WITH_PAUSED = 50  # incluindo pausados: limita pra controlar custo
 
 _SUPER_ADMIN_EMAIL = "f4cure@gmail.com"
