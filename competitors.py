@@ -152,12 +152,16 @@ def _normalize_ad(a):
     videos = snap.get("videos") or []
     cards = snap.get("cards") or []
 
+    # Texto do anuncio (varios campos possiveis)
     body_text = ""
     if isinstance(body, dict):
-        body_text = body.get("text") or body.get("markup", {}).get("__html", "") or ""
+        body_text = body.get("text") or ""
+        if not body_text and isinstance(body.get("markup"), dict):
+            body_text = body["markup"].get("__html", "") or ""
     if not body_text and snap.get("caption"):
         body_text = snap.get("caption", "")
 
+    # Imagem (varios fallbacks)
     image_url = None
     if images and isinstance(images[0], dict):
         image_url = (
@@ -168,29 +172,119 @@ def _normalize_ad(a):
     if not image_url and cards and isinstance(cards[0], dict):
         image_url = cards[0].get("original_image_url") or cards[0].get("resized_image_url")
 
+    # Video (URL + thumb)
     video_url = None
     video_thumb = None
     if videos and isinstance(videos[0], dict):
-        video_url = videos[0].get("video_hd_url") or videos[0].get("video_sd_url")
+        video_url = (
+            videos[0].get("video_hd_url")
+            or videos[0].get("video_sd_url")
+            or videos[0].get("video_url")
+        )
         video_thumb = videos[0].get("video_preview_image_url")
 
-    archive_id = a.get("ad_archive_id") or a.get("adArchiveID") or a.get("id")
-    library_url = a.get("url") or (
-        f"https://www.facebook.com/ads/library/?id={archive_id}" if archive_id else None
+    # Archive ID (varias casing variations)
+    archive_id = (
+        a.get("ad_archive_id")
+        or a.get("adArchiveID")
+        or a.get("adArchiveId")
+        or a.get("id")
+    )
+
+    # Library URL: SEMPRE construir do archive_id (mais confiavel que a URL
+    # que o Apify retorna). Inclui params pra abrir filtrando esse anuncio.
+    library_url = (
+        f"https://www.facebook.com/ads/library/?id={archive_id}"
+        if archive_id
+        else None
+    )
+
+    # Datas: tenta varios campos. Apify retorna timestamp Unix em alguns
+    # casos, string formatada em outros.
+    from datetime import datetime as _dt
+
+    def _ts_to_str(ts):
+        try:
+            return _dt.fromtimestamp(float(ts)).strftime("%d/%m/%Y")
+        except Exception:
+            return None
+
+    start_ts = a.get("start_date") or a.get("startDate")
+    end_ts = a.get("end_date") or a.get("endDate")
+
+    start_str = (
+        a.get("start_date_string")
+        or a.get("startDateString")
+        or a.get("started_running_on_string")
+        or (
+            _ts_to_str(start_ts)
+            if isinstance(start_ts, (int, float))
+            else (start_ts if isinstance(start_ts, str) else None)
+        )
+    )
+    end_str = (
+        a.get("end_date_string")
+        or a.get("endDateString")
+        or (
+            _ts_to_str(end_ts)
+            if isinstance(end_ts, (int, float))
+            else (end_ts if isinstance(end_ts, str) else None)
+        )
+    )
+
+    # Dias ativos (calculado do timestamp se disponivel)
+    days_active = None
+    try:
+        if isinstance(start_ts, (int, float)):
+            start_dt = _dt.fromtimestamp(float(start_ts))
+            if isinstance(end_ts, (int, float)):
+                end_dt = _dt.fromtimestamp(float(end_ts))
+            else:
+                end_dt = _dt.now()
+            days_active = max(0, (end_dt - start_dt).days)
+    except Exception:
+        pass
+
+    # Tipo de midia
+    if videos:
+        media_type = "video"
+    elif len(images) > 1 or len(cards) > 1:
+        media_type = "carousel"
+    elif images or cards:
+        media_type = "image"
+    else:
+        media_type = "unknown"
+
+    # CTA + link de destino
+    cta_text = snap.get("cta_text") or snap.get("ctaText")
+    cta_type = snap.get("cta_type") or snap.get("ctaType")
+    link_url = (
+        snap.get("link_url")
+        or snap.get("linkUrl")
+        or snap.get("link")
+        or (cards[0].get("link_url") if cards and isinstance(cards[0], dict) else None)
+    )
+    link_caption = (
+        snap.get("caption")
+        or snap.get("link_description")
+        or (cards[0].get("link_description") if cards and isinstance(cards[0], dict) else None)
     )
 
     return {
         "id": archive_id,
         "page_name": a.get("page_name") or snap.get("page_name") or "",
         "is_active": a.get("is_active"),
-        "start_date": a.get("start_date_string") or a.get("startDate"),
-        "end_date": a.get("end_date_string") or a.get("endDate"),
+        "start_date": start_str,
+        "end_date": end_str,
+        "days_active": days_active,
         "platforms": a.get("publisher_platform") or a.get("publisherPlatform") or [],
+        "media_type": media_type,
         "body": (body_text or "")[:1500],
         "title": (snap.get("title") or "")[:200],
-        "cta_text": snap.get("cta_text") or snap.get("ctaText"),
-        "cta_type": snap.get("cta_type") or snap.get("ctaType"),
-        "link_url": snap.get("link_url") or snap.get("linkUrl"),
+        "cta_text": cta_text,
+        "cta_type": cta_type,
+        "link_url": link_url,
+        "link_caption": link_caption,
         "image_url": image_url,
         "video_url": video_url,
         "video_thumb": video_thumb,

@@ -173,6 +173,71 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
     vertical-align: middle; margin-right: 6px;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.filter-bar {
+    display: flex; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 16px; padding: 12px;
+    background: var(--card2); border-radius: 6px;
+    border: 1px solid var(--border2);
+}
+.filter-group { display: flex; flex-direction: column; gap: 4px; }
+.filter-group label { color: var(--t3); font-size: 10px; text-transform: uppercase; font-weight: 600; }
+.filter-group select, .filter-group input {
+    background: var(--bg); color: var(--t2);
+    border: 1px solid var(--border2); border-radius: 4px;
+    padding: 5px 8px; font-size: 12px; min-width: 110px;
+}
+.filter-group select:focus, .filter-group input:focus { outline: none; border-color: var(--primary); }
+
+.ad-media { cursor: default; }
+.ad-media.clickable { cursor: pointer; }
+.ad-media.clickable:hover .video-badge { background: rgba(79, 140, 255, 0.85); }
+
+.ad-info-row {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-top: 6px; align-items: center;
+}
+.ad-info-pill {
+    background: var(--border2); color: var(--t2);
+    padding: 2px 7px; border-radius: 10px; font-size: 10px;
+}
+.ad-info-pill.days { background: rgba(79, 140, 255, 0.15); color: var(--primary); }
+.ad-info-pill.cta { background: rgba(63, 223, 133, 0.12); color: var(--green); }
+.ad-info-pill.media-video { background: rgba(245, 158, 11, 0.12); color: var(--orange); }
+.ad-info-pill.media-image { background: rgba(187, 140, 255, 0.12); color: #bc8cff; }
+.ad-info-pill.media-carousel { background: rgba(187, 140, 255, 0.12); color: #bc8cff; }
+
+.ad-link {
+    display: block; padding: 6px 10px; margin-top: 8px;
+    background: var(--bg); border: 1px solid var(--border2);
+    border-radius: 4px; color: var(--primary);
+    font-size: 11px; word-break: break-all;
+    text-decoration: none; line-height: 1.3;
+}
+.ad-link:hover { background: var(--border2); border-color: var(--primary); }
+.ad-link-label { color: var(--t3); font-size: 9px; text-transform: uppercase; font-weight: 600; margin-bottom: 2px; }
+
+.video-modal {
+    position: fixed; inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    z-index: 1000;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+}
+.video-modal-inner {
+    position: relative; max-width: 540px; width: 100%;
+    background: #000; border-radius: 8px; overflow: hidden;
+}
+.video-modal-inner video { width: 100%; display: block; max-height: 80vh; }
+.video-close {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0,0,0,0.6); color: #fff;
+    border: none; width: 30px; height: 30px;
+    border-radius: 50%; cursor: pointer;
+    font-size: 20px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+}
+.video-close:hover { background: rgba(0,0,0,0.85); }
 </style>
 </head>
 <body>
@@ -226,8 +291,44 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
             <span id="adsInfo" class="info">--</span>
             <span id="adsRefreshedAt" class="pill" style="display:none;">--</span>
         </div>
+        <div id="filterBar" class="filter-bar" style="display:none;">
+            <div class="filter-group">
+                <label>Status</label>
+                <select id="filterStatus">
+                    <option value="all">Todos</option>
+                    <option value="active" selected>So ativos</option>
+                    <option value="inactive">So inativos</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Midia</label>
+                <select id="filterMedia">
+                    <option value="all">Tudo</option>
+                    <option value="video">Video</option>
+                    <option value="image">Imagem</option>
+                    <option value="carousel">Carrossel</option>
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Min. dias ativo</label>
+                <input id="filterMinDays" type="number" min="0" placeholder="0" style="width:70px;">
+            </div>
+            <div class="filter-group" style="flex:1;min-width:180px;">
+                <label>Buscar texto</label>
+                <input id="filterSearch" type="text" placeholder="Palavra no copy...">
+            </div>
+            <div class="filter-group" style="align-self:flex-end;">
+                <button class="btn" onclick="clearFilters()">Limpar</button>
+            </div>
+        </div>
         <div id="adsGrid" class="ads-grid">
             <div class="empty">Clique em um concorrente acima para ver os anuncios.</div>
+        </div>
+    </div>
+    <div id="videoModal" class="video-modal" style="display:none;" onclick="closeVideo(event)">
+        <div class="video-modal-inner" onclick="event.stopPropagation();">
+            <button class="video-close" onclick="closeVideo()">&times;</button>
+            <video id="videoPlayer" controls autoplay></video>
         </div>
     </div>
 </div>
@@ -336,6 +437,8 @@ function escapeHtml(s) {
     return (s || '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]);
 }
 
+var _currentAds = [];
+
 async function selectCompetitor(id) {
     _activeId = id;
     document.querySelectorAll('.comp-card').forEach(el => {
@@ -346,62 +449,161 @@ async function selectCompetitor(id) {
         var d = await api('/api/competitors/ads/' + encodeURIComponent(id));
         var comp = (await api('/api/competitors/list')).competitors.find(c => c.id === id);
         $('#adsTitle').textContent = 'Anuncios — ' + (comp ? comp.name : id);
-        renderAds(d.ads || [], d.refreshed_at);
+        _currentAds = d.ads || [];
+        $('#filterBar').style.display = _currentAds.length ? 'flex' : 'none';
+        renderAds(d.refreshed_at);
     } catch(e) {
         $('#adsGrid').innerHTML = '<div class="error">' + e.message + '</div>';
     }
 }
 
-function renderAds(ads, refreshedAt) {
-    var info = $('#adsInfo');
+function applyFilters(ads) {
+    var status = $('#filterStatus').value;
+    var media = $('#filterMedia').value;
+    var minDays = parseInt($('#filterMinDays').value || '0', 10) || 0;
+    var search = ($('#filterSearch').value || '').toLowerCase().trim();
+    return ads.filter(function(a) {
+        if (status === 'active' && a.is_active === false) return false;
+        if (status === 'inactive' && a.is_active !== false) return false;
+        if (media !== 'all' && a.media_type !== media) return false;
+        if (minDays > 0 && (a.days_active == null || a.days_active < minDays)) return false;
+        if (search) {
+            var hay = ((a.body || '') + ' ' + (a.title || '') + ' ' + (a.cta_text || '')).toLowerCase();
+            if (hay.indexOf(search) === -1) return false;
+        }
+        return true;
+    });
+}
+
+function renderAds(refreshedAt) {
     var pill = $('#adsRefreshedAt');
-    info.textContent = ads.length + ' anuncio(s)';
     if (refreshedAt) {
         pill.textContent = 'Atualizado: ' + refreshedAt;
         pill.style.display = 'inline-block';
-    } else {
+    } else if (refreshedAt === null) {
         pill.style.display = 'none';
     }
+    var ads = applyFilters(_currentAds);
+    var info = $('#adsInfo');
+    info.textContent = ads.length + ' de ' + _currentAds.length + ' anuncio(s)';
     var grid = $('#adsGrid');
-    if (!ads.length) {
+    if (!_currentAds.length) {
         grid.innerHTML = '<div class="empty">Nenhum anuncio em cache. Clique em <b>Atualizar</b> no card do concorrente pra buscar.</div>';
         return;
     }
-    grid.innerHTML = ads.map(a => {
+    if (!ads.length) {
+        grid.innerHTML = '<div class="empty">Nenhum anuncio bate com os filtros aplicados.</div>';
+        return;
+    }
+    grid.innerHTML = ads.map((a, idx) => {
+        // Media
         var media = '';
         if (a.video_url || a.video_thumb) {
             var thumb = a.video_thumb || '';
-            media = `<div class="ad-media">
-                ${thumb ? `<img src="${escapeHtml(thumb)}" alt="">` : '<div class="placeholder">video</div>'}
+            var hasVideoUrl = !!a.video_url;
+            var clickAttr = hasVideoUrl ? `onclick="playVideo(${idx})"` : '';
+            var clsClick = hasVideoUrl ? ' clickable' : '';
+            media = `<div class="ad-media${clsClick}" ${clickAttr}>
+                ${thumb ? `<img src="${escapeHtml(thumb)}" alt="" loading="lazy">` : '<div class="placeholder">video</div>'}
                 <span class="video-badge">&#9654; video</span>
             </div>`;
         } else if (a.image_url) {
-            media = `<div class="ad-media"><img src="${escapeHtml(a.image_url)}" alt=""></div>`;
+            media = `<div class="ad-media"><img src="${escapeHtml(a.image_url)}" alt="" loading="lazy"></div>`;
         } else {
             media = `<div class="ad-media"><div class="placeholder">sem midia</div></div>`;
         }
+
+        // Status badge
         var statusBadge = a.is_active === false
             ? '<span class="ad-status inactive">inativo</span>'
             : '<span class="ad-status active">ativo</span>';
+
+        // Pills info
+        var infoPills = [statusBadge];
+        if (a.days_active != null) {
+            infoPills.push(`<span class="ad-info-pill days">${a.days_active}d ativo</span>`);
+        }
+        if (a.media_type && a.media_type !== 'unknown') {
+            infoPills.push(`<span class="ad-info-pill media-${a.media_type}">${escapeHtml(a.media_type)}</span>`);
+        }
+        if (a.cta_text) {
+            infoPills.push(`<span class="ad-info-pill cta">CTA: ${escapeHtml(a.cta_text)}</span>`);
+        }
+
+        // Platforms
         var platforms = (a.platforms || []).slice(0, 4).map(p =>
             `<span class="ad-plat">${escapeHtml(p)}</span>`
         ).join(' ');
+
+        // Datas
+        var dateInfo = 'Inicio: ' + escapeHtml(a.start_date || '--');
+        if (a.end_date) dateInfo += ' &bull; Fim: ' + escapeHtml(a.end_date);
+
+        // Link de destino
+        var linkBlock = '';
+        if (a.link_url) {
+            linkBlock = `<a class="ad-link" href="${escapeHtml(a.link_url)}" target="_blank" rel="noopener">
+                <div class="ad-link-label">Direciona para</div>
+                ${escapeHtml(a.link_url.length > 80 ? a.link_url.substring(0, 80) + '...' : a.link_url)}
+            </a>`;
+        }
+
+        // Title
+        var titleBlock = a.title ? `<div style="color:var(--t1);font-weight:600;font-size:12px;margin-bottom:4px;">${escapeHtml(a.title)}</div>` : '';
+
         return `
             <div class="ad-card">
                 ${media}
                 <div class="ad-body">
+                    ${titleBlock}
                     <div class="ad-text">${escapeHtml(a.body || '(sem texto)')}</div>
-                    <div class="ad-meta">
-                        ${statusBadge}
-                        <span style="margin-left:8px">Inicio: ${escapeHtml(a.start_date || '--')}</span>
-                    </div>
-                    <div class="ad-meta ad-platforms" style="margin-top:6px">${platforms}</div>
+                    ${linkBlock}
+                    <div class="ad-info-row">${infoPills.join('')}</div>
+                    <div class="ad-meta" style="margin-top:6px">${dateInfo}</div>
+                    <div class="ad-meta ad-platforms" style="margin-top:4px">${platforms}</div>
                 </div>
                 ${a.library_url ? `<div class="ad-footer"><a href="${escapeHtml(a.library_url)}" target="_blank" rel="noopener">Ver na biblioteca &rarr;</a></div>` : ''}
             </div>
         `;
     }).join('');
 }
+
+function playVideo(idx) {
+    var ads = applyFilters(_currentAds);
+    var ad = ads[idx];
+    if (!ad || !ad.video_url) return;
+    var v = $('#videoPlayer');
+    v.src = ad.video_url;
+    $('#videoModal').style.display = 'flex';
+}
+
+function closeVideo(e) {
+    if (e && e.target.id !== 'videoModal' && !e.target.classList.contains('video-close')) return;
+    var v = $('#videoPlayer');
+    try { v.pause(); v.removeAttribute('src'); v.load(); } catch(_) {}
+    $('#videoModal').style.display = 'none';
+}
+
+function clearFilters() {
+    $('#filterStatus').value = 'all';
+    $('#filterMedia').value = 'all';
+    $('#filterMinDays').value = '';
+    $('#filterSearch').value = '';
+    renderAds(undefined);
+}
+
+['filterStatus', 'filterMedia', 'filterMinDays', 'filterSearch'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) {
+        el.addEventListener('input', function() { renderAds(undefined); });
+        el.addEventListener('change', function() { renderAds(undefined); });
+    }
+});
+
+// Tecla ESC fecha modal de video
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && $('#videoModal').style.display !== 'none') closeVideo();
+});
 
 async function refreshCompetitor(id) {
     if (_refreshing.has(id)) return;
