@@ -114,6 +114,96 @@ def _extract_page_handle(page_url):
         return ""
 
 
+def _extract_page_id(page_url):
+    """Faz GET na pagina FB publica e tenta extrair o page_id numerico
+    do HTML. Retorna None se nao achar (pagina privada, FB exigindo
+    login, ou padrao mudou). Usado pra montar URL especifica da Ads
+    Library com search_type=page&view_all_page_id=..."""
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) "
+                          "Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        }
+        r = requests.get(page_url, headers=headers, timeout=20, allow_redirects=True)
+        if r.status_code != 200:
+            return None
+        text = r.text
+        patterns = [
+            r'"pageID":"(\d{6,20})"',
+            r'"page_id":"(\d{6,20})"',
+            r'fb:page_id"\s+content="(\d{6,20})"',
+            r'"entity_id":"(\d{6,20})"',
+            r'al:android:url"\s+content="fb://page/(\d{6,20})"',
+            r'profile_id=(\d{6,20})',
+            r'"identifier":"(\d{6,20})","__typename":"Page"',
+        ]
+        for pat in patterns:
+            m = re.search(pat, text)
+            if m:
+                return m.group(1)
+    except Exception as e:
+        print(f"[CONCORRENTES] page_id extract falhou {page_url}: {e}")
+    return None
+
+
+def _build_ads_library_url(page_id, country="BR"):
+    """Monta URL da Ads Library filtrando estritamente pela pagina."""
+    return (
+        "https://www.facebook.com/ads/library/"
+        f"?active_status=all&ad_type=all&country={country}"
+        f"&search_type=page&view_all_page_id={page_id}"
+    )
+
+
+def _filter_ads_to_competitor(raw_ads, competitor_name, expected_page_id=None):
+    """Filtra resultados pra so manter ads cuja page_name OU page_id batem
+    com o concorrente. Apify as vezes retorna ads de outras paginas
+    quando a URL nao tem view_all_page_id. Retorna (matching, rejected_count)."""
+    if not raw_ads:
+        return [], 0
+    if not competitor_name and not expected_page_id:
+        return raw_ads, 0
+
+    name_norm = re.sub(r"\s+", " ", (competitor_name or "").lower().strip())
+
+    matching = []
+    rejected = 0
+    for a in raw_ads:
+        if not isinstance(a, dict):
+            continue
+        ad_page_id = str(a.get("page_id") or (a.get("snapshot") or {}).get("page_id") or "")
+        ad_page_name = (
+            a.get("page_name")
+            or (a.get("snapshot") or {}).get("page_name")
+            or ""
+        )
+        ad_page_name_norm = re.sub(r"\s+", " ", ad_page_name.lower().strip())
+
+        is_match = False
+        if expected_page_id and ad_page_id == str(expected_page_id):
+            is_match = True
+        elif name_norm and ad_page_name_norm and (
+            name_norm in ad_page_name_norm or ad_page_name_norm in name_norm
+        ):
+            is_match = True
+        elif not ad_page_name_norm and not ad_page_id:
+            # Sem dados da pagina — mantem (nao da pra rejeitar com confianca)
+            is_match = True
+
+        if is_match:
+            matching.append(a)
+        else:
+            rejected += 1
+
+    # Safety: se filtrou TUDO, retorna original. Melhor ver dados errados
+    # do que nenhum dado e o usuario achar que esta bugado.
+    if not matching and raw_ads:
+        return raw_ads, 0
+    return matching, rejected
+
+
 def _run_apify_sync(page_url):
     """Chama o ator Apify sincronamente e retorna a lista de items.
     Levanta excecao em caso de erro ou timeout."""
@@ -543,9 +633,34 @@ def api_refresh():
         return jsonify({"ok": False, "error": "Concorrente nao encontrado"}), 404
 
     try:
-        raw_ads = _run_apify_sync(target["url"])
+        # Tenta extrair page_id se ainda nao tem cacheado.
+        page_id = (target.get("page_id") or "").strip()
+        if not page_id:
+            page_id = _extract_page_id(target["url"]) or ""
+            if page_id:
+                # Salva pro proximo refresh nao precisar extrair de novo
+                comps2 = _load_competitors()
+                for c in comps2:
+                    if c.get("id") == cid:
+                        c["page_id"] = page_id
+                _save_competitors(comps2)
+
+        # URL pro Apify: prefere Ads Library com view_all_page_id (estrito
+        # pra pagina). Fallback pra URL da pagina FB.
+        scrape_url = (
+            _build_ads_library_url(page_id) if page_id else target["url"]
+        )
+
+        raw_ads = _run_apify_sync(scrape_url)
+
+        # Rede de seguranca: filtra pelo nome/id da pagina pra rejeitar
+        # ads de outras paginas que escaparam da query.
+        matching, rejected = _filter_ads_to_competitor(
+            raw_ads, target.get("name"), expected_page_id=page_id or None
+        )
+
         normalized = []
-        for a in raw_ads:
+        for a in matching:
             n = _normalize_ad(a)
             if n and n.get("id"):
                 normalized.append(n)
@@ -553,12 +668,17 @@ def api_refresh():
             "ads": normalized,
             "refreshed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "raw_count": len(raw_ads),
+            "rejected_count": rejected,
+            "page_id": page_id,
         }
         # TTL longo (30d) — refresh e SEMPRE manual via botao
         set_cached(f"competitors_ads_v1_{cid}", payload, ttl_hours=720)
         return jsonify({
             "ok": True,
             "count": len(normalized),
+            "raw_count": len(raw_ads),
+            "rejected": rejected,
+            "page_id": page_id or None,
             "refreshed_at": payload["refreshed_at"],
         })
     except Exception as e:
