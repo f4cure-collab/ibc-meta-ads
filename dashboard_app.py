@@ -1990,11 +1990,28 @@ CRESCIMENTO_NON_CRESCIMENTO_WEIGHT = 0.025
 
 def _fetch_account_total_spend(acc_id, date_from, date_to):
     """Retorna gasto total de UMA conta no periodo (todas campanhas, todos tipos).
-    Cache interno via cache_manager — TTL 20min."""
+    Cache interno via cache_manager — TTL 20min.
+
+    DUAL-READ: se USE_ATOMS ativo e atoms cobrem o range, soma de atoms
+    (zero call Meta). Senao fallback pra Meta level=account."""
     cache_key = f"account_total_spend_{acc_id}_{date_from}_{date_to}"
     cached = get_cached(cache_key)
     if cached is not None:
         return cached
+
+    # Tenta atoms primeiro
+    _sync_use_atoms_from_file()
+    if USE_ATOMS:
+        atoms_list, missing = get_atoms_for_range('acc', acc_id, date_from, date_to)
+        if not missing:
+            total = 0.0
+            for atom in atoms_list:
+                payload = atom.get('payload') or {}
+                for cid, ins in (payload.get('insights_by_id') or {}).items():
+                    total += float(ins.get('spend', 0) or 0)
+            set_cached(cache_key, total, ttl_hours=0.33)
+            return total
+
     try:
         rows = meta_get_all_pages(f"{acc_id}/insights", {
             "fields": "spend",
@@ -6649,7 +6666,36 @@ def _fetch_acc_insights_chunked(acc_id, d_from, d_to):
     """/insights level=campaign, chunked por mes + cache por segmento.
     Segmentos de mes COMPLETO (fechado) sao pinados 180d. Parciais/mes
     corrente tem TTL curto (6h). Retorna lista agregada [{campaign_id,
-    campaign_name, spend}] somada por campanha across segmentos."""
+    campaign_name, spend}] somada por campanha across segmentos.
+
+    DUAL-READ: se atoms cobrem o range, soma de atoms (zero call Meta)."""
+    _sync_use_atoms_from_file()
+    if USE_ATOMS:
+        atoms_list, missing = get_atoms_for_range('acc', acc_id, d_from, d_to)
+        if not missing and atoms_list:
+            rows_by_cid = {}
+            for atom in atoms_list:
+                payload = atom.get('payload') or {}
+                # Mapa de id->name das campanhas no payload (atom mais
+                # recente vence se houver renomeacao)
+                names = {}
+                for c in (payload.get('campaigns') or []):
+                    cid_c = c.get('id')
+                    if cid_c:
+                        names[cid_c] = c.get('name', '')
+                for cid, ins in (payload.get('insights_by_id') or {}).items():
+                    if cid not in rows_by_cid:
+                        rows_by_cid[cid] = {
+                            "campaign_id": cid,
+                            "campaign_name": names.get(cid, '') or ins.get('campaign_name', ''),
+                            "spend": 0.0,
+                        }
+                    rows_by_cid[cid]["spend"] += float(ins.get('spend', 0) or 0)
+                    # Atualiza nome se atom mais novo tem nome melhor
+                    if names.get(cid):
+                        rows_by_cid[cid]["campaign_name"] = names[cid]
+            return list(rows_by_cid.values())
+
     segments = _split_range_by_month_segments(d_from, d_to)
     rows_by_cid = {}
     for seg_from, seg_to in segments:
@@ -6694,7 +6740,20 @@ def _fetch_acc_total_spend_chunked(acc_id, d_from, d_to):
     """Total spend de UMA conta em [d_from, d_to], chunked por mes.
     Reusa as mesmas caches por segmento do _fetch_acc_insights_chunked
     (soma spend de todas as campanhas do segmento). Segmentos ja cacheados
-    = instantaneo."""
+    = instantaneo.
+
+    DUAL-READ: se atoms cobrem o range, soma de atoms (zero call Meta)."""
+    _sync_use_atoms_from_file()
+    if USE_ATOMS:
+        atoms_list, missing = get_atoms_for_range('acc', acc_id, d_from, d_to)
+        if not missing and atoms_list:
+            total = 0.0
+            for atom in atoms_list:
+                payload = atom.get('payload') or {}
+                for cid, ins in (payload.get('insights_by_id') or {}).items():
+                    total += float(ins.get('spend', 0) or 0)
+            return total
+
     total = 0.0
     for seg_from, seg_to in _split_range_by_month_segments(d_from, d_to):
         ck = f"acc_insights_v1_{acc_id}_{seg_from}_{seg_to}"
