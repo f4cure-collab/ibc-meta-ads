@@ -36,12 +36,49 @@ _APIFY_MAX_PER_RUN = 50  # limita ads por concorrente pra controlar custo
 
 _SUPER_ADMIN_EMAIL = "f4cure@gmail.com"
 
+# Token Apify guardado no banco local do servidor (cache_manager).
+# Repositorio GitHub e publico — token NUNCA vai pro git, so existe
+# no banco local SQLite. Usuario configura via formulario na pagina.
+_APIFY_TOKEN_CACHE_KEY = "apify_token_v1"
+_APIFY_TOKEN_TTL_HOURS = 24 * 365 * 10  # 10 anos efetivo (so muda quando user atualiza)
+
 
 def _is_super_admin():
     return (
         session.get("logged_in")
         and session.get("username") == _SUPER_ADMIN_EMAIL
     )
+
+
+def _get_apify_token():
+    """Retorna token Apify. Prioridade: env var > banco local."""
+    env_token = (os.getenv("APIFY_TOKEN") or "").strip()
+    if env_token:
+        return env_token
+    cached = get_cached(_APIFY_TOKEN_CACHE_KEY)
+    if isinstance(cached, dict):
+        return (cached.get("token") or "").strip()
+    if isinstance(cached, str):
+        return cached.strip()
+    return ""
+
+
+def _save_apify_token(token):
+    """Salva token no banco local (sobrevive deploys; nunca vai pro git)."""
+    set_cached(
+        _APIFY_TOKEN_CACHE_KEY,
+        {"token": token, "saved_at": time.strftime("%Y-%m-%d %H:%M:%S")},
+        ttl_hours=_APIFY_TOKEN_TTL_HOURS,
+    )
+
+
+def _token_source():
+    """De onde vem o token atual: 'env' | 'db' | 'none'."""
+    if (os.getenv("APIFY_TOKEN") or "").strip():
+        return "env"
+    if _get_apify_token():
+        return "db"
+    return "none"
 
 
 def _slugify(s):
@@ -80,9 +117,9 @@ def _extract_page_handle(page_url):
 def _run_apify_sync(page_url):
     """Chama o ator Apify sincronamente e retorna a lista de items.
     Levanta excecao em caso de erro ou timeout."""
-    token = os.getenv("APIFY_TOKEN", "")
+    token = _get_apify_token()
     if not token:
-        raise RuntimeError("APIFY_TOKEN nao configurado nas variaveis de ambiente.")
+        raise RuntimeError("Token Apify nao configurado. Cole o token na pagina /concorrentes (campo 'Token Apify').")
 
     api_url = f"https://api.apify.com/v2/acts/{_APIFY_ACTOR}/run-sync-get-dataset-items"
     payload = {
@@ -169,6 +206,35 @@ def page():
     if not _is_super_admin():
         return redirect("/login")
     return render_template("competitors.html", username=session.get("username"))
+
+
+@competitors_bp.route("/api/competitors/token-status")
+def api_token_status():
+    """Retorna se ha token configurado e de onde vem (sem expor o valor)."""
+    if not _is_super_admin():
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    return jsonify({
+        "ok": True,
+        "configured": bool(_get_apify_token()),
+        "source": _token_source(),
+    })
+
+
+@competitors_bp.route("/api/competitors/set-token", methods=["POST"])
+def api_set_token():
+    """Salva o token Apify no banco local (server-only). Super_admin only."""
+    if not _is_super_admin():
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+    body = request.get_json(silent=True) or {}
+    token = (body.get("token") or "").strip()
+    if not token:
+        return jsonify({"ok": False, "error": "Token vazio"}), 400
+    if not token.startswith("apify_api_"):
+        return jsonify({"ok": False, "error": "Token deve comecar com apify_api_"}), 400
+    if len(token) < 30:
+        return jsonify({"ok": False, "error": "Token muito curto — confere se copiou inteiro"}), 400
+    _save_apify_token(token)
+    return jsonify({"ok": True})
 
 
 @competitors_bp.route("/api/competitors/list")

@@ -185,6 +185,26 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 
     <div id="errorBox" class="error" style="display:none;"></div>
 
+    <div class="card" id="tokenCard">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+            <div>
+                <h2 style="margin:0;">Token Apify</h2>
+                <div id="tokenStatus" style="margin-top:4px;font-size:12px;color:var(--t3);">Carregando...</div>
+            </div>
+            <button class="btn" onclick="toggleTokenForm()">Configurar</button>
+        </div>
+        <div id="tokenForm" style="display:none;margin-top:12px;">
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <input id="tokenInput" type="password" placeholder="Cole aqui o token (apify_api_...)" autocomplete="off" style="flex:1;min-width:280px;background:var(--bg);color:var(--t2);border:1px solid var(--border2);border-radius:4px;padding:6px 10px;font-size:12px;font-family:monospace;">
+                <button class="btn btn-primary" onclick="saveToken()">Salvar</button>
+            </div>
+            <div style="color:var(--t3);font-size:11px;margin-top:8px;line-height:1.5;">
+                O token e salvo no banco local do servidor — <b>nunca vai pro GitHub</b>.<br>
+                Pra obter: <a href="https://console.apify.com/account/integrations" target="_blank" style="color:var(--primary);">apify.com/account/integrations</a>.
+            </div>
+        </div>
+    </div>
+
     <div class="card">
         <h2>Concorrentes monitorados</h2>
         <div id="competitorsGrid" class="competitors-grid">
@@ -233,6 +253,46 @@ async function api(url, opts) {
     var d = await r.json();
     if (!d.ok) throw new Error(d.error || 'Erro');
     return d;
+}
+
+async function loadTokenStatus() {
+    try {
+        var d = await api('/api/competitors/token-status');
+        var status = $('#tokenStatus');
+        if (d.configured) {
+            var src = d.source === 'env' ? 'variavel de ambiente' : 'banco local do servidor';
+            status.innerHTML = '<span style="color:var(--green)">&#10003; Token configurado</span> '
+                + '<span style="color:var(--t3);font-size:10px;">(via ' + src + ')</span>';
+            $('#tokenForm').style.display = 'none';
+        } else {
+            status.innerHTML = '<span style="color:var(--orange)">&#9888; Token nao configurado &mdash; clique em <b>Configurar</b> e cole o token Apify pra ativar</span>';
+            $('#tokenForm').style.display = 'block';
+        }
+    } catch(e) {}
+}
+
+function toggleTokenForm() {
+    var f = $('#tokenForm');
+    f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    if (f.style.display === 'block') {
+        setTimeout(function(){ $('#tokenInput').focus(); }, 50);
+    }
+}
+
+async function saveToken() {
+    var token = ($('#tokenInput').value || '').trim();
+    if (!token) { showError('Cole o token primeiro.'); return; }
+    try {
+        await api('/api/competitors/set-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token }),
+        });
+        $('#tokenInput').value = '';
+        await loadTokenStatus();
+    } catch(e) {
+        showError(e.message);
+    }
 }
 
 async function loadList() {
@@ -403,6 +463,7 @@ async function removeCompetitor(id, name) {
     }
 }
 
+loadTokenStatus();
 loadList();
 </script>
 </body>
