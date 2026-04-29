@@ -780,6 +780,36 @@ async function refreshCompetitor(id) {
         await loadList();
         if (id === _activeId) await selectCompetitor(id);
         else { _activeId = id; await selectCompetitor(id); }
+
+        // Diagnostico apos refresh — alerta admin sobre possiveis problemas
+        if (IS_ADMIN && d) {
+            var raw = d.raw_count || 0;
+            var got = d.count || 0;
+            var rej = d.rejected || 0;
+            var pid = d.page_id;
+            if (got === 0) {
+                var why = '';
+                if (raw === 0) {
+                    why = 'O Apify retornou 0 anuncios pra essa pagina. '
+                        + 'Causas possiveis:\n'
+                        + '- URL invalida (pagina nao existe, handle errado)\n'
+                        + '- Pagina sem anuncios ATIVOS no momento '
+                        + (includePaused ? '' : '(tente marcar "Incluir pausados")\n')
+                        + (includePaused ? '\n' : '')
+                        + '- Pagina restrita / bloqueada pelo FB\n\n'
+                        + 'Page ID extraido: ' + (pid || '(nenhum — extracao falhou)');
+                } else {
+                    why = 'O Apify retornou ' + raw + ' anuncios, mas TODOS '
+                        + (rej + ' foram rejeitados pelo filtro de pagina') + '.\n'
+                        + 'Provavel: nome do concorrente nao bate com o nome '
+                        + 'da pagina nos anuncios. Tente o botao Editar e ajuste '
+                        + 'a URL ou o nome.';
+                }
+                alert('Aviso: 0 anuncios carregados.\n\n' + why);
+            } else if (rej > 0) {
+                console.log('[refresh ' + id + '] OK: ' + got + ' anuncios. ' + rej + ' rejeitados pelo filtro.');
+            }
+        }
     } catch(e) {
         _refreshing.delete(id);
         showError('Erro ao buscar anuncios: ' + e.message);
