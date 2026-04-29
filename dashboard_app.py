@@ -33,6 +33,12 @@ app.permanent_session_lifetime = timedelta(hours=12)
 # para que cookies Secure e url_for funcionem com o esquema correto.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
+# Feature isolada: pagina /concorrentes que sincroniza com FB Ads Library
+# via Apify. Toda a logica mora em competitors.py — pra remover, apague
+# o arquivo e essas 2 linhas abaixo.
+from competitors import competitors_bp
+app.register_blueprint(competitors_bp)
+
 
 # ── API usage logging (diagnostico) ────────────────────────────────────
 # Registra cada request nos endpoints /api/dashboard/* pra saber quantas

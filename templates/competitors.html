@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concorrentes — IBC</title>
+<style>
+:root {
+    --bg: #0a0f1a;
+    --card: #0f1824;
+    --card2: #1a1d24;
+    --border: #1f2a3a;
+    --border2: #2a2e36;
+    --t1: #fff;
+    --t2: #ccc;
+    --t3: #888;
+    --primary: #4f8cff;
+    --green: #3fdf85;
+    --red: #f85149;
+    --orange: #f59e0b;
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--t2);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    font-size: 13px;
+}
+.container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+.header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.btn-back { color: var(--primary); text-decoration: none; font-size: 13px; }
+.btn-back:hover { text-decoration: underline; }
+h1 { color: var(--t1); margin: 8px 0 24px; font-size: 22px; font-weight: 700; }
+h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+
+.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.competitors-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.comp-card {
+    background: var(--card2);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.comp-card.active { border-color: var(--primary); background: rgba(79, 140, 255, 0.08); }
+.comp-card-name {
+    color: var(--t1); font-weight: 600; font-size: 13px;
+    cursor: pointer;
+}
+.comp-card-name:hover { color: var(--primary); }
+.comp-card-meta {
+    display: flex; justify-content: space-between; align-items: center;
+    color: var(--t3); font-size: 11px;
+}
+.comp-card-actions { display: flex; gap: 6px; margin-top: 4px; }
+
+.btn {
+    background: var(--card2);
+    color: var(--t2);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    font-weight: 500;
+}
+.btn:hover { background: var(--border2); color: var(--t1); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+.btn-primary:hover { background: #3d7eff; color: #fff; }
+.btn-danger { background: transparent; color: var(--red); border-color: var(--red); }
+.btn-danger:hover { background: rgba(248, 81, 73, 0.1); color: var(--red); }
+
+.add-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.add-form input {
+    flex: 1; min-width: 200px;
+    background: var(--bg); color: var(--t2);
+    border: 1px solid var(--border2); border-radius: 4px;
+    padding: 6px 10px; font-size: 12px;
+}
+.add-form input:focus { outline: none; border-color: var(--primary); }
+
+.toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.toolbar .info { color: var(--t3); font-size: 12px; }
+.toolbar .pill {
+    background: var(--card2); border: 1px solid var(--border2);
+    color: var(--t2); padding: 4px 10px; border-radius: 12px; font-size: 11px;
+}
+
+.ads-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 14px;
+}
+.ad-card {
+    background: var(--card2);
+    border: 1px solid var(--border2);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+}
+.ad-media {
+    width: 100%; aspect-ratio: 1 / 1;
+    background: #000;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; position: relative;
+}
+.ad-media img, .ad-media video {
+    width: 100%; height: 100%; object-fit: cover;
+}
+.ad-media .placeholder { color: var(--t3); font-size: 11px; padding: 20px; text-align: center; }
+.ad-media .video-badge {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0,0,0,0.7); color: #fff;
+    padding: 2px 8px; border-radius: 10px; font-size: 10px;
+}
+.ad-body { padding: 10px 12px; flex: 1; }
+.ad-text {
+    color: var(--t2); font-size: 12px; line-height: 1.4;
+    max-height: 80px; overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical;
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+}
+.ad-meta { color: var(--t3); font-size: 10px; margin-top: 6px; }
+.ad-platforms { display: inline-flex; gap: 4px; }
+.ad-plat {
+    background: var(--border2); color: var(--t2);
+    padding: 1px 6px; border-radius: 3px; font-size: 9px;
+}
+.ad-status {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 9px; font-weight: 600;
+}
+.ad-status.active { background: rgba(63, 223, 133, 0.15); color: var(--green); }
+.ad-status.inactive { background: rgba(136, 136, 136, 0.15); color: var(--t3); }
+.ad-footer { padding: 8px 12px; border-top: 1px solid var(--border); }
+.ad-footer a { color: var(--primary); text-decoration: none; font-size: 11px; }
+.ad-footer a:hover { text-decoration: underline; }
+
+.loading {
+    color: var(--t3); padding: 30px; text-align: center; font-style: italic;
+}
+.empty {
+    color: var(--t3); padding: 30px; text-align: center;
+}
+.error {
+    background: rgba(248, 81, 73, 0.10);
+    border: 1px solid var(--red);
+    color: var(--red);
+    padding: 12px; border-radius: 6px;
+    margin-bottom: 14px; font-size: 12px;
+}
+.spinner {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid var(--border2); border-top-color: var(--primary);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header-bar">
+        <a href="/dashboard" class="btn-back">&larr; Voltar ao Dashboard</a>
+        <span style="color:var(--t3);font-size:12px;">{{ username }}</span>
+    </div>
+    <h1>Concorrentes &mdash; Facebook Ads Library</h1>
+
+    <div id="errorBox" class="error" style="display:none;"></div>
+
+    <div class="card">
+        <h2>Concorrentes monitorados</h2>
+        <div id="competitorsGrid" class="competitors-grid">
+            <div class="loading">Carregando...</div>
+        </div>
+        <details style="margin-top:10px;">
+            <summary style="cursor:pointer;color:var(--t3);font-size:11px;">+ Adicionar novo concorrente</summary>
+            <div class="add-form" style="margin-top:10px;">
+                <input id="newName" type="text" placeholder="Nome (ex: Concorrente X)">
+                <input id="newUrl" type="text" placeholder="https://www.facebook.com/pagina">
+                <button class="btn btn-primary" onclick="addCompetitor()">Adicionar</button>
+            </div>
+        </details>
+    </div>
+
+    <div class="card">
+        <h2 id="adsTitle">Anuncios &mdash; selecione um concorrente</h2>
+        <div class="toolbar">
+            <span id="adsInfo" class="info">--</span>
+            <span id="adsRefreshedAt" class="pill" style="display:none;">--</span>
+        </div>
+        <div id="adsGrid" class="ads-grid">
+            <div class="empty">Clique em um concorrente acima para ver os anuncios.</div>
+        </div>
+    </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let _activeId = null;
+let _refreshing = new Set();
+
+function showError(msg) {
+    var box = $('#errorBox');
+    box.textContent = msg;
+    box.style.display = 'block';
+    setTimeout(() => { box.style.display = 'none'; }, 8000);
+}
+
+async function api(url, opts) {
+    var r = await fetch(url, opts);
+    if (r.status === 401 || r.status === 403) {
+        window.location.href = '/login';
+        return null;
+    }
+    var d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'Erro');
+    return d;
+}
+
+async function loadList() {
+    try {
+        var d = await api('/api/competitors/list');
+        renderList(d.competitors || []);
+    } catch(e) {
+        showError('Erro ao carregar lista: ' + e.message);
+    }
+}
+
+function renderList(comps) {
+    var grid = $('#competitorsGrid');
+    if (!comps.length) {
+        grid.innerHTML = '<div class="empty">Nenhum concorrente cadastrado.</div>';
+        return;
+    }
+    grid.innerHTML = comps.map(c => {
+        var refreshedShort = c.refreshed_at ? c.refreshed_at.slice(5, 16).replace('T', ' ') : 'nunca';
+        var isActive = c.id === _activeId ? ' active' : '';
+        var isRefreshing = _refreshing.has(c.id);
+        return `
+            <div class="comp-card${isActive}" data-id="${c.id}">
+                <div class="comp-card-name" onclick="selectCompetitor('${c.id}')">${escapeHtml(c.name)}</div>
+                <div class="comp-card-meta">
+                    <span>${c.ads_count} ads</span>
+                    <span title="Ultimo refresh: ${c.refreshed_at || 'nunca'}">${refreshedShort}</span>
+                </div>
+                <div class="comp-card-actions">
+                    <button class="btn btn-primary" onclick="refreshCompetitor('${c.id}')" ${isRefreshing ? 'disabled' : ''}>
+                        ${isRefreshing ? '<span class="spinner"></span>Buscando...' : '&#8635; Atualizar'}
+                    </button>
+                    <button class="btn btn-danger" onclick="removeCompetitor('${c.id}', '${escapeHtml(c.name)}')">Remover</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]);
+}
+
+async function selectCompetitor(id) {
+    _activeId = id;
+    document.querySelectorAll('.comp-card').forEach(el => {
+        el.classList.toggle('active', el.dataset.id === id);
+    });
+    $('#adsGrid').innerHTML = '<div class="loading"><span class="spinner"></span>Carregando anuncios...</div>';
+    try {
+        var d = await api('/api/competitors/ads/' + encodeURIComponent(id));
+        var comp = (await api('/api/competitors/list')).competitors.find(c => c.id === id);
+        $('#adsTitle').textContent = 'Anuncios — ' + (comp ? comp.name : id);
+        renderAds(d.ads || [], d.refreshed_at);
+    } catch(e) {
+        $('#adsGrid').innerHTML = '<div class="error">' + e.message + '</div>';
+    }
+}
+
+function renderAds(ads, refreshedAt) {
+    var info = $('#adsInfo');
+    var pill = $('#adsRefreshedAt');
+    info.textContent = ads.length + ' anuncio(s)';
+    if (refreshedAt) {
+        pill.textContent = 'Atualizado: ' + refreshedAt;
+        pill.style.display = 'inline-block';
+    } else {
+        pill.style.display = 'none';
+    }
+    var grid = $('#adsGrid');
+    if (!ads.length) {
+        grid.innerHTML = '<div class="empty">Nenhum anuncio em cache. Clique em <b>Atualizar</b> no card do concorrente pra buscar.</div>';
+        return;
+    }
+    grid.innerHTML = ads.map(a => {
+        var media = '';
+        if (a.video_url || a.video_thumb) {
+            var thumb = a.video_thumb || '';
+            media = `<div class="ad-media">
+                ${thumb ? `<img src="${escapeHtml(thumb)}" alt="">` : '<div class="placeholder">video</div>'}
+                <span class="video-badge">&#9654; video</span>
+            </div>`;
+        } else if (a.image_url) {
+            media = `<div class="ad-media"><img src="${escapeHtml(a.image_url)}" alt=""></div>`;
+        } else {
+            media = `<div class="ad-media"><div class="placeholder">sem midia</div></div>`;
+        }
+        var statusBadge = a.is_active === false
+            ? '<span class="ad-status inactive">inativo</span>'
+            : '<span class="ad-status active">ativo</span>';
+        var platforms = (a.platforms || []).slice(0, 4).map(p =>
+            `<span class="ad-plat">${escapeHtml(p)}</span>`
+        ).join(' ');
+        return `
+            <div class="ad-card">
+                ${media}
+                <div class="ad-body">
+                    <div class="ad-text">${escapeHtml(a.body || '(sem texto)')}</div>
+                    <div class="ad-meta">
+                        ${statusBadge}
+                        <span style="margin-left:8px">Inicio: ${escapeHtml(a.start_date || '--')}</span>
+                    </div>
+                    <div class="ad-meta ad-platforms" style="margin-top:6px">${platforms}</div>
+                </div>
+                ${a.library_url ? `<div class="ad-footer"><a href="${escapeHtml(a.library_url)}" target="_blank" rel="noopener">Ver na biblioteca &rarr;</a></div>` : ''}
+            </div>
+        `;
+    }).join('');
+}
+
+async function refreshCompetitor(id) {
+    if (_refreshing.has(id)) return;
+    _refreshing.add(id);
+    await loadList();
+    try {
+        var d = await api('/api/competitors/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id }),
+        });
+        _refreshing.delete(id);
+        await loadList();
+        if (id === _activeId) await selectCompetitor(id);
+        else { _activeId = id; await selectCompetitor(id); }
+    } catch(e) {
+        _refreshing.delete(id);
+        showError('Erro ao buscar anuncios: ' + e.message);
+        await loadList();
+    }
+}
+
+async function addCompetitor() {
+    var name = $('#newName').value.trim();
+    var url = $('#newUrl').value.trim();
+    if (!name || !url) { showError('Preencha nome e URL.'); return; }
+    try {
+        await api('/api/competitors/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, url: url }),
+        });
+        $('#newName').value = '';
+        $('#newUrl').value = '';
+        await loadList();
+    } catch(e) {
+        showError(e.message);
+    }
+}
+
+async function removeCompetitor(id, name) {
+    if (!confirm('Remover "' + name + '" da lista?')) return;
+    try {
+        await api('/api/competitors/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: id }),
+        });
+        if (id === _activeId) {
+            _activeId = null;
+            $('#adsTitle').textContent = 'Anuncios — selecione um concorrente';
+            $('#adsGrid').innerHTML = '<div class="empty">Clique em um concorrente acima para ver os anuncios.</div>';
+            $('#adsInfo').textContent = '--';
+            $('#adsRefreshedAt').style.display = 'none';
+        }
+        await loadList();
+    } catch(e) {
+        showError(e.message);
+    }
+}
+
+loadList();
+</script>
+</body>
+</html>
