@@ -157,23 +157,39 @@ def _build_ads_library_url(page_id, country="BR"):
     )
 
 
-def _filter_ads_to_competitor(raw_ads, competitor_name, expected_page_id=None):
-    """Filtra resultados pra so manter ads cuja page_name OU page_id batem
-    com o concorrente. Apify as vezes retorna ads de outras paginas
-    quando a URL nao tem view_all_page_id. Retorna (matching, rejected_count)."""
+# Palavras genericas que NAO devem ser usadas pra match (ja que
+# muitas paginas nao-relacionadas as tem)
+_FILTER_STOPWORDS = {
+    "coaching", "treinamentos", "treinamento", "training", "academy",
+    "official", "oficial", "the", "and", "para", "store", "shop",
+    "br", "brasil", "mentor", "mentoria", "coach", "method", "metodo",
+    "curso", "cursos", "online", "digital",
+}
+
+
+def _filter_ads_to_competitor(raw_ads, competitor_name):
+    """Filtra resultados pra so manter ads cuja page_name bate com o nome
+    do concorrente. Match e por substring OU por keywords significativas
+    (palavras com 3+ chars excluindo termos genericos).
+
+    Usar APENAS quando nao tem page_id confirmado — quando page_id existe,
+    a URL ja filtra estritamente no Apify e este filtro vira ruido."""
     if not raw_ads:
         return [], 0
-    if not competitor_name and not expected_page_id:
+    if not competitor_name:
         return raw_ads, 0
 
-    name_norm = re.sub(r"\s+", " ", (competitor_name or "").lower().strip())
+    name_norm = re.sub(r"\s+", " ", competitor_name.lower().strip())
+    keywords = [
+        w for w in name_norm.split()
+        if len(w) >= 3 and w not in _FILTER_STOPWORDS
+    ]
 
     matching = []
     rejected = 0
     for a in raw_ads:
         if not isinstance(a, dict):
             continue
-        ad_page_id = str(a.get("page_id") or (a.get("snapshot") or {}).get("page_id") or "")
         ad_page_name = (
             a.get("page_name")
             or (a.get("snapshot") or {}).get("page_name")
@@ -182,24 +198,18 @@ def _filter_ads_to_competitor(raw_ads, competitor_name, expected_page_id=None):
         ad_page_name_norm = re.sub(r"\s+", " ", ad_page_name.lower().strip())
 
         is_match = False
-        if expected_page_id and ad_page_id == str(expected_page_id):
+        if not ad_page_name_norm:
+            # Sem nome de pagina — mantem (nao da pra rejeitar com confianca)
             is_match = True
-        elif name_norm and ad_page_name_norm and (
-            name_norm in ad_page_name_norm or ad_page_name_norm in name_norm
-        ):
+        elif name_norm in ad_page_name_norm or ad_page_name_norm in name_norm:
             is_match = True
-        elif not ad_page_name_norm and not ad_page_id:
-            # Sem dados da pagina — mantem (nao da pra rejeitar com confianca)
+        elif keywords and any(kw in ad_page_name_norm for kw in keywords):
             is_match = True
 
         if is_match:
             matching.append(a)
         else:
             rejected += 1
-
-    # Se filtrou TUDO: NAO devolve original — significa que a URL/page_id
-    # provavelmente esta errada. Melhor mostrar zero ads (com warning) e
-    # voce ajustar a URL do que mostrar dezenas de ads de outras paginas.
     return matching, rejected
 
 
@@ -783,11 +793,19 @@ def api_refresh():
 
         raw_ads = _run_apify_sync(scrape_url)
 
-        # Rede de seguranca: filtra pelo nome/id da pagina pra rejeitar
-        # ads de outras paginas que escaparam da query.
-        matching, rejected = _filter_ads_to_competitor(
-            raw_ads, target.get("name"), expected_page_id=page_id or None
-        )
+        # Quando page_id foi extraido, a URL pro Apify ja contem
+        # view_all_page_id (search_type=page) — Apify retorna apenas
+        # ads dessa pagina. Confia no resultado, sem filtro.
+        # Quando page_id nao foi extraido, usamos a URL da pagina como
+        # fallback — Apify pode fazer keyword search e retornar ads de
+        # outras paginas. Filtro por nome serve como rede de seguranca.
+        if page_id:
+            matching = raw_ads
+            rejected = 0
+        else:
+            matching, rejected = _filter_ads_to_competitor(
+                raw_ads, target.get("name")
+            )
 
         normalized = []
         for a in matching:
