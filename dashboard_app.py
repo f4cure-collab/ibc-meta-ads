@@ -3779,13 +3779,30 @@ def _fetch_creatives_for_campaigns(sales_campaigns, date_from, date_to, warnings
                         days_active = (dt_end - datetime.fromisoformat(created[:10])).days
                     except Exception:
                         pass
+                # Status efetivo: o mais restritivo entre o ad e a campanha pai.
+                # Se a campanha esta PAUSED/ARCHIVED, todos os ads dela sao
+                # efetivamente paused/archived (nao estao rodando), mesmo que
+                # o ad em si tenha status ACTIVE no FB.
+                ad_raw_status = (ad.get("status") or "").upper()
+                camp_raw_status = (camp.get("status") or "").upper()
+                if "ARCHIVED" in (ad_raw_status, camp_raw_status):
+                    effective_status = "ARCHIVED"
+                elif "PAUSED" in (ad_raw_status, camp_raw_status):
+                    effective_status = "PAUSED"
+                elif "DELETED" in (ad_raw_status, camp_raw_status):
+                    effective_status = "DELETED"
+                else:
+                    effective_status = ad_raw_status or "ACTIVE"
+
                 entry = {
                     "campaign_id": cid,
                     "campaign_name": camp.get("name", ""),
+                    "campaign_status": camp_raw_status,
                     "account_id": acc_id,
                     "ad_id": ad_id,
                     "ad_name": ad.get("name", ""),
-                    "ad_status": ad.get("status", ""),
+                    "ad_status": effective_status,
+                    "ad_status_raw": ad_raw_status,
                     "creative_id": creative.get("id", ""),
                     "creative_name": creative.get("name", ""),
                     "thumbnail_url": creative.get("thumbnail_url", ""),
@@ -4674,7 +4691,7 @@ def api_all_creatives():
         # Se o cache nao tiver o range solicitado, retorna erro pedindo ranges padrao.
         is_viewer = session.get("role") == "viewer"
 
-        cache_key = f"all_creatives_v8_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"all_creatives_v9_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -4704,7 +4721,7 @@ def api_all_creatives():
             # Range permitido: segue adiante (chama API e cacheia)
 
         sales_campaigns = _fetch_type_campaigns(
-            camp_type, "id,name,objective", _camp_status_filter(camp_status)
+            camp_type, "id,name,objective,status", _camp_status_filter(camp_status)
         )
 
         warnings = []
@@ -7336,7 +7353,7 @@ def _warmup_camp_type(ct, days_list, dt_to):
             try:
                 k_camp = f"campaigns_v8_{ct}_all_{dt_from}_{dt_to}"
                 k_daily = f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}"
-                k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
+                k_creat = f"all_creatives_v9_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
@@ -7496,7 +7513,7 @@ def _refresh_recent_loop():
                         try:
                             k_camp = f"campaigns_v8_{ct}_all_{dt_from}_{dt_to}"
                             k_daily = f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}"
-                            k_creat = f"all_creatives_v8_{ct}_active_{dt_from}_{dt_to}"
+                            k_creat = f"all_creatives_v9_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
                             hdr = {"X-Internal-Scheduler": "refresh_loop"}
