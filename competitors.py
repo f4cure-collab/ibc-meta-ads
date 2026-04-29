@@ -142,6 +142,72 @@ def _run_apify_sync(page_url):
         raise RuntimeError("Apify retornou resposta nao-JSON")
 
 
+def _has_placeholder(text):
+    """Detecta placeholders dinamicos tipo {{product.name}}."""
+    if not text:
+        return False
+    return "{{product." in text or "{{ product." in text
+
+
+def _extract_from_dynamic_versions(snap):
+    """Procura em dynamic_versions por uma versao com conteudo REAL
+    (sem placeholder). Anuncios DCO (Dynamic Creative Optimization) tem
+    o template no snap principal e as variacoes renderizadas em
+    dynamic_versions/cards. Retorna dict ou None."""
+    if not isinstance(snap, dict):
+        return None
+    versions = (
+        snap.get("dynamic_versions")
+        or snap.get("dynamicVersions")
+        or snap.get("body_versions")
+        or snap.get("cards")  # alguns ads colocam variacoes em cards
+        or []
+    )
+    for v in versions:
+        if not isinstance(v, dict):
+            continue
+        # Texto do body
+        v_body = ""
+        v_body_obj = v.get("body")
+        if isinstance(v_body_obj, dict):
+            v_body = v_body_obj.get("text") or ""
+        elif isinstance(v_body_obj, str):
+            v_body = v_body_obj
+        if not v_body:
+            v_body = v.get("body_text") or v.get("text") or ""
+        # Pula versoes que ainda tem placeholder
+        if not v_body or _has_placeholder(v_body):
+            continue
+        out = {"body": v_body}
+        v_title = v.get("title")
+        if v_title and not _has_placeholder(v_title):
+            out["title"] = v_title
+        v_videos = v.get("videos") or []
+        if v_videos and isinstance(v_videos[0], dict):
+            out["video_url"] = (
+                v_videos[0].get("video_hd_url")
+                or v_videos[0].get("video_sd_url")
+            )
+            out["video_thumb"] = v_videos[0].get("video_preview_image_url")
+        v_images = v.get("images") or []
+        if v_images and isinstance(v_images[0], dict):
+            out["image_url"] = (
+                v_images[0].get("original_image_url")
+                or v_images[0].get("resized_image_url")
+                or v_images[0].get("watermarked_resized_image_url")
+            )
+        # Tambem tenta original_image_url / resized_image_url no proprio card
+        if "image_url" not in out:
+            img = v.get("original_image_url") or v.get("resized_image_url")
+            if img:
+                out["image_url"] = img
+        v_link = v.get("link_url") or v.get("linkUrl")
+        if v_link:
+            out["link_url"] = v_link
+        return out
+    return None
+
+
 def _normalize_ad(a):
     """Reduz o JSON pesado do Apify ao essencial pro frontend."""
     if not isinstance(a, dict):
@@ -160,6 +226,13 @@ def _normalize_ad(a):
             body_text = body["markup"].get("__html", "") or ""
     if not body_text and snap.get("caption"):
         body_text = snap.get("caption", "")
+
+    # Title do anuncio
+    snap_title = snap.get("title") or ""
+
+    # DCO (Dynamic Creative Optimization): se body principal tem placeholder,
+    # mergulha em dynamic_versions/cards pra achar uma versao renderizada.
+    main_has_placeholder = _has_placeholder(body_text) or _has_placeholder(snap_title)
 
     # Imagem (varios fallbacks)
     image_url = None
@@ -205,6 +278,25 @@ def _normalize_ad(a):
             or videos[0].get("video_url")
         )
         video_thumb = videos[0].get("video_preview_image_url")
+
+    # DCO override: se o body principal tem placeholder, busca em
+    # dynamic_versions/cards uma versao renderizada e SOBRESCREVE os
+    # campos. Isso resolve anuncios que apareciam como '{{product.name}}'
+    # quando na verdade tem texto e video reais.
+    dco_override = None
+    if main_has_placeholder:
+        dco_override = _extract_from_dynamic_versions(snap)
+        if dco_override:
+            if dco_override.get("body"):
+                body_text = dco_override["body"]
+            if dco_override.get("title"):
+                snap_title = dco_override["title"]
+            if dco_override.get("video_url") and not video_url:
+                video_url = dco_override["video_url"]
+            if dco_override.get("video_thumb") and not video_thumb:
+                video_thumb = dco_override["video_thumb"]
+            if dco_override.get("image_url") and not image_url:
+                image_url = dco_override["image_url"]
 
     # Archive ID (varias casing variations)
     archive_id = (
@@ -275,19 +367,27 @@ def _normalize_ad(a):
         or snap.get("display_format")
         or ""
     ).upper()
-    body_text_for_dpa = body_text or ""
+    # Apos o DCO override (acima), body_text e snap_title podem ja estar
+    # com conteudo real. So marca DPA se AINDA tiver placeholder e nao tem
+    # midia real — caso contrario o anuncio e tratado como video/imagem.
     is_dpa = (
-        display_format in ("DCO", "DPA", "DYNAMIC")
-        or "{{product." in body_text_for_dpa
-        or "{{product." in (snap.get("title") or "")
+        display_format == "DPA"
+        or (
+            display_format in ("DCO", "DYNAMIC")
+            and not video_url and not image_url
+        )
+        or (
+            (_has_placeholder(body_text) or _has_placeholder(snap_title))
+            and not video_url and not image_url
+        )
     )
     if is_dpa:
         media_type = "dpa"
-    elif videos:
+    elif videos or video_url:
         media_type = "video"
     elif len(images) > 1 or len(cards) > 1:
         media_type = "carousel"
-    elif images or cards:
+    elif images or cards or image_url:
         media_type = "image"
     else:
         media_type = "unknown"
@@ -317,7 +417,7 @@ def _normalize_ad(a):
         "platforms": a.get("publisher_platform") or a.get("publisherPlatform") or [],
         "media_type": media_type,
         "body": (body_text or "")[:1500],
-        "title": (snap.get("title") or "")[:200],
+        "title": (snap_title or "")[:200],
         "cta_text": cta_text,
         "cta_type": cta_type,
         "link_url": link_url,
