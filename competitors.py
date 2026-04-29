@@ -121,6 +121,30 @@ def _extract_page_handle(page_url):
         return ""
 
 
+def _is_ads_library_url(url):
+    """Detecta se a URL ja eh da Facebook Ads Library."""
+    return bool(url) and "facebook.com/ads/library" in url.lower()
+
+
+def _extract_page_id_from_url(url):
+    """Se a URL ja for Ads Library com view_all_page_id, extrai direto
+    sem precisar fazer GET no FB. Retorna page_id ou None."""
+    if not url:
+        return None
+    try:
+        from urllib.parse import parse_qs
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query)
+        for key in ("view_all_page_id", "viewAllPageId"):
+            if key in qs and qs[key]:
+                v = qs[key][0]
+                if v.isdigit() and 5 < len(v) < 20:
+                    return v
+    except Exception:
+        pass
+    return None
+
+
 def _extract_page_id(page_url):
     """Faz GET na pagina FB publica e tenta extrair o page_id numerico
     do HTML. Retorna None se nao achar (pagina privada, FB exigindo
@@ -701,14 +725,20 @@ def api_add():
     if not name or not url:
         return jsonify({"ok": False, "error": "name e url obrigatorios"}), 400
     if "facebook.com" not in url:
-        return jsonify({"ok": False, "error": "URL precisa ser do facebook.com"}), 400
+        return jsonify({"ok": False, "error": "URL precisa ser do facebook.com (pagina ou Ads Library)"}), 400
 
     comps = _load_competitors()
-    handle = _extract_page_handle(url) or _slugify(name)
-    cid = _slugify(handle)
+    # Pra cid: usa handle da URL se for pagina; senao, slug do nome.
+    handle = _extract_page_handle(url)
+    cid = _slugify(handle) if handle and not _is_ads_library_url(url) else _slugify(name)
     if any(c["id"] == cid for c in comps):
-        return jsonify({"ok": False, "error": "Concorrente ja cadastrado"}), 400
-    comps.append({"id": cid, "name": name, "url": url})
+        return jsonify({"ok": False, "error": "Concorrente ja cadastrado com esse nome/handle"}), 400
+    entry = {"id": cid, "name": name, "url": url}
+    # Se URL ja tem view_all_page_id, salva direto pra economizar 1 fetch
+    page_id_from_url = _extract_page_id_from_url(url)
+    if page_id_from_url:
+        entry["page_id"] = page_id_from_url
+    comps.append(entry)
     _save_competitors(comps)
     return jsonify({"ok": True, "id": cid})
 
@@ -726,7 +756,7 @@ def api_edit():
     if not cid or (not new_url and not new_name):
         return jsonify({"ok": False, "error": "id + url ou name obrigatorio"}), 400
     if new_url and "facebook.com" not in new_url:
-        return jsonify({"ok": False, "error": "URL precisa ser do facebook.com"}), 400
+        return jsonify({"ok": False, "error": "URL precisa ser do facebook.com (pagina ou Ads Library)"}), 400
     comps = _load_competitors()
     found = False
     for c in comps:
@@ -735,6 +765,10 @@ def api_edit():
                 c["url"] = new_url
                 # Reseta page_id pra forcar re-extracao
                 c.pop("page_id", None)
+                # Se URL ja tem view_all_page_id, salva direto
+                page_id_from_url = _extract_page_id_from_url(new_url)
+                if page_id_from_url:
+                    c["page_id"] = page_id_from_url
             if new_name:
                 c["name"] = new_name
             found = True
@@ -791,23 +825,34 @@ def api_refresh():
         return jsonify({"ok": False, "error": "Concorrente nao encontrado"}), 404
 
     try:
-        # Tenta extrair page_id se ainda nao tem cacheado.
+        url = target["url"]
         page_id = (target.get("page_id") or "").strip()
-        if not page_id:
-            page_id = _extract_page_id(target["url"]) or ""
-            if page_id:
-                # Salva pro proximo refresh nao precisar extrair de novo
-                comps2 = _load_competitors()
-                for c in comps2:
-                    if c.get("id") == cid:
-                        c["page_id"] = page_id
-                _save_competitors(comps2)
 
-        # URL pro Apify: prefere Ads Library com view_all_page_id (estrito
-        # pra pagina). Fallback pra URL da pagina FB.
-        scrape_url = (
-            _build_ads_library_url(page_id) if page_id else target["url"]
-        )
+        # Estrategia em 3 passos pra obter page_id:
+        # 1. Cache (target.page_id)
+        # 2. Extrai do query string se URL ja for Ads Library
+        # 3. GET no HTML da pagina FB (mais lento, pode falhar)
+        if not page_id:
+            page_id = _extract_page_id_from_url(url) or ""
+        if not page_id and not _is_ads_library_url(url):
+            page_id = _extract_page_id(url) or ""
+
+        if page_id and page_id != target.get("page_id"):
+            # Salva pro proximo refresh nao precisar extrair de novo
+            comps2 = _load_competitors()
+            for c in comps2:
+                if c.get("id") == cid:
+                    c["page_id"] = page_id
+            _save_competitors(comps2)
+
+        # URL pro Apify: usa as-is se ja for Ads Library; senao monta com
+        # view_all_page_id quando temos page_id; senao usa URL bruta.
+        if _is_ads_library_url(url):
+            scrape_url = url
+        elif page_id:
+            scrape_url = _build_ads_library_url(page_id)
+        else:
+            scrape_url = url
 
         raw_ads = _run_apify_sync(scrape_url, include_paused=include_paused)
 
