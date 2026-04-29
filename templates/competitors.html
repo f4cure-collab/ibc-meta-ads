@@ -206,6 +206,7 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 .ad-info-pill.media-video { background: rgba(245, 158, 11, 0.12); color: var(--orange); }
 .ad-info-pill.media-image { background: rgba(187, 140, 255, 0.12); color: #bc8cff; }
 .ad-info-pill.media-carousel { background: rgba(187, 140, 255, 0.12); color: #bc8cff; }
+.ad-info-pill.media-dpa { background: rgba(245, 158, 11, 0.12); color: var(--orange); }
 
 .ad-link {
     display: block; padding: 6px 10px; margin-top: 8px;
@@ -307,6 +308,7 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
                     <option value="video">Video</option>
                     <option value="image">Imagem</option>
                     <option value="carousel">Carrossel</option>
+                    <option value="dpa">Catalogo dinamico</option>
                 </select>
             </div>
             <div class="filter-group">
@@ -465,7 +467,12 @@ function applyFilters(ads) {
     return ads.filter(function(a) {
         if (status === 'active' && a.is_active === false) return false;
         if (status === 'inactive' && a.is_active !== false) return false;
-        if (media !== 'all' && a.media_type !== media) return false;
+        if (media !== 'all') {
+            var bodyStr = (a.body || '') + ' ' + (a.title || '');
+            var effMedia = a.media_type;
+            if (bodyStr.indexOf('{{product.') >= 0) effMedia = 'dpa';
+            if (effMedia !== media) return false;
+        }
         if (minDays > 0 && (a.days_active == null || a.days_active < minDays)) return false;
         if (search) {
             var hay = ((a.body || '') + ' ' + (a.title || '') + ' ' + (a.cta_text || '')).toLowerCase();
@@ -496,6 +503,12 @@ function renderAds(refreshedAt) {
         return;
     }
     grid.innerHTML = ads.map((a, idx) => {
+        // Detecta DPA pelo texto do template tambem (cobre cache antigo
+        // que foi salvo antes do backend marcar media_type='dpa').
+        var bodyStr = (a.body || '') + ' ' + (a.title || '');
+        var looksDpa = a.media_type === 'dpa' || bodyStr.indexOf('{{product.') >= 0;
+        if (looksDpa) a.media_type = 'dpa';
+
         // Media
         var media = '';
         if (a.video_url || a.video_thumb) {
@@ -509,6 +522,12 @@ function renderAds(refreshedAt) {
             </div>`;
         } else if (a.image_url) {
             media = `<div class="ad-media"><img src="${escapeHtml(a.image_url)}" alt="" loading="lazy"></div>`;
+        } else if (a.media_type === 'dpa') {
+            media = `<div class="ad-media"><div class="placeholder" style="line-height:1.5">
+                <div style="font-size:24px;margin-bottom:8px">&#128230;</div>
+                <b style="color:var(--orange)">Anuncio dinamico</b><br>
+                <span style="font-size:10px">Produto montado em tempo real do catalogo &mdash; clique em "Ver na biblioteca" pra ver as variacoes reais.</span>
+            </div></div>`;
         } else {
             media = `<div class="ad-media"><div class="placeholder">sem midia</div></div>`;
         }

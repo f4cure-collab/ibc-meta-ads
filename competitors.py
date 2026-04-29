@@ -169,8 +169,31 @@ def _normalize_ad(a):
             or images[0].get("resized_image_url")
             or images[0].get("watermarked_resized_image_url")
         )
-    if not image_url and cards and isinstance(cards[0], dict):
-        image_url = cards[0].get("original_image_url") or cards[0].get("resized_image_url")
+    if not image_url and cards:
+        for card in cards:
+            if isinstance(card, dict):
+                image_url = (
+                    card.get("original_image_url")
+                    or card.get("resized_image_url")
+                    or card.get("watermarked_resized_image_url")
+                )
+                if image_url:
+                    break
+    # Fallbacks pra anuncios dinamicos (DPA / catalogo)
+    if not image_url:
+        extra = snap.get("extra_images") or snap.get("extraImages") or []
+        if extra and isinstance(extra[0], dict):
+            image_url = (
+                extra[0].get("original_image_url")
+                or extra[0].get("resized_image_url")
+            )
+    if not image_url:
+        dyn = snap.get("dynamic_versions") or snap.get("dynamicVersions") or []
+        if dyn and isinstance(dyn[0], dict):
+            image_url = dyn[0].get("image_url") or dyn[0].get("imageUrl")
+    # Ultimo recurso: thumb da pagina
+    if not image_url:
+        image_url = snap.get("page_profile_picture_url") or snap.get("pageProfilePictureUrl")
 
     # Video (URL + thumb)
     video_url = None
@@ -245,8 +268,22 @@ def _normalize_ad(a):
     except Exception:
         pass
 
-    # Tipo de midia
-    if videos:
+    # Tipo de midia — detecta DPA (anuncio dinamico de catalogo) primeiro
+    display_format = (
+        a.get("display_format")
+        or a.get("displayFormat")
+        or snap.get("display_format")
+        or ""
+    ).upper()
+    body_text_for_dpa = body_text or ""
+    is_dpa = (
+        display_format in ("DCO", "DPA", "DYNAMIC")
+        or "{{product." in body_text_for_dpa
+        or "{{product." in (snap.get("title") or "")
+    )
+    if is_dpa:
+        media_type = "dpa"
+    elif videos:
         media_type = "video"
     elif len(images) > 1 or len(cards) > 1:
         media_type = "carousel"
