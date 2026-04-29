@@ -306,31 +306,12 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 
     <div id="errorBox" class="error" style="display:none;"></div>
 
-    <div class="card" id="tokenCard">
-        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-            <div>
-                <h2 style="margin:0;">Token Apify</h2>
-                <div id="tokenStatus" style="margin-top:4px;font-size:12px;color:var(--t3);">Carregando...</div>
-            </div>
-            <button class="btn" onclick="toggleTokenForm()">Configurar</button>
-        </div>
-        <div id="tokenForm" style="display:none;margin-top:12px;">
-            <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                <input id="tokenInput" type="password" placeholder="Cole aqui o token (apify_api_...)" autocomplete="off" style="flex:1;min-width:280px;background:var(--bg);color:var(--t2);border:1px solid var(--border2);border-radius:4px;padding:6px 10px;font-size:12px;font-family:monospace;">
-                <button class="btn btn-primary" onclick="saveToken()">Salvar</button>
-            </div>
-            <div style="color:var(--t3);font-size:11px;margin-top:8px;line-height:1.5;">
-                O token e salvo no banco local do servidor — <b>nunca vai pro GitHub</b>.<br>
-                Pra obter: <a href="https://console.apify.com/account/integrations" target="_blank" style="color:var(--primary);">apify.com/account/integrations</a>.
-            </div>
-        </div>
-    </div>
-
     <div class="card">
         <h2>Concorrentes monitorados</h2>
         <div id="competitorsGrid" class="competitors-grid">
             <div class="loading">Carregando...</div>
         </div>
+        {% if is_admin %}
         <details style="margin-top:10px;">
             <summary style="cursor:pointer;color:var(--t3);font-size:11px;">+ Adicionar novo concorrente</summary>
             <div class="add-form" style="margin-top:10px;">
@@ -339,6 +320,13 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
                 <button class="btn btn-primary" onclick="addCompetitor()">Adicionar</button>
             </div>
         </details>
+        <details style="margin-top:6px;">
+            <summary style="cursor:pointer;color:var(--t3);font-size:11px;">Opcoes avancadas (admin)</summary>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--t3);font-size:12px;cursor:pointer;">
+                <input type="checkbox" id="includePaused"> Incluir anuncios PAUSADOS no proximo Atualizar (limitado a 50, custo Apify maior)
+            </label>
+        </details>
+        {% endif %}
     </div>
 
     <div class="card">
@@ -413,6 +401,7 @@ h2 { color: var(--t1); font-size: 15px; font-weight: 600; margin: 0 0 12px; }
 
 <script>
 const $ = (s) => document.querySelector(s);
+const IS_ADMIN = {{ 'true' if is_admin else 'false' }};
 let _activeId = null;
 let _refreshing = new Set();
 
@@ -432,46 +421,6 @@ async function api(url, opts) {
     var d = await r.json();
     if (!d.ok) throw new Error(d.error || 'Erro');
     return d;
-}
-
-async function loadTokenStatus() {
-    try {
-        var d = await api('/api/competitors/token-status');
-        var status = $('#tokenStatus');
-        if (d.configured) {
-            var src = d.source === 'env' ? 'variavel de ambiente' : 'banco local do servidor';
-            status.innerHTML = '<span style="color:var(--green)">&#10003; Token configurado</span> '
-                + '<span style="color:var(--t3);font-size:10px;">(via ' + src + ')</span>';
-            $('#tokenForm').style.display = 'none';
-        } else {
-            status.innerHTML = '<span style="color:var(--orange)">&#9888; Token nao configurado &mdash; clique em <b>Configurar</b> e cole o token Apify pra ativar</span>';
-            $('#tokenForm').style.display = 'block';
-        }
-    } catch(e) {}
-}
-
-function toggleTokenForm() {
-    var f = $('#tokenForm');
-    f.style.display = f.style.display === 'none' ? 'block' : 'none';
-    if (f.style.display === 'block') {
-        setTimeout(function(){ $('#tokenInput').focus(); }, 50);
-    }
-}
-
-async function saveToken() {
-    var token = ($('#tokenInput').value || '').trim();
-    if (!token) { showError('Cole o token primeiro.'); return; }
-    try {
-        await api('/api/competitors/set-token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: token }),
-        });
-        $('#tokenInput').value = '';
-        await loadTokenStatus();
-    } catch(e) {
-        showError(e.message);
-    }
 }
 
 async function loadList() {
@@ -500,13 +449,13 @@ function renderList(comps) {
                     <span>${c.ads_count} ads</span>
                     <span title="Ultimo refresh: ${c.refreshed_at || 'nunca'}">${refreshedShort}</span>
                 </div>
-                <div class="comp-card-actions">
+                ${IS_ADMIN ? `<div class="comp-card-actions">
                     <button class="btn btn-primary" onclick="refreshCompetitor('${c.id}')" ${isRefreshing ? 'disabled' : ''}>
                         ${isRefreshing ? '<span class="spinner"></span>Buscando...' : '&#8635; Atualizar'}
                     </button>
                     <button class="btn" onclick="editCompetitor('${c.id}', '${escapeHtml(c.name)}', '${escapeHtml(c.url)}')">Editar</button>
                     <button class="btn btn-danger" onclick="removeCompetitor('${c.id}', '${escapeHtml(c.name)}')">Remover</button>
-                </div>
+                </div>` : ''}
             </div>
         `;
     }).join('');
@@ -818,13 +767,14 @@ document.addEventListener('keydown', function(e) {
 
 async function refreshCompetitor(id) {
     if (_refreshing.has(id)) return;
+    var includePaused = $('#includePaused') && $('#includePaused').checked;
     _refreshing.add(id);
     await loadList();
     try {
         var d = await api('/api/competitors/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: id }),
+            body: JSON.stringify({ id: id, include_paused: includePaused }),
         });
         _refreshing.delete(id);
         await loadList();
@@ -902,7 +852,6 @@ async function removeCompetitor(id, name) {
     }
 }
 
-loadTokenStatus();
 loadList();
 </script>
 </body>

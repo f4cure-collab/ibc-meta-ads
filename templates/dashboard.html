@@ -656,6 +656,7 @@
         <span style="background:rgba(255,193,7,0.15);color:#ffc107;border:1px solid rgba(255,193,7,0.3);font-size:11px;padding:3px 10px;border-radius:6px;" data-tip="Voce esta visualizando como outro perfil">Visualizando como {{ {'viewer':'Visualizador','viewer2':'Analisador','admin':'Admin'}.get(role, role) }}</span>
         <a href="#" onclick="event.preventDefault();exitPreview();" style="color:#ffc107;font-size:12px;text-decoration:none;font-weight:600;" data-tip="Voltar ao seu perfil real">Sair da visualizacao</a>
         {% elif role in ('admin', 'super_admin') %}<a href="/admin" style="color:var(--t3);font-size:12px;text-decoration:none;" data-tip="Configuracoes e token">Admin</a>{% endif %}
+        <a href="/concorrentes" style="color:var(--t3);font-size:12px;text-decoration:none;" data-tip="Anuncios da concorrencia (Facebook Ads Library)">Concorrentes</a>
         <span style="color:var(--t3);font-size:13px" data-tip="Usu&aacute;rio logado">{{ username }}</span>
         <a href="/logout" class="btn-logout" data-tip="Sair do dashboard">Sair</a>
     </div>

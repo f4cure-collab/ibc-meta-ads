@@ -32,7 +32,8 @@ _LIST_LOCK = threading.Lock()
 _APIFY_ACTOR = os.getenv("APIFY_ACTOR", "curious_coder~facebook-ads-library-scraper")
 _APIFY_TIMEOUT_SEC = 180  # 3min — Apify roda em ate 1-2min normalmente
 _APIFY_COUNTRY = "BR"
-_APIFY_MAX_PER_RUN = 50  # limita ads por concorrente pra controlar custo
+_APIFY_MAX_ACTIVE = 500     # ads ATIVOS: tras tudo (limite alto)
+_APIFY_MAX_WITH_PAUSED = 50  # incluindo pausados: limita pra controlar custo
 
 _SUPER_ADMIN_EMAIL = "f4cure@gmail.com"
 
@@ -48,6 +49,12 @@ def _is_super_admin():
         session.get("logged_in")
         and session.get("username") == _SUPER_ADMIN_EMAIL
     )
+
+
+def _is_logged_in():
+    """Qualquer usuario autenticado. Pra endpoints read-only de
+    concorrentes (ver lista, ver ads cacheados)."""
+    return bool(session.get("logged_in"))
 
 
 def _get_apify_token():
@@ -213,18 +220,24 @@ def _filter_ads_to_competitor(raw_ads, competitor_name):
     return matching, rejected
 
 
-def _run_apify_sync(page_url):
+def _run_apify_sync(page_url, include_paused=False):
     """Chama o ator Apify sincronamente e retorna a lista de items.
-    Levanta excecao em caso de erro ou timeout."""
+    Levanta excecao em caso de erro ou timeout.
+
+    include_paused=False (padrao): so traz ads ATIVOS, ate 500 por
+        concorrente. Custo mais previsivel — anuncios pausados
+        antigos costumam ser ruido.
+    include_paused=True: traz ativos + pausados, limitado a 50 (pra
+        nao explodir o custo do Apify nem o tempo de scraping)."""
     token = _get_apify_token()
     if not token:
-        raise RuntimeError("Token Apify nao configurado. Cole o token na pagina /concorrentes (campo 'Token Apify').")
+        raise RuntimeError("Token Apify nao configurado. Cole o token em /admin (secao 'Token Apify' na aba Sistema).")
 
     api_url = f"https://api.apify.com/v2/acts/{_APIFY_ACTOR}/run-sync-get-dataset-items"
     payload = {
         "urls": [{"url": page_url}],
-        "count": _APIFY_MAX_PER_RUN,
-        "scrapePageAds.activeStatus": "all",
+        "count": _APIFY_MAX_WITH_PAUSED if include_paused else _APIFY_MAX_ACTIVE,
+        "scrapePageAds.activeStatus": "all" if include_paused else "active",
         "scrapePageAds.country": _APIFY_COUNTRY,
     }
     r = requests.post(
@@ -621,9 +634,13 @@ def _normalize_ad(a):
 
 @competitors_bp.route("/concorrentes")
 def page():
-    if not _is_super_admin():
+    if not _is_logged_in():
         return redirect("/login")
-    return render_template("competitors.html", username=session.get("username"))
+    return render_template(
+        "competitors.html",
+        username=session.get("username"),
+        is_admin=_is_super_admin(),
+    )
 
 
 @competitors_bp.route("/api/competitors/token-status")
@@ -657,7 +674,7 @@ def api_set_token():
 
 @competitors_bp.route("/api/competitors/list")
 def api_list():
-    if not _is_super_admin():
+    if not _is_logged_in():
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     comps = _load_competitors()
     out = []
@@ -767,6 +784,7 @@ def api_refresh():
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     body = request.get_json(silent=True) or {}
     cid = (body.get("id") or "").strip()
+    include_paused = bool(body.get("include_paused"))
     comps = _load_competitors()
     target = next((c for c in comps if c.get("id") == cid), None)
     if not target:
@@ -791,7 +809,7 @@ def api_refresh():
             _build_ads_library_url(page_id) if page_id else target["url"]
         )
 
-        raw_ads = _run_apify_sync(scrape_url)
+        raw_ads = _run_apify_sync(scrape_url, include_paused=include_paused)
 
         # Quando page_id foi extraido, a URL pro Apify ja contem
         # view_all_page_id (search_type=page) — Apify retorna apenas
@@ -818,6 +836,7 @@ def api_refresh():
             "raw_count": len(raw_ads),
             "rejected_count": rejected,
             "page_id": page_id,
+            "included_paused": include_paused,
         }
         # TTL longo (30d) — refresh e SEMPRE manual via botao
         set_cached(f"competitors_ads_v1_{cid}", payload, ttl_hours=720)
@@ -827,6 +846,7 @@ def api_refresh():
             "raw_count": len(raw_ads),
             "rejected": rejected,
             "page_id": page_id or None,
+            "included_paused": include_paused,
             "refreshed_at": payload["refreshed_at"],
         })
     except Exception as e:
@@ -835,7 +855,7 @@ def api_refresh():
 
 @competitors_bp.route("/api/competitors/ads/<cid>")
 def api_ads(cid):
-    if not _is_super_admin():
+    if not _is_logged_in():
         return jsonify({"ok": False, "error": "Acesso negado"}), 403
     cached = get_cached(f"competitors_ads_v1_{cid}")
     if not cached or not isinstance(cached, dict):

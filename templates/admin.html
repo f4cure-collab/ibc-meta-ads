@@ -217,6 +217,23 @@
     </div>
 
     <!-- Atualizacao do Sistema -->
+    <!-- Token Apify (Concorrentes) -->
+    <div class="card" id="apifyTokenCard" data-adm-section="system" style="display:none;">
+        <h2>Token Apify (Concorrentes)</h2>
+        <p style="color:#888;font-size:13px;margin-bottom:12px;">
+            Usado pela aba <a href="/concorrentes" style="color:#4f8cff;">Concorrentes</a> pra buscar anuncios da Facebook Ads Library via Apify.
+            Token salvo no banco local do servidor — nunca vai pro GitHub.
+        </p>
+        <div id="apifyTokenStatus" style="margin-bottom:10px;font-size:13px;">Carregando...</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <input id="apifyTokenInput" type="password" placeholder="Cole o token (apify_api_...)" autocomplete="off" style="flex:1;min-width:280px;background:#0a0f1a;color:#ccc;border:1px solid #2a2e36;border-radius:4px;padding:8px 10px;font-size:12px;font-family:monospace;">
+            <button class="btn btn-primary" onclick="apifySaveToken()">Salvar</button>
+        </div>
+        <div style="color:#888;font-size:11px;margin-top:8px;">
+            Pra obter: <a href="https://console.apify.com/account/integrations" target="_blank" style="color:#4f8cff;">apify.com/account/integrations</a>
+        </div>
+    </div>
+
     <div class="card" id="updateCard" data-adm-section="system" style="display:none;">
         <h2>Atualizacao do Sistema</h2>
         <div id="updateStatus" style="padding:12px;border-radius:8px;margin-bottom:12px;"></div>
@@ -753,6 +770,11 @@ async function loadUsers() {
         // Mostrar cards só para super admin
         document.getElementById('tokenCard').style.display = _isSuper ? 'block' : 'none';
         document.getElementById('updateCard').style.display = _isSuper ? 'block' : 'none';
+        var atc = document.getElementById('apifyTokenCard');
+        if (atc) {
+            atc.style.display = _isSuper ? 'block' : 'none';
+            if (_isSuper) loadApifyTokenStatus();
+        }
         var apcfg = document.getElementById('appConfigCard');
         if (apcfg) apcfg.style.display = _isSuper ? 'block' : 'none';
         var uc = document.getElementById('unidentifiedCard');
@@ -2338,6 +2360,47 @@ document.addEventListener('DOMContentLoaded', function() {
         _startAtomPolling();
     }
 });
+
+// ── Token Apify (Concorrentes) ──
+async function loadApifyTokenStatus() {
+    var statusEl = document.getElementById('apifyTokenStatus');
+    if (!statusEl) return;
+    try {
+        var r = await fetch('/api/competitors/token-status');
+        var d = await r.json();
+        if (!d.ok) {
+            statusEl.innerHTML = '<span style="color:#f85149;">Erro: ' + (d.error || '?') + '</span>';
+            return;
+        }
+        if (d.configured) {
+            var src = d.source === 'env' ? 'variavel de ambiente' : 'banco local do servidor';
+            statusEl.innerHTML = '<span style="color:#3fdf85;">&#10003; Token configurado</span> '
+                + '<span style="color:#888;font-size:11px;">(via ' + src + ')</span>';
+        } else {
+            statusEl.innerHTML = '<span style="color:#f59e0b;">&#9888; Token NAO configurado &mdash; cole abaixo pra ativar a aba Concorrentes</span>';
+        }
+    } catch(e) {
+        statusEl.innerHTML = '<span style="color:#f85149;">Erro: ' + e.message + '</span>';
+    }
+}
+
+window.apifySaveToken = async function() {
+    var inp = document.getElementById('apifyTokenInput');
+    var token = (inp.value || '').trim();
+    if (!token) { alert('Cole o token primeiro.'); return; }
+    try {
+        var r = await fetch('/api/competitors/set-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: token }),
+        });
+        var d = await r.json();
+        if (!d.ok) { alert('Erro: ' + (d.error || '?')); return; }
+        inp.value = '';
+        loadApifyTokenStatus();
+        alert('Token salvo.');
+    } catch(e) { alert('Erro: ' + e.message); }
+};
 
 // ── Disparar warmup mensal manualmente ──
 window.fireMonthlyWarmup = async function(){
