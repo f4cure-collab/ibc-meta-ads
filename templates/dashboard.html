@@ -1324,15 +1324,16 @@ _wireInfoPopup('crescimento', 'crescimento-info-overlay', 'crescimento-info-clos
 // - Vendas: Compras / CPA
 function labelConversao() {
     if (isNutricao()) return 'ThruPlays';
-    // Crescimento: metrica principal e Visitas ao Perfil (nao seguidores).
-    // Seguidores e estimativa, visitas vem direto da API.
-    if (isCrescimento()) return 'Visitas Perfil';
+    // Crescimento: o card auto-label-conv (data-metric=purchases) mostra o
+    // numero de SEGUIDORES estimado (data backend coloca em 'purchases').
+    // O card de Visitas Perfil eh separado (data-metric=profile_visits).
+    if (isCrescimento()) return 'Seguidores';
     if (isMeteoricos() || isComercial()) return 'Leads';
     return 'Compras';
 }
 function labelCPA() {
     if (isNutricao()) return 'CPTP';
-    if (isCrescimento()) return 'Custo/Visita';
+    if (isCrescimento()) return 'Custo/Seguidor';
     if (isMeteoricos() || isComercial()) return 'CPL';
     return 'CPA';
 }
