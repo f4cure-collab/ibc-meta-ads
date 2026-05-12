@@ -2602,7 +2602,7 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all",
 
     Retorna (sales_campaigns, daily_rows).
     """
-    cache_key = f"shared_daily_v4_{camp_type}_{camp_status}_{date_from}_{date_to}"
+    cache_key = f"shared_daily_v5_{camp_type}_{camp_status}_{date_from}_{date_to}"
     if not force:
         cached = get_cached(cache_key)
         if cached is not None:
@@ -2674,7 +2674,7 @@ def api_campaigns():
 
         # v3: attribution baseada em profile_visits (campo results). Bumpado pra
         # invalidar cache antigo que ainda usava link_click como proxy.
-        cache_key = f"campaigns_v8_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"campaigns_v9_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -3928,7 +3928,7 @@ def api_daily_summary():
         if blocked:
             return blocked
 
-        cache_key = f"daily_summary_v9_{camp_type}_{camp_status}_{date_from}_{date_to}"
+        cache_key = f"daily_summary_v10_{camp_type}_{camp_status}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -4165,7 +4165,7 @@ def api_resumo():
             """Agrega totais + serie diaria + top campanhas de 1 tipo.
 
             Estrategia de cache em 2 niveis:
-              1. Exact-range cache (campaigns_v7 + daily_summary_v9 do range pedido):
+              1. Exact-range cache (campaigns_v7 + daily_summary_v10 do range pedido):
                  o scheduler diario warma 30d/7d que o dashboard usa com frequencia.
                  Se bate, retorna instantaneo.
               2. Chunking por mes: se o range cold, split em segmentos mensais.
@@ -4174,8 +4174,8 @@ def api_resumo():
                  sufixo do mes corrente) fazem fetch Meta, e em range pequeno.
             Evita timeout do NGINX em ranges multi-mes cold."""
             kpi_field = type_meta[ct]["kpi"]
-            key_camp = f"campaigns_v8_{ct}_all_{d_from}_{d_to}"
-            key_daily = f"daily_summary_v9_{ct}_all_{d_from}_{d_to}"
+            key_camp = f"campaigns_v9_{ct}_all_{d_from}_{d_to}"
+            key_daily = f"daily_summary_v10_{ct}_all_{d_from}_{d_to}"
             camp_cached = get_cached(key_camp)
             daily_cached = get_cached(key_daily) if want_detail else None
 
@@ -4197,8 +4197,8 @@ def api_resumo():
                             sess["role"] = "super_admin"
                         hdr = {"X-Internal-Scheduler": "resumo_chunked"}
                         for seg_from, seg_to in segments:
-                            sk_camp = f"campaigns_v8_{ct}_all_{seg_from}_{seg_to}"
-                            sk_daily = f"daily_summary_v9_{ct}_all_{seg_from}_{seg_to}"
+                            sk_camp = f"campaigns_v9_{ct}_all_{seg_from}_{seg_to}"
+                            sk_daily = f"daily_summary_v10_{ct}_all_{seg_from}_{seg_to}"
                             sc = get_cached(sk_camp)
                             sd = get_cached(sk_daily) if want_detail else None
                             if not sc:
@@ -7002,8 +7002,8 @@ def _monthly_cache_keys(dt_from, dt_to):
     """Todas as chaves de cache relacionadas a um range mensal. Usado pra pinar."""
     keys = [f"resumo_v16_{dt_from}_{dt_to}"]
     for ct in VALID_CAMP_TYPES:
-        keys.append(f"campaigns_v8_{ct}_all_{dt_from}_{dt_to}")
-        keys.append(f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}")
+        keys.append(f"campaigns_v9_{ct}_all_{dt_from}_{dt_to}")
+        keys.append(f"daily_summary_v10_{ct}_all_{dt_from}_{dt_to}")
     return keys
 
 
@@ -7413,8 +7413,8 @@ def _warmup_camp_type(ct, days_list, dt_to):
         for days in days_list:
             dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
             try:
-                k_camp = f"campaigns_v8_{ct}_all_{dt_from}_{dt_to}"
-                k_daily = f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}"
+                k_camp = f"campaigns_v9_{ct}_all_{dt_from}_{dt_to}"
+                k_daily = f"daily_summary_v10_{ct}_all_{dt_from}_{dt_to}"
                 k_creat = f"all_creatives_v9_{ct}_active_{dt_from}_{dt_to}"
                 k_bd = f"breakdowns_v6_{ct}_all_{dt_from}_{dt_to}"
                 base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
@@ -7573,8 +7573,8 @@ def _refresh_recent_loop():
                     dt_from = (now_br() - timedelta(days=days)).strftime("%Y-%m-%d")
                     for ct in VALID_CAMP_TYPES:
                         try:
-                            k_camp = f"campaigns_v8_{ct}_all_{dt_from}_{dt_to}"
-                            k_daily = f"daily_summary_v9_{ct}_all_{dt_from}_{dt_to}"
+                            k_camp = f"campaigns_v9_{ct}_all_{dt_from}_{dt_to}"
+                            k_daily = f"daily_summary_v10_{ct}_all_{dt_from}_{dt_to}"
                             k_creat = f"all_creatives_v9_{ct}_active_{dt_from}_{dt_to}"
                             base = f"camp_type={ct}&date_from={dt_from}&date_to={dt_to}&force=true"
 
