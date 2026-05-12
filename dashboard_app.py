@@ -560,15 +560,34 @@ def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_ty
     all_campaigns = {}
     accumulated_per_cid = {}  # cid -> {metric_name: sum_value}
 
-    # Atom mais recente vence pra metadata (status, name) — refletir estado
-    # atual da campanha. Atoms vem ordenados por data ascendente em
-    # get_atoms_for_range, entao processamos do mais novo pro mais velho.
-    for atom in reversed(atoms_list):
-        payload = atom['payload']
-        for c in payload.get('campaigns') or []:
-            cid = c.get('id')
-            if cid and cid not in all_campaigns:
+    # METADATA (nome, status, budget): busca FRESH via _fetch_account_campaigns
+    # que tem memcache de 5min — quase realtime. Antes usavamos metadata do
+    # atom mais recente, mas atoms sao snapshots: se a campanha foi pausada
+    # apos a captura do atom de D-1, o status na cache ficava stale ate a
+    # proxima revalidacao diaria (~24h).
+    try:
+        fresh_camps = _fetch_account_campaigns(
+            acc_id,
+            "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
+            '["ACTIVE","PAUSED","ARCHIVED"]',
+        )
+        for c in fresh_camps:
+            cid = c.get("id")
+            if cid:
                 all_campaigns[cid] = dict(c)
+    except Exception as e:
+        print(f"[ATOMS] Falha fresh meta {acc_id}, caindo no atom snapshot: {e}")
+        # Fallback: usa metadata do atom mais recente (atoms ordem asc, reverse).
+        for atom in reversed(atoms_list):
+            payload = atom['payload']
+            for c in payload.get('campaigns') or []:
+                cid = c.get('id')
+                if cid and cid not in all_campaigns:
+                    all_campaigns[cid] = dict(c)
+
+    # INSIGHTS (numericos): soma dos atoms (qualquer ordem da o mesmo total)
+    for atom in atoms_list:
+        payload = atom['payload']
         for cid, raw_ins in (payload.get('insights_by_id') or {}).items():
             day_metrics = parse_insights(raw_ins, camp_type=camp_type)
             if cid not in accumulated_per_cid:
@@ -576,6 +595,17 @@ def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_ty
             for k, v in day_metrics.items():
                 if isinstance(v, (int, float)):
                     accumulated_per_cid[cid][k] = accumulated_per_cid[cid].get(k, 0) + v
+            # Fallback de metadata pra campanhas que so existem nos atoms
+            # (foram deletadas no FB apos rodar) — mantem entry com nome velho.
+            if cid not in all_campaigns:
+                for atom2 in reversed(atoms_list):
+                    payload2 = atom2['payload']
+                    for c in payload2.get('campaigns') or []:
+                        if c.get('id') == cid:
+                            all_campaigns[cid] = dict(c)
+                            break
+                    if cid in all_campaigns:
+                        break
 
     # Filtra por status atual da campanha (post-aggregation)
     allowed_status = _atom_status_allowed(camp_status)
@@ -623,8 +653,25 @@ def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_stat
     daily_rows = []
     for acc in accounts:
         atoms_list, _ = get_atoms_for_range('acc', acc, date_from, date_to)
-        # Atom mais recente vence pra metadata (status). Reverso = mais novo primeiro.
-        for atom in reversed(atoms_list):
+        # METADATA fresh via _fetch_account_campaigns (TTL 5min) — status
+        # quase realtime, sem depender de revalidacao diaria de atoms.
+        try:
+            fresh_camps = _fetch_account_campaigns(
+                acc,
+                "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
+                '["ACTIVE","PAUSED","ARCHIVED"]',
+            )
+            for c in fresh_camps:
+                cid = c.get("id")
+                if cid and cid not in all_campaigns:
+                    cc = dict(c)
+                    cc['_account_id'] = acc
+                    all_campaigns[cid] = cc
+        except Exception as e:
+            print(f"[ATOMS daily] Falha fresh meta {acc}: {e}")
+
+        # Daily rows + fallback metadata pra campanhas so em atoms (deletadas no FB)
+        for atom in atoms_list:
             atom_date = atom['date']
             payload = atom['payload']
             for c in payload.get('campaigns') or []:
