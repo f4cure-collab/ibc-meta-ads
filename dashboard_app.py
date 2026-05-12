@@ -2541,7 +2541,7 @@ INSIGHT_FIELDS_DAILY_CAMP = (
 )
 
 
-def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all"):
+def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all", force=False):
     """Daily insights compartilhado entre api_daily_summary e api_multi_insights.
 
     Antes: cada endpoint fazia seu proprio fetch da Meta com fields parecidos.
@@ -2551,12 +2551,27 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
     Ambos endpoints leem deste cache, reduzindo ~50% das calls Meta na primeira
     abertura do dia.
 
+    force=True bypassa o cache (usado quando user clica refresh).
+
     Retorna (sales_campaigns, daily_rows).
     """
     cache_key = f"shared_daily_v4_{camp_type}_{camp_status}_{date_from}_{date_to}"
-    cached = get_cached(cache_key)
-    if cached is not None:
-        return cached.get("campaigns", []), cached.get("rows", [])
+    if not force:
+        cached = get_cached(cache_key)
+        if cached is not None:
+            return cached.get("campaigns", []), cached.get("rows", [])
+
+    # TTL adaptativo: ranges que incluem hoje/ontem mudam ao longo do dia
+    # (gasto/impressoes acumulando, atribuicao tardia). Cache curto pra
+    # esses; longo pra ranges so-passado que sao imutaveis na pratica.
+    today_str = _now_br().strftime("%Y-%m-%d")
+    yesterday_str = (_now_br() - timedelta(days=1)).strftime("%Y-%m-%d")
+    if date_to >= today_str:
+        ttl = 0.25   # 15min se inclui hoje
+    elif date_to >= yesterday_str:
+        ttl = 1      # 1h se vai ate ontem (D-1 ainda pode receber atribuicao tardia)
+    else:
+        ttl = 4      # 4h pra ranges so-passado
 
     # DUAL-READ: se USE_ATOMS ativo, tenta atoms primeiro
     _sync_use_atoms_from_file()
@@ -2564,7 +2579,7 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
         atom_result = _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_status)
         if atom_result is not None:
             sales_campaigns, rows = atom_result
-            set_cached(cache_key, {"campaigns": sales_campaigns, "rows": rows}, ttl_hours=4)
+            set_cached(cache_key, {"campaigns": sales_campaigns, "rows": rows}, ttl_hours=ttl)
             return sales_campaigns, rows
 
     sales_campaigns = _fetch_type_campaigns(
@@ -2573,7 +2588,7 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
         _camp_status_filter(camp_status)
     )
     if not sales_campaigns:
-        set_cached(cache_key, {"campaigns": [], "rows": []}, ttl_hours=4)
+        set_cached(cache_key, {"campaigns": [], "rows": []}, ttl_hours=ttl)
         return [], []
 
     rows = _fetch_insights_for_tagged_campaigns(
@@ -2588,7 +2603,7 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all")
         extra_filters=[{"field": "impressions", "operator": "GREATER_THAN", "value": 0}]
     )
 
-    set_cached(cache_key, {"campaigns": sales_campaigns, "rows": rows}, ttl_hours=4)
+    set_cached(cache_key, {"campaigns": sales_campaigns, "rows": rows}, ttl_hours=ttl)
     return sales_campaigns, rows
 
 
@@ -2901,7 +2916,7 @@ def api_campaigns_multi_insights():
         # Usa daily insights compartilhado — mesma fonte que api_daily_summary,
         # evitando duplicar fetch pesado com time_increment=1 quando o mesmo
         # usuario abre a aba Campanhas (ambos sao chamados no load).
-        shared_camps, shared_rows = _get_shared_daily_insights(camp_type, date_from, date_to, camp_status)
+        shared_camps, shared_rows = _get_shared_daily_insights(camp_type, date_from, date_to, camp_status, force=force)
         sales_map = {c["id"]: c for c in shared_camps}
 
         if ids_param == "all":
@@ -3874,7 +3889,7 @@ def api_daily_summary():
 
         # 1+2. Usa daily insights compartilhado (mesma fonte que api_multi_insights)
         # — evita duplicar fetch pesado com time_increment=1.
-        sales_campaigns, rows = _get_shared_daily_insights(camp_type, date_from, date_to, camp_status)
+        sales_campaigns, rows = _get_shared_daily_insights(camp_type, date_from, date_to, camp_status, force=force)
 
         if not sales_campaigns:
             return jsonify({"ok": True, "data": []})
