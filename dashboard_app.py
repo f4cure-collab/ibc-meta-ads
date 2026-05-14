@@ -178,6 +178,32 @@ _campaigns_memcache_lock = threading.Lock()
 _CAMPAIGNS_MEMCACHE_TTL = 300  # 5 minutos
 
 
+_account_disabled_cache = {}  # acc_id -> (ts, bool)
+_ACCOUNT_DISABLED_TTL = 600  # 10min — mudancas de status de conta sao raras
+
+
+def _is_account_disabled(acc_id):
+    """Retorna True se a conta esta DISABLED/UNSETTLED/CLOSED na Meta.
+    Cache 10min. Em caso de erro, retorna False (nao bloquear por engano)."""
+    if not acc_id:
+        return False
+    now = time.time()
+    cached = _account_disabled_cache.get(acc_id)
+    if cached and (now - cached[0]) < _ACCOUNT_DISABLED_TTL:
+        return cached[1]
+    try:
+        info = meta_get(acc_id, {"fields": "account_status"})
+        # Status 1 = ACTIVE; tudo mais (2=DISABLED, 3=UNSETTLED, 7,8,9,100,101=problema)
+        # significa que a conta nao entrega anuncios.
+        status_num = info.get("account_status", 0)
+        disabled = status_num != 1
+        _account_disabled_cache[acc_id] = (now, disabled)
+        return disabled
+    except Exception as e:
+        print(f"[ACCOUNT-STATUS] Falha {acc_id}: {e}")
+        return False
+
+
 def _normalize_effective_status(camp):
     """Converte o effective_status (computed pela Meta considerando
     hierarquia) num dos 3 valores que o dashboard usa: ACTIVE | PAUSED
@@ -596,12 +622,16 @@ def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_ty
             "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,created_time",
             '["ACTIVE","PAUSED","ARCHIVED"]',
         )
+        # Se a conta esta DESABILITADA na Meta, nenhuma campanha esta
+        # rodando — forca PAUSED em todas (independente do status config).
+        account_disabled = _is_account_disabled(acc_id)
         for c in fresh_camps:
             cid = c.get("id")
             if cid:
                 cc = dict(c)
-                # Sobrescreve status com effective_status normalizado
                 cc["status"] = _normalize_effective_status(c)
+                if account_disabled and cc["status"] == "ACTIVE":
+                    cc["status"] = "PAUSED"
                 all_campaigns[cid] = cc
     except Exception as e:
         print(f"[ATOMS] Falha fresh meta {acc_id}, caindo no atom snapshot: {e}")
@@ -689,12 +719,15 @@ def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_stat
                 "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,created_time",
                 '["ACTIVE","PAUSED","ARCHIVED"]',
             )
+            account_disabled = _is_account_disabled(acc)
             for c in fresh_camps:
                 cid = c.get("id")
                 if cid and cid not in all_campaigns:
                     cc = dict(c)
                     cc['_account_id'] = acc
                     cc["status"] = _normalize_effective_status(c)
+                    if account_disabled and cc["status"] == "ACTIVE":
+                        cc["status"] = "PAUSED"
                     all_campaigns[cid] = cc
         except Exception as e:
             print(f"[ATOMS daily] Falha fresh meta {acc}: {e}")
