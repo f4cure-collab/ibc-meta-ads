@@ -178,6 +178,27 @@ _campaigns_memcache_lock = threading.Lock()
 _CAMPAIGNS_MEMCACHE_TTL = 300  # 5 minutos
 
 
+def _normalize_effective_status(camp):
+    """Converte o effective_status (computed pela Meta considerando
+    hierarquia) num dos 3 valores que o dashboard usa: ACTIVE | PAUSED
+    | ARCHIVED.
+
+    effective_status pode ser:
+      ACTIVE  -> ACTIVE
+      ARCHIVED, DELETED  -> ARCHIVED
+      Tudo outro (PAUSED, ADSET_PAUSED, CAMPAIGN_PAUSED,
+        PENDING_BILLING_INFO, WITH_ISSUES, PENDING_REVIEW,
+        DISAPPROVED, etc) -> PAUSED (nao esta rodando)
+
+    Se effective_status nao vier, usa o status cru (fallback)."""
+    es = (camp.get("effective_status") or camp.get("status") or "").upper()
+    if es == "ACTIVE":
+        return "ACTIVE"
+    if es in ("ARCHIVED", "DELETED"):
+        return "ARCHIVED"
+    return "PAUSED"
+
+
 def _fetch_account_campaigns(acc_id, fields, effective_status):
     """Busca lista de campanhas de uma conta com cache em memoria de 5min.
     Dedupe chamadas de /campaigns quando varios endpoints precisam da mesma lista."""
@@ -565,16 +586,23 @@ def _build_pseudo_raw_per_account_from_atoms(acc_id, date_from, date_to, camp_ty
     # atom mais recente, mas atoms sao snapshots: se a campanha foi pausada
     # apos a captura do atom de D-1, o status na cache ficava stale ate a
     # proxima revalidacao diaria (~24h).
+    #
+    # USA effective_status (nao status): captura ADSET_PAUSED quando o
+    # usuario pausa os conjuntos sem mexer na campanha. status=ACTIVE +
+    # effective_status=ADSET_PAUSED aparecia como ATIVA mesmo nao rodando.
     try:
         fresh_camps = _fetch_account_campaigns(
             acc_id,
-            "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
+            "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,created_time",
             '["ACTIVE","PAUSED","ARCHIVED"]',
         )
         for c in fresh_camps:
             cid = c.get("id")
             if cid:
-                all_campaigns[cid] = dict(c)
+                cc = dict(c)
+                # Sobrescreve status com effective_status normalizado
+                cc["status"] = _normalize_effective_status(c)
+                all_campaigns[cid] = cc
     except Exception as e:
         print(f"[ATOMS] Falha fresh meta {acc_id}, caindo no atom snapshot: {e}")
         # Fallback: usa metadata do atom mais recente (atoms ordem asc, reverse).
@@ -654,11 +682,11 @@ def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_stat
     for acc in accounts:
         atoms_list, _ = get_atoms_for_range('acc', acc, date_from, date_to)
         # METADATA fresh via _fetch_account_campaigns (TTL 5min) — status
-        # quase realtime, sem depender de revalidacao diaria de atoms.
+        # quase realtime via effective_status (captura ADSET_PAUSED etc).
         try:
             fresh_camps = _fetch_account_campaigns(
                 acc,
-                "id,name,status,objective,daily_budget,lifetime_budget,start_time,created_time",
+                "id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,created_time",
                 '["ACTIVE","PAUSED","ARCHIVED"]',
             )
             for c in fresh_camps:
@@ -666,6 +694,7 @@ def _build_pseudo_daily_rows_from_atoms(camp_type, date_from, date_to, camp_stat
                 if cid and cid not in all_campaigns:
                     cc = dict(c)
                     cc['_account_id'] = acc
+                    cc["status"] = _normalize_effective_status(c)
                     all_campaigns[cid] = cc
         except Exception as e:
             print(f"[ATOMS daily] Falha fresh meta {acc}: {e}")
