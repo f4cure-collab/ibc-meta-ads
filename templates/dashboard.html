@@ -1382,6 +1382,16 @@ function adaptStaticLabelsToType() {
         else if (isMeteoricos()) el.textContent = 'Campanhas de Meteoricos';
         else el.textContent = 'Campanhas de Vendas';
     });
+    // Label do bloco de breakdowns (atualiza ja no load, antes do user
+    // clicar em uma campanha)
+    var bdLbl = document.getElementById('bd-filter-label');
+    if (bdLbl && (!bdLbl.dataset.filterActive || bdLbl.dataset.filterActive === '0')) {
+        bdLbl.textContent = isCrescimento() ? 'Todas as campanhas de crescimento'
+            : isComercial() ? 'Todas as campanhas comerciais'
+            : isMeteoricos() ? 'Todas as campanhas de meteoricos'
+            : isNutricao() ? 'Todas as campanhas de nutricao'
+            : 'Todas as campanhas de vendas';
+    }
     // Tooltips dinamicos: reescreve data-tip pra refletir o tipo atual
     // (Compras -> Seguidores, CPA -> CPS, etc). Cacheia o original em
     // dataset.tipBase pra conseguir voltar pra Vendas sem perder o texto.
