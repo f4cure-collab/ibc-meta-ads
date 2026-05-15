@@ -5064,7 +5064,7 @@ def api_breakdowns():
             return blocked
         campaign_id = request.args.get("campaign_id", "")
 
-        cache_key = f"breakdowns_v7_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
+        cache_key = f"breakdowns_v8_{camp_type}_{campaign_id or 'all'}_{date_from}_{date_to}"
         if not force:
             cached = get_cached(cache_key)
             if cached:
@@ -5072,34 +5072,60 @@ def api_breakdowns():
 
         conv_types = _get_conversion_types(camp_type)
 
-        # Determinar endpoint: campanha especifica ou conta toda (filtrada por tipo)
+        # Determinar query: campanha especifica ou conta toda (filtrada por tipo).
+        # Pra multi-account, retorna lista [(endpoint, filtering_extra), ...] que
+        # eh executada em todos os accounts onde o tipo tem campanhas, e os
+        # resultados sao merged.
+        queries = []  # lista de (endpoint, filtering_extra_param)
+        base_params = {
+            "time_range": json.dumps({"since": date_from, "until": date_to}),
+        }
+
         if campaign_id:
-            endpoint = campaign_id + "/insights"
-            base_params = {
-                "time_range": json.dumps({"since": date_from, "until": date_to}),
-            }
+            queries.append((campaign_id + "/insights", None))
+        elif camp_type in (CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL, CAMP_TYPE_CRESCIMENTO):
+            # Inclui ARCHIVED no filtro pra capturar campanhas com spend recente
+            # que ja foram arquivadas (comum em Meteoricos/Comercial).
+            filtered = _fetch_type_campaigns(
+                camp_type, "id,name,objective", '["ACTIVE","PAUSED","ARCHIVED"]'
+            )
+            target_ids = [c["id"] for c in filtered]
+            if not target_ids:
+                return jsonify({"ok": True, "age": [], "gender": [], "weekday": [], "campaign_id": "all"})
+            # MULTI-CONTA: query CADA conta separadamente pra nao perder dados
+            # das outras (antes pegava so 1 conta — main_acc com mais campanhas).
+            by_acc = {}
+            for c in filtered:
+                by_acc.setdefault(c.get("_account_id") or ACCOUNT_ID, []).append(c["id"])
+            for acc_id, ids in by_acc.items():
+                if not ids:
+                    continue
+                queries.append((
+                    acc_id + "/insights",
+                    json.dumps([{"field": "campaign.id", "operator": "IN", "value": ids}]),
+                ))
         else:
-            endpoint = ACCOUNT_ID + "/insights"
-            base_params = {
-                "time_range": json.dumps({"since": date_from, "until": date_to}),
-            }
-            if camp_type in (CAMP_TYPE_METEORICOS, CAMP_TYPE_COMERCIAL, CAMP_TYPE_CRESCIMENTO):
-                # Filtrar pelos IDs das campanhas do tipo (multi-conta)
-                filtered = _fetch_type_campaigns(
-                    camp_type, "id,name,objective", '["ACTIVE","PAUSED"]'
-                )
-                target_ids = [c["id"] for c in filtered]
-                if not target_ids:
-                    return jsonify({"ok": True, "age": [], "gender": [], "weekday": [], "campaign_id": "all"})
-                # breakdowns usa 1 endpoint agregador: usa a conta com mais campanhas
-                by_acc = {}
-                for c in filtered:
-                    by_acc.setdefault(c.get("_account_id") or ACCOUNT_ID, []).append(c["id"])
-                main_acc = max(by_acc, key=lambda k: len(by_acc[k]))
-                endpoint = main_acc + "/insights"
-                base_params["filtering"] = json.dumps([{"field": "campaign.id", "operator": "IN", "value": by_acc[main_acc]}])
-            else:
-                base_params["filtering"] = json.dumps([{"field": "campaign.objective", "operator": "IN", "value": ["OUTCOME_SALES"]}])
+            # Vendas / Nutricao: usa main account com filtro por objetivo
+            queries.append((
+                ACCOUNT_ID + "/insights",
+                json.dumps([{"field": "campaign.objective", "operator": "IN", "value": ["OUTCOME_SALES"]}]),
+            ))
+
+        def _multi_fetch(extra_fields_or_breakdown):
+            """Roda a mesma query em todos os accounts da lista e concatena rows.
+            extra_fields_or_breakdown e um dict de params extras (fields + breakdowns ou time_increment)."""
+            all_rows = []
+            for endpt, filt in queries:
+                params = {**base_params, **extra_fields_or_breakdown}
+                if filt:
+                    params["filtering"] = filt
+                try:
+                    _enforce_rate_limit()
+                    rows = meta_get_all_pages(endpt, params)
+                    all_rows.extend(rows)
+                except Exception as e:
+                    print(f"[BREAKDOWNS] Falha {endpt}: {e}")
+            return all_rows
 
         ins_fields = (
             "spend,impressions,clicks,actions,action_values,purchase_roas,website_purchase_roas,results,"
@@ -5139,9 +5165,7 @@ def api_breakdowns():
         # 'results' e 'unique_actions' sao necessarios pra extrair profile_visits
         # em Crescimento (coluna Resultados do Gerenciador). Sem esses campos
         # o total de visitas sai zero e a atribuicao nao distribui nada.
-        _enforce_rate_limit()
-        totals_data = meta_get_all_pages(endpoint, {
-            **base_params,
+        totals_data = _multi_fetch({
             "fields": "spend,actions,action_values,results,unique_actions",
         })
         total_spend = sum(float(r.get("spend", 0)) for r in totals_data)
@@ -5162,8 +5186,7 @@ def api_breakdowns():
             # populado nesse nivel (em level=account ele some). Sem isso,
             # crescimento_total_pv ficava em 0 e atribuicao nao distribuia nada.
             try:
-                pv_rows = meta_get_all_pages(endpoint, {
-                    **base_params,
+                pv_rows = _multi_fetch({
                     "fields": "spend,actions,results",
                     "level": "campaign",
                 })
@@ -5218,26 +5241,20 @@ def api_breakdowns():
             pv = default_pv if default_pv > 0 else int(round(crescimento_total_pv * share))
             return seguidores, pv
 
-        # 1. Por idade
-        _enforce_rate_limit()
-        age_data = meta_get_all_pages(endpoint, {
-            **base_params,
+        # 1. Por idade (multi-conta agregado)
+        age_data = _multi_fetch({
             "fields": ins_fields,
             "breakdowns": "age",
         })
 
-        # 2. Por sexo
-        _enforce_rate_limit()
-        gender_data = meta_get_all_pages(endpoint, {
-            **base_params,
+        # 2. Por sexo (multi-conta agregado)
+        gender_data = _multi_fetch({
             "fields": ins_fields,
             "breakdowns": "gender",
         })
 
         # 3. Por dia da semana (usando time_increment=1 e agrupando por weekday)
-        _enforce_rate_limit()
-        daily_data = meta_get_all_pages(endpoint, {
-            **base_params,
+        daily_data = _multi_fetch({
             "fields": "spend,impressions,clicks,actions,action_values,purchase_roas," + VIDEO_METRIC_FIELDS,
             "time_increment": 1,
         })
