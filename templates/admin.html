@@ -239,6 +239,7 @@
         <div id="updateStatus" style="padding:12px;border-radius:8px;margin-bottom:12px;"></div>
         <button class="btn btn-primary" id="btnCheckUpdate" onclick="checkUpdate()">Verificar Atualizacoes</button>
         <button class="btn" id="btnApplyUpdate" style="display:none;background:#4caf50;color:#fff;margin-left:8px;" onclick="applyUpdate()">Aplicar Atualizacao</button>
+        <button class="btn" id="btnRestartService" style="background:#ff9800;color:#1a1a2e;margin-left:8px;" onclick="restartService()">Reiniciar Servico</button>
         <button class="btn" style="background:#2a2a4a;color:#ccc;margin-left:8px;" onclick="toggleHistory()">Historico de Atualizacoes</button>
         <div class="alert alert-success" id="updateOk"></div>
         <div class="alert alert-error" id="updateErr"></div>
@@ -1318,6 +1319,20 @@ async function checkUpdate() {
             document.getElementById('btnApplyUpdate').style.display = 'none';
         }
     } catch(e) { document.getElementById('updateStatus').innerHTML = '<span style="color:#f44336;">Erro: '+e.message+'</span>'; }
+}
+
+async function restartService() {
+    if (!confirm('Reiniciar o servico? O dashboard fica offline por alguns segundos.')) return;
+    hide('updateOk'); hide('updateErr');
+    var b = document.getElementById('btnRestartService');
+    b.disabled = true; b.textContent = 'Reiniciando...';
+    try {
+        var r = await fetch('/api/admin/restart-service', {method:'POST'});
+        var d = await r.json();
+        if (d.ok) { show('updateOk', d.message); }
+        else { show('updateErr', d.error + (d.diag ? ' (diag: '+d.diag+')' : '')); }
+    } catch(e) { show('updateErr', e.message); }
+    b.disabled = false; b.textContent = 'Reiniciar Servico';
 }
 
 async function applyUpdate() {

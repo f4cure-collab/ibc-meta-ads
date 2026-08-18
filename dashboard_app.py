@@ -245,17 +245,36 @@ def _fetch_account_campaigns(acc_id, fields, effective_status):
     return [dict(r) for r in rows]
 
 
+class MetaFetchError(Exception):
+    """Falha de fetch na Meta (token invalido, permissao, rede).
+
+    Existe pra distinguir 'a Meta nao respondeu' de 'nao ha campanhas'.
+    Antes os dois viravam lista vazia, e o vazio era gravado no cache por
+    cima do historico bom — foi como um token expirado zerou o dashboard
+    inteiro, inclusive meses fechados que estavam pinados por 180 dias.
+    Quem captura este erro NAO pode chamar set_cached."""
+
+
 def _fetch_type_campaigns(camp_type, fields, effective_status):
     """Busca campanhas de TODAS as contas configuradas para o camp_type,
     aplica o filtro por tipo, e retorna a lista com _account_id tagueado.
-    Usa _fetch_account_campaigns com cache em memoria (5min) pra dedupe."""
+    Usa _fetch_account_campaigns com cache em memoria (5min) pra dedupe.
+
+    Levanta MetaFetchError se houve falha E nada foi obtido — sinaliza pro
+    chamador que o vazio e sintoma de erro, nao ausencia de dados."""
     all_camps = []
+    failed = 0
+    last_err = ""
     for acc in _get_accounts_for_type(camp_type):
         try:
             rows = _fetch_account_campaigns(acc, fields, effective_status)
             all_camps.extend(rows)
         except Exception as e:
+            failed += 1
+            last_err = str(e)
             print(f"[MULTI-ACCT] Falha campanhas {acc}: {e}")
+    if failed and not all_camps:
+        raise MetaFetchError(f"Falha em todas as contas de {camp_type}: {last_err}")
     return _filter_campaigns_by_type(all_camps, camp_type)
 
 
@@ -276,6 +295,7 @@ def _fetch_account_raw_v1(acc_id, camp_status, date_from, date_to):
         return cached
 
     # Lista de campanhas (meta_get_all_pages — cacheada internamente 5min)
+    fetch_failed = False
     try:
         camps = _fetch_account_campaigns(
             acc_id,
@@ -285,6 +305,7 @@ def _fetch_account_raw_v1(acc_id, camp_status, date_from, date_to):
     except Exception as e:
         print(f"[RAW] Falha campanhas {acc_id}: {e}")
         camps = []
+        fetch_failed = True
 
     # Insights level=campaign pra TODAS as campanhas da conta no periodo.
     # Filter impressions > 0 evita retornar campanhas sem atividade.
@@ -303,8 +324,17 @@ def _fetch_account_raw_v1(acc_id, camp_status, date_from, date_to):
                 insights_by_id[cid] = r
     except Exception as e:
         print(f"[RAW] Falha insights {acc_id}: {e}")
+        fetch_failed = True
 
     payload = {"campaigns": camps, "insights_by_id": insights_by_id}
+
+    # So cacheia se a Meta respondeu. Cachear um payload vazio vindo de erro
+    # apaga o historico bom — e se o range for mes fechado ainda pina 180d,
+    # deixando o zero gravado por meio ano.
+    if fetch_failed:
+        print(f"[RAW] Fetch falhou {acc_id} {date_from}..{date_to} — cache preservado")
+        return payload
+
     set_cached(cache_key, payload, ttl_hours=_cache_ttl_for_range(date_from, date_to))
     # Se o range eh inteiramente mes completo, pina 180d
     _segs = _split_range_by_month_segments(date_from, date_to)
@@ -2691,11 +2721,18 @@ def _get_shared_daily_insights(camp_type, date_from, date_to, camp_status="all",
             set_cached(cache_key, {"campaigns": sales_campaigns, "rows": rows}, ttl_hours=ttl)
             return sales_campaigns, rows
 
-    sales_campaigns = _fetch_type_campaigns(
-        camp_type,
-        "id,name,objective,daily_budget,lifetime_budget,start_time,created_time,status",
-        _camp_status_filter(camp_status)
-    )
+    try:
+        sales_campaigns = _fetch_type_campaigns(
+            camp_type,
+            "id,name,objective,daily_budget,lifetime_budget,start_time,created_time,status",
+            _camp_status_filter(camp_status)
+        )
+    except MetaFetchError as e:
+        # A Meta falhou — NAO cacheia. Cachear aqui grava vazio por cima do
+        # historico e o dashboard zera ate o cache expirar (180d se pinado).
+        print(f"[SHARED DAILY] Fetch falhou, cache preservado: {e}")
+        return [], []
+
     if not sales_campaigns:
         set_cached(cache_key, {"campaigns": [], "rows": []}, ttl_hours=ttl)
         return [], []
@@ -5493,6 +5530,60 @@ def api_apply_update():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@app.route("/api/admin/restart-service", methods=["POST"])
+def api_restart_service():
+    """Reinicia o servico sem exigir update de codigo. Super_admin only.
+
+    O restart so existia dentro de apply-update, e aquele botao fica escondido
+    quando nao ha commit novo — na pratica, nao havia como reiniciar pela tela.
+    Isso importa porque trocar o token no /admin atualiza a variavel TOKEN em
+    memoria APENAS do worker que atendeu o request; os outros workers do
+    gunicorn seguem com o token velho ate o processo reiniciar.
+    """
+    if not session.get("logged_in") or not _is_super_admin(session.get("username")):
+        return jsonify({"ok": False, "error": "Acesso negado"}), 403
+
+    import subprocess
+    import threading
+
+    systemctl_bin = "/usr/bin/systemctl"
+    if not os.path.exists(systemctl_bin):
+        systemctl_bin = "/bin/systemctl"
+
+    # Confere se o sudoers permite systemctl sem senha antes de prometer restart
+    try:
+        test = subprocess.run(["sudo", "-n", systemctl_bin, "is-active", "ibc-dash"],
+                              capture_output=True, text=True, timeout=5)
+        available = test.returncode == 0
+        diag = (test.stderr or test.stdout or "").strip()[:200]
+    except Exception as e:
+        available = False
+        diag = str(e)[:200]
+
+    if not available:
+        return jsonify({
+            "ok": False,
+            "error": "Restart automatico indisponivel — rode 'sudo systemctl restart ibc-dash' no servidor.",
+            "diag": diag,
+        }), 500
+
+    def _delayed_restart():
+        # Delay curto pro HTTP response voltar antes do processo cair
+        time.sleep(1.5)
+        try:
+            subprocess.run(["sudo", "-n", systemctl_bin, "restart", "ibc-dash"],
+                           capture_output=True, text=True, timeout=30)
+        except Exception as e:
+            print(f"[RESTART] Falha ao reiniciar servico: {e}")
+
+    threading.Thread(target=_delayed_restart, daemon=True).start()
+    try:
+        log_activity(session.get("username", ""), "restart_service")
+    except Exception:
+        pass
+    return jsonify({"ok": True, "message": "Reiniciando o servico — recarregue a pagina em ~10 segundos."})
+
+
 @app.route("/api/admin/update-history")
 def api_update_history():
     """Retorna os ultimos commits aplicados no servidor (git log)."""
@@ -5944,16 +6035,40 @@ def api_token_expiry():
         resp = requests.get(f"{BASE_URL}/debug_token", params={
             "input_token": TOKEN, "access_token": TOKEN
         }, timeout=10)
-        data = resp.json().get("data", {})
+        body = resp.json()
+
+        # Token expirado/invalido: o proprio debug_token responde 400 com
+        # OAuthException (code 190). Antes caia no 'days_left: -1' generico e
+        # o banner do admin ficava ESCONDIDO justamente quando o token morria
+        # — ninguem era avisado. Agora devolve 0, que o front pinta de vermelho.
+        err = body.get("error") or {}
+        if err:
+            if err.get("code") == 190:
+                return jsonify({
+                    "ok": True, "days_left": 0, "expired": True,
+                    "error": err.get("message", "Token invalido ou expirado"),
+                })
+            return jsonify({"ok": True, "days_left": -1, "error": err.get("message", "")})
+
+        data = body.get("data", {})
+        # is_valid=False tambem significa token morto (sem erro HTTP)
+        if data.get("is_valid") is False:
+            return jsonify({
+                "ok": True, "days_left": 0, "expired": True,
+                "error": "Token invalido ou expirado",
+            })
+
         expires_at = data.get("expires_at", 0)
         if expires_at:
             from datetime import datetime
             expires_date = datetime.fromtimestamp(expires_at)
             days_left = (expires_date - datetime.now()).days
             return jsonify({"ok": True, "days_left": days_left, "expires_at": expires_date.strftime("%Y-%m-%d")})
-        return jsonify({"ok": True, "days_left": -1})
-    except Exception:
-        return jsonify({"ok": True, "days_left": -1})
+        # expires_at == 0 em token valido = nunca expira (system user)
+        return jsonify({"ok": True, "days_left": -1, "never_expires": True})
+    except Exception as e:
+        # Falha de rede: nao da pra afirmar que o token expirou — mantem oculto
+        return jsonify({"ok": True, "days_left": -1, "error": str(e)[:200]})
 
 
 # ── Meteoricos Preview (diagnostico temporario) ───────────────────────
