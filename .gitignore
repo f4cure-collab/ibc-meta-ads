@@ -10,3 +10,17 @@ cache.db
 activity_log.json
 ad_accounts.json
 campaign_overrides.json
+
+# === Duplicador de Anuncios — projeto LOCAL, nunca vai pro GitHub ===
+# Projeto separado que convive na mesma pasta do dashboard IBC.
+# O dashboard (dashboard_app.py) nao importa nem renderiza nenhum destes.
+app.py
+meta_api.py
+templates/index.html
+INICIAR.bat
+SETUP.md
+
+# Backups locais
+*.bak-*
+*.backup-*
+power_backup/
