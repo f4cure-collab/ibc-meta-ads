@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Impacto do aumento de preco - Agosto 2026</title>
+<style>
+:root{
+  color-scheme: light;
+  --page:#f9f9f7; --surface:#fcfcfb;
+  --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+  --s1:#2a78d6; --s2:#eb6834;
+  --pos:#2a78d6; --neg:#d03b3b; --midzone:#f0efec;
+  --good:#006300; --bad:#d03b3b;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19;
+    --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#d95926;
+    --pos:#3987e5; --neg:#e66767; --midzone:#383835;
+    --good:#0ca30c; --bad:#e66767;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19;
+  --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+  --s1:#3987e5; --s2:#d95926;
+  --pos:#3987e5; --neg:#e66767; --midzone:#383835;
+  --good:#0ca30c; --bad:#e66767;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:40px 24px 80px}
+header{margin-bottom:36px}
+h1{font-size:30px;line-height:1.2;margin:0 0 8px;letter-spacing:-0.02em}
+.sub{color:var(--ink2);font-size:15px;margin:0}
+.tag{display:inline-block;background:var(--surface);border:1px solid var(--border);
+  border-radius:999px;padding:4px 12px;font-size:12px;color:var(--ink2);margin-top:14px}
+h2{font-size:19px;margin:44px 0 6px;letter-spacing:-0.01em}
+h2:first-of-type{margin-top:36px}
+.note{color:var(--ink2);font-size:13.5px;margin:0 0 18px;max-width:76ch}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.tile .lbl{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
+.tile .val{font-size:32px;font-weight:650;letter-spacing:-0.02em;line-height:1}
+.tile .cmp{font-size:12.5px;color:var(--ink2);margin-top:9px}
+.delta{font-weight:650}
+.delta.up{color:var(--good)} .delta.down{color:var(--bad)}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.charts2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:860px){.split,.charts2{grid-template-columns:1fr}}
+.ctitle{font-size:14px;font-weight:600;margin:0 0 2px}
+.csub{font-size:12.5px;color:var(--muted);margin:0 0 14px}
+svg{display:block;width:100%;height:auto;overflow:visible}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin:0 0 12px;font-size:12.5px;color:var(--ink2)}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:baseline}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;
+  border-bottom:1px solid var(--axis);text-align:right;position:sticky;top:0;background:var(--surface)}
+th:first-child,td:first-child{text-align:left}
+tbody tr:hover{background:rgba(127,127,127,.06)}
+td.ev{font-weight:600}
+td .ty{color:var(--muted);font-weight:400;font-size:11.5px;margin-left:6px}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table.resumo td,table.resumo th{text-align:right;padding:12px 14px}
+table.resumo td:first-child,table.resumo th:first-child{text-align:left}
+table.resumo td{font-size:19px;font-weight:600;letter-spacing:-0.01em}
+table.resumo td.per{font-size:13px;font-weight:600;color:var(--ink2);white-space:nowrap}
+table.resumo td.per .ty{color:var(--muted);font-weight:400;font-size:11.5px;margin-left:5px}
+table.resumo tr.varrow td{font-size:18px;border-bottom:none}
+table.resumo tr.varrow{border-top:1px solid var(--axis)}
+table.resumo tbody tr:hover{background:none}
+/* tabela completa: espacamento enxuto pra caber sem barra de rolagem */
+#tbl td,#tbl th{padding:9px 6px;font-size:12.5px}
+#tbl th{font-size:10.5px;letter-spacing:.03em}
+#tbl td.ev{padding-left:2px}
+.grp{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+.grp .gt{font-size:13px;color:var(--muted);margin:0 0 12px;text-transform:uppercase;letter-spacing:.05em}
+.grp .gv{font-size:27px;font-weight:650;letter-spacing:-0.02em}
+.grp .gd{font-size:13px;color:var(--ink2);margin-top:8px}
+ul.caveats{font-size:13.5px;color:var(--ink2);max-width:80ch;padding-left:20px}
+ul.caveats li{margin-bottom:9px}
+.tip{position:fixed;pointer-events:none;background:var(--surface);border:1px solid var(--border);
+  border-radius:8px;padding:8px 11px;font-size:12.5px;color:var(--ink);opacity:0;transition:opacity .1s;
+  box-shadow:0 4px 14px rgba(0,0,0,.13);z-index:99;white-space:nowrap}
+footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--border);
+  font-size:12px;color:var(--muted)}
+@media print{
+  :root{--page:#fff;--surface:#fff;--ink:#000;--ink2:#333;--border:#ccc;--grid:#e5e5e5}
+  body{background:#fff}
+  .wrap{max-width:100%;padding:0}
+  h2{page-break-after:avoid} .card,.tile,.grp{page-break-inside:avoid}
+  .pb{page-break-before:always}
+  .tip{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Impacto do aumento de preco nas vendas</h1>
+  <p class="sub">Os 16 eventos que tiveram aumento de preco &mdash; 6 dias antes (07&ndash;12/08) contra 6 dias depois (14&ndash;19/08/2026), com o dia da mudanca de fora.</p>
+  <span class="tag">16 eventos com aumento &middot; campanhas ativas &middot; 6 dias exatos de cada lado &middot; 13/08 excluido &middot; classificacao de preco informada pelo time</span>
+</header>
+
+<h2>O que aconteceu nos eventos que subiram preco</h2>
+<div class="card scroll"><table id="tbl_resumo" class="resumo"></table></div>
+
+<h2>Comparativo: com e sem aumento de preco</h2>
+<div class="split" id="groups"></div>
+
+<h2>Evolucao dia a dia</h2>
+<div class="charts2">
+  <div class="card">
+    <p class="ctitle">Compras por dia</p>
+    <p class="csub">Total das campanhas de vendas</p>
+    <div id="c_purch"></div>
+  </div>
+  <div class="card">
+    <p class="ctitle">Ticket medio por dia</p>
+    <p class="csub">Receita &divide; compras do dia</p>
+    <div id="c_ticket"></div>
+  </div>
+</div>
+
+<h2 class="pb">Impacto por evento</h2>
+<div class="card"><div id="c_bars"></div></div>
+
+<h2>Preco x volume</h2>
+<div class="card">
+  <div id="c_scatter"></div>
+</div>
+
+<h2 class="pb">Tabela completa</h2>
+<div class="card scroll"><table id="tbl"></table></div>
+
+<footer>20/08/2026</footer>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const D = {"rows": [{"tipo": "DSP", "cidade": "Aracaju", "sigla": "ARACAJU", "subiu_preco": true, "spend_a": 8964.33, "spend_b": 8537.89, "spend_d_a": 1494.055, "spend_d_b": 1422.9816666666666, "purch_a": 20.0, "purch_b": 16.0, "purch_d_a": 3.3333333333333335, "purch_d_b": 2.6666666666666665, "rev_a": 3585.94, "rev_b": 5580.5, "rev_d_a": 597.6566666666666, "rev_d_b": 930.0833333333334, "clicks_d_a": 368.3333333333333, "clicks_d_b": 425.1666666666667, "ticket_a": 179.297, "ticket_b": 348.78125, "roas_a": 0.4000232030726223, "roas_b": 0.6536158231132049, "cpa_a": 448.2165, "cpa_b": 533.618125, "d_purch": -20.000000000000007, "d_ticket": 94.52709749744838, "d_rev": 55.621677997958706}, {"tipo": "DSP", "cidade": "Boston", "sigla": "BOSTON", "subiu_preco": true, "spend_a": 10201.55, "spend_b": 6707.42, "spend_d_a": 1700.2583333333332, "spend_d_b": 1117.9033333333334, "purch_a": 7.0, "purch_b": 1.0, "purch_d_a": 1.1666666666666667, "purch_d_b": 0.16666666666666666, "rev_a": 13858.53, "rev_b": 5234.71, "rev_d_a": 2309.755, "rev_d_b": 872.4516666666667, "clicks_d_a": 213.33333333333334, "clicks_d_b": 103.83333333333333, "ticket_a": 1979.7900000000002, "ticket_b": 5234.71, "roas_a": 1.35847297714563, "roas_b": 0.7804356965867651, "cpa_a": 1457.3642857142856, "cpa_b": 6707.42, "d_purch": -85.71428571428571, "d_ticket": 164.40733613160992, "d_rev": -62.22752340977}, {"tipo": "DSP", "cidade": "Curitiba", "sigla": "CURITIBA", "subiu_preco": true, "spend_a": 8242.81, "spend_b": 8451.28, "spend_d_a": 1373.8016666666665, "spend_d_b": 1408.5466666666669, "purch_a": 29.0, "purch_b": 8.0, "purch_d_a": 4.833333333333333, "purch_d_b": 1.3333333333333333, "rev_a": 2503.72, "rev_b": 2378.11, "rev_d_a": 417.28666666666663, "rev_d_b": 396.3516666666667, "clicks_d_a": 364.3333333333333, "clicks_d_b": 745.3333333333334, "ticket_a": 86.3351724137931, "ticket_b": 297.26375, "roas_a": 0.3037459313025534, "roas_b": 0.28139051125983283, "cpa_a": 284.2348275862069, "cpa_b": 1056.41, "d_purch": -72.41379310344827, "d_ticket": 244.31361134631672, "d_rev": -5.016934801016076}, {"tipo": "DSP", "cidade": "Florianópolis", "sigla": "FLORIANOPOLIS", "subiu_preco": true, "spend_a": 8226.73, "spend_b": 8485.79, "spend_d_a": 1371.1216666666667, "spend_d_b": 1414.2983333333334, "purch_a": 31.0, "purch_b": 11.0, "purch_d_a": 5.166666666666667, "purch_d_b": 1.8333333333333333, "rev_a": 2793.62, "rev_b": 3008.92, "rev_d_a": 465.6033333333333, "rev_d_b": 501.4866666666667, "clicks_d_a": 265.1666666666667, "clicks_d_b": 365.5, "ticket_a": 90.11677419354838, "ticket_b": 273.53818181818184, "roas_a": 0.33957842301862345, "roas_b": 0.35458336819553626, "cpa_a": 265.3783870967742, "cpa_b": 771.4354545454546, "d_purch": -64.51612903225808, "d_ticket": 203.53747597610402, "d_rev": 7.706846314101427}, {"tipo": "DSP", "cidade": "Porto Alegre", "sigla": "POA", "subiu_preco": true, "spend_a": 9262.64, "spend_b": 8627.89, "spend_d_a": 1543.7733333333333, "spend_d_b": 1437.9816666666666, "purch_a": 41.0, "purch_b": 11.0, "purch_d_a": 6.833333333333333, "purch_d_b": 1.8333333333333333, "rev_a": 3491.21, "rev_b": 2272.3, "rev_d_a": 581.8683333333333, "rev_d_b": 378.7166666666667, "clicks_d_a": 452.3333333333333, "clicks_d_b": 623.6666666666666, "ticket_a": 85.15146341463415, "ticket_b": 206.5727272727273, "roas_a": 0.37691306150298404, "roas_b": 0.26336682549267554, "cpa_a": 225.9180487804878, "cpa_b": 784.3536363636363, "d_purch": -73.17073170731707, "d_ticket": 142.59445344685133, "d_rev": -34.91368322157647}, {"tipo": "DSP", "cidade": "Rio Branco", "sigla": "RIOBRANCO", "subiu_preco": true, "spend_a": 8507.12, "spend_b": 10691.59, "spend_d_a": 1417.8533333333335, "spend_d_b": 1781.9316666666666, "purch_a": 29.0, "purch_b": 11.0, "purch_d_a": 4.833333333333333, "purch_d_b": 1.8333333333333333, "rev_a": 2762.56, "rev_b": 2886.86, "rev_d_a": 460.4266666666667, "rev_d_b": 481.1433333333334, "clicks_d_a": 395.0, "clicks_d_b": 648.3333333333334, "ticket_a": 95.26068965517241, "ticket_b": 262.4418181818182, "roas_a": 0.32473504546779636, "roas_b": 0.27001222456154794, "cpa_a": 293.3489655172414, "cpa_b": 971.9627272727273, "d_purch": -62.06896551724138, "d_ticket": 175.49854943504312, "d_rev": 4.499449785706018}, {"tipo": "DSP", "cidade": "Rio de Janeiro", "sigla": "RJ", "subiu_preco": true, "spend_a": 9044.91, "spend_b": 8505.02, "spend_d_a": 1507.485, "spend_d_b": 1417.5033333333333, "purch_a": 30.0, "purch_b": 20.0, "purch_d_a": 5.0, "purch_d_b": 3.3333333333333335, "rev_a": 4583.81, "rev_b": 4415.25, "rev_d_a": 763.9683333333334, "rev_d_b": 735.875, "clicks_d_a": 500.5, "clicks_d_b": 662.1666666666666, "ticket_a": 152.79366666666667, "ticket_b": 220.7625, "roas_a": 0.5067833731900041, "roas_b": 0.5191345816941053, "cpa_a": 301.497, "cpa_b": 425.25100000000003, "d_purch": -33.33333333333333, "d_ticket": 44.484064566376, "d_rev": -3.6772902890826664}, {"tipo": "DSP", "cidade": "S.J. Rio Preto", "sigla": "SJRP", "subiu_preco": true, "spend_a": 6961.55, "spend_b": 6883.87, "spend_d_a": 1160.2583333333334, "spend_d_b": 1147.3116666666667, "purch_a": 20.0, "purch_b": 14.0, "purch_d_a": 3.3333333333333335, "purch_d_b": 2.3333333333333335, "rev_a": 3690.87, "rev_b": 3022.46, "rev_d_a": 615.145, "rev_d_b": 503.74333333333334, "clicks_d_a": 328.6666666666667, "clicks_d_b": 394.1666666666667, "ticket_a": 184.5435, "ticket_b": 215.89000000000001, "roas_a": 0.5301793422441841, "roas_b": 0.439064072970582, "cpa_a": 348.0775, "cpa_b": 491.705, "d_purch": -30.0, "d_ticket": 16.985968077987042, "d_rev": -18.109822345409075}, {"tipo": "SPK", "cidade": "Belo Horizonte", "sigla": "BH", "subiu_preco": true, "spend_a": 8953.99, "spend_b": 8780.36, "spend_d_a": 1492.3316666666667, "spend_d_b": 1463.3933333333334, "purch_a": 59.0, "purch_b": 18.0, "purch_d_a": 9.833333333333334, "purch_d_b": 3.0, "rev_a": 4559.73, "rev_b": 3525.19, "rev_d_a": 759.9549999999999, "rev_d_b": 587.5316666666666, "clicks_d_a": 298.6666666666667, "clicks_d_b": 306.5, "ticket_a": 77.2835593220339, "ticket_b": 195.8438888888889, "roas_a": 0.509240014786704, "roas_b": 0.4014858160713228, "cpa_a": 151.76254237288134, "cpa_b": 487.7977777777778, "d_purch": -69.49152542372882, "d_ticket": 153.4095098710767, "d_rev": -22.688624107129147}, {"tipo": "SPK", "cidade": "Brasília", "sigla": "BRASILIA", "subiu_preco": true, "spend_a": 7736.95, "spend_b": 8551.17, "spend_d_a": 1289.4916666666666, "spend_d_b": 1425.195, "purch_a": 79.0, "purch_b": 16.0, "purch_d_a": 13.166666666666666, "purch_d_b": 2.6666666666666665, "rev_a": 6101.58, "rev_b": 4639.96, "rev_d_a": 1016.93, "rev_d_b": 773.3266666666667, "clicks_d_a": 292.6666666666667, "clicks_d_b": 384.8333333333333, "ticket_a": 77.23518987341772, "ticket_b": 289.9975, "roas_a": 0.7886285939549823, "roas_b": 0.542611128067855, "cpa_a": 97.93607594936708, "cpa_b": 534.448125, "d_purch": -79.74683544303798, "d_ticket": 275.47327905231106, "d_rev": -23.954778926114212}, {"tipo": "SPK", "cidade": "Goiânia", "sigla": "GYN", "subiu_preco": true, "spend_a": 7946.16, "spend_b": 8356.53, "spend_d_a": 1324.36, "spend_d_b": 1392.755, "purch_a": 47.0, "purch_b": 9.0, "purch_d_a": 7.833333333333333, "purch_d_b": 1.5, "rev_a": 4657.82, "rev_b": 2818.99, "rev_d_a": 776.3033333333333, "rev_d_b": 469.83166666666665, "clicks_d_a": 289.8333333333333, "clicks_d_b": 312.1666666666667, "ticket_a": 99.10255319148935, "ticket_b": 313.2211111111111, "roas_a": 0.5861724405247314, "roas_b": 0.3373397809856483, "cpa_a": 169.0672340425532, "cpa_b": 928.5033333333334, "d_purch": -80.85106382978722, "d_ticket": 216.05755959273276, "d_rev": -39.47833965245544}, {"tipo": "SPK", "cidade": "Ribeirão Preto", "sigla": "RIBEIRAOPRETO", "subiu_preco": true, "spend_a": 9169.79, "spend_b": 8654.26, "spend_d_a": 1528.2983333333334, "spend_d_b": 1442.3766666666668, "purch_a": 18.0, "purch_b": 11.0, "purch_d_a": 3.0, "purch_d_b": 1.8333333333333333, "rev_a": 1973.24, "rev_b": 3769.09, "rev_d_a": 328.87333333333333, "rev_d_b": 628.1816666666667, "clicks_d_a": 341.1666666666667, "clicks_d_b": 367.5, "ticket_a": 109.62444444444445, "ticket_b": 342.6445454545455, "roas_a": 0.21518922461692142, "roas_b": 0.4355184614282446, "cpa_a": 509.4327777777778, "cpa_b": 786.7509090909091, "d_purch": -38.88888888888889, "d_ticket": 212.56217278089937, "d_rev": 91.0102166994385}, {"tipo": "SPK", "cidade": "São José dos Campos", "sigla": "SJC", "subiu_preco": true, "spend_a": 7838.59, "spend_b": 8334.92, "spend_d_a": 1306.4316666666666, "spend_d_b": 1389.1533333333334, "purch_a": 61.0, "purch_b": 14.0, "purch_d_a": 10.166666666666666, "purch_d_b": 2.3333333333333335, "rev_a": 4309.57, "rev_b": 4422.51, "rev_d_a": 718.2616666666667, "rev_d_b": 737.085, "clicks_d_a": 276.8333333333333, "clicks_d_b": 299.0, "ticket_a": 70.64868852459016, "ticket_b": 315.8935714285714, "roas_a": 0.5497889288762392, "roas_b": 0.5306001737269224, "cpa_a": 128.50147540983608, "cpa_b": 595.3514285714285, "d_purch": -77.04918032786885, "d_ticket": 347.1329589064073, "d_rev": 2.6206790932738135}, {"tipo": "SPK", "cidade": "Sorocaba", "sigla": "SOROCABA", "subiu_preco": true, "spend_a": 8115.96, "spend_b": 8647.61, "spend_d_a": 1352.66, "spend_d_b": 1441.2683333333334, "purch_a": 28.0, "purch_b": 3.0, "purch_d_a": 4.666666666666667, "purch_d_b": 0.5, "rev_a": 2894.85, "rev_b": 1010.82, "rev_d_a": 482.47499999999997, "rev_d_b": 168.47, "clicks_d_a": 260.8333333333333, "clicks_d_b": 317.8333333333333, "ticket_a": 103.3875, "ticket_b": 336.94, "roas_a": 0.35668608519509704, "roas_b": 0.11689010027047936, "cpa_a": 289.85571428571427, "cpa_b": 2882.536666666667, "d_purch": -89.28571428571429, "d_ticket": 225.9001329948011, "d_rev": -65.08212860769989}, {"tipo": "SPK", "cidade": "São Paulo", "sigla": "SP", "subiu_preco": true, "spend_a": 8068.05, "spend_b": 8249.24, "spend_d_a": 1344.675, "spend_d_b": 1374.8733333333332, "purch_a": 49.0, "purch_b": 24.0, "purch_d_a": 8.166666666666666, "purch_d_b": 4.0, "rev_a": 4396.8, "rev_b": 6224.83, "rev_d_a": 732.8000000000001, "rev_d_b": 1037.4716666666666, "clicks_d_a": 389.3333333333333, "clicks_d_b": 441.5, "ticket_a": 89.73061224489797, "ticket_b": 259.36791666666664, "roas_a": 0.5449643966014093, "roas_b": 0.754594362632194, "cpa_a": 164.65408163265306, "cpa_b": 343.7183333333333, "d_purch": -51.02040816326531, "d_ticket": 189.0517630246239, "d_rev": 41.57637372634641}, {"tipo": "SPK", "cidade": "Vitória", "sigla": "VITORIA", "subiu_preco": true, "spend_a": 8743.5, "spend_b": 9410.42, "spend_d_a": 1457.25, "spend_d_b": 1568.4033333333334, "purch_a": 88.0, "purch_b": 24.0, "purch_d_a": 14.666666666666666, "purch_d_b": 4.0, "rev_a": 8884.73, "rev_b": 5867.99, "rev_d_a": 1480.7883333333332, "rev_d_b": 977.9983333333333, "clicks_d_a": 443.0, "clicks_d_b": 316.8333333333333, "ticket_a": 100.9628409090909, "ticket_b": 244.49958333333333, "roas_a": 1.0161525704809287, "roas_b": 0.623563029067778, "cpa_a": 99.35795454545455, "cpa_b": 392.10083333333336, "d_purch": -72.72727272727273, "d_ticket": 142.16789180237708, "d_rev": -33.95421132662444}], "ctrl": [{"tipo": "DSP", "cidade": "João Pessoa", "sigla": "JOAOPESSOA", "subiu_preco": false, "spend_a": 13096.19, "spend_b": 15432.61, "spend_d_a": 2182.6983333333333, "spend_d_b": 2572.101666666667, "purch_a": 79.0, "purch_b": 61.0, "purch_d_a": 13.166666666666666, "purch_d_b": 10.166666666666666, "rev_a": 7590.34, "rev_b": 5987.89, "rev_d_a": 1265.0566666666666, "rev_d_b": 997.9816666666667, "clicks_d_a": 501.3333333333333, "clicks_d_b": 797.0, "ticket_a": 96.08025316455696, "ticket_b": 98.16213114754099, "roas_a": 0.5795838331606368, "roas_b": 0.38800241825588805, "cpa_a": 165.77455696202531, "cpa_b": 252.99360655737706, "d_purch": -22.78481012658228, "d_ticket": 2.166811508519223, "d_rev": -21.111702506080093}, {"tipo": "DSP", "cidade": "Porto", "sigla": "PORTO", "subiu_preco": false, "spend_a": 7614.63, "spend_b": 9949.13, "spend_d_a": 1269.105, "spend_d_b": 1658.1883333333333, "purch_a": 40.0, "purch_b": 24.0, "purch_d_a": 6.666666666666667, "purch_d_b": 4.0, "rev_a": 49658.28, "rev_b": 32889.25, "rev_d_a": 8276.38, "rev_d_b": 5481.541666666667, "clicks_d_a": 489.6666666666667, "clicks_d_b": 600.5, "ticket_a": 1241.4569999999999, "ticket_b": 1370.3854166666667, "roas_a": 6.521430456896789, "roas_b": 3.305741306023743, "cpa_a": 190.36575, "cpa_b": 414.5470833333333, "d_purch": -40.0, "d_ticket": 10.38525028790098, "d_rev": -33.76884982725941}, {"tipo": "SPK", "cidade": "Manaus", "sigla": "MANAUS", "subiu_preco": false, "spend_a": 9315.83, "spend_b": 9725.28, "spend_d_a": 1552.6383333333333, "spend_d_b": 1620.88, "purch_a": 34.0, "purch_b": 58.0, "purch_d_a": 5.666666666666667, "purch_d_b": 9.666666666666666, "rev_a": 5467.92, "rev_b": 6811.37, "rev_d_a": 911.32, "rev_d_b": 1135.2283333333332, "clicks_d_a": 393.8333333333333, "clicks_d_b": 427.5, "ticket_a": 160.82117647058823, "ticket_b": 117.43741379310345, "roas_a": 0.5869493110114719, "roas_b": 0.7003777783261766, "cpa_a": 273.995, "cpa_b": 167.67724137931035, "d_purch": 70.58823529411762, "d_ticket": -26.976399271285658, "d_rev": 24.569671831336212}], "tot": {"spend_a": 135984.63, "spend_b": 135875.26, "purch_a": 636.0, "purch_b": 211.0, "rev_a": 75048.58, "rev_b": 61078.49, "clicks_a": 32880.0, "clicks_b": 40286.0}, "tot_ctrl": {"spend_a": 30026.65, "spend_b": 35107.020000000004, "purch_a": 153.0, "purch_b": 143.0, "rev_a": 62716.54, "rev_b": 45688.51, "clicks_a": 8309.0, "clicks_b": 10950.0}, "daily": [{"date": "2026-08-04", "spend": 19910.93, "purch": 123.0, "rev": 13935.529999999999, "ticket": 113.29699186991868}, {"date": "2026-08-05", "spend": 25021.46, "purch": 151.0, "rev": 15130.4, "ticket": 100.20132450331126}, {"date": "2026-08-06", "spend": 19624.629999999997, "purch": 134.0, "rev": 13497.659999999998, "ticket": 100.72880597014924}, {"date": "2026-08-07", "spend": 19276.459999999995, "purch": 102.0, "rev": 10157.599999999999, "ticket": 99.58431372549018}, {"date": "2026-08-08", "spend": 21557.56, "purch": 84.0, "rev": 8425.08, "ticket": 100.29857142857142}, {"date": "2026-08-09", "spend": 22463.32, "purch": 95.0, "rev": 8934.680000000002, "ticket": 94.04926315789476}, {"date": "2026-08-10", "spend": 20158.820000000003, "purch": 104.0, "rev": 10000.32, "ticket": 96.15692307692308}, {"date": "2026-08-11", "spend": 24624.6, "purch": 127.0, "rev": 18710.79, "ticket": 147.32905511811023}, {"date": "2026-08-12", "spend": 27903.870000000003, "purch": 124.0, "rev": 18820.11, "ticket": 151.7750806451613}, {"date": "2026-08-13", "spend": 24708.170000000002, "purch": 98.0, "rev": 14384.550000000001, "ticket": 146.7811224489796}, {"date": "2026-08-14", "spend": 20283.59, "purch": 42.0, "rev": 16695.78, "ticket": 397.5185714285714}, {"date": "2026-08-15", "spend": 24121.280000000002, "purch": 21.0, "rev": 6278.79, "ticket": 298.99}, {"date": "2026-08-16", "spend": 22022.34, "purch": 30.0, "rev": 8805.67, "ticket": 293.52233333333334}, {"date": "2026-08-17", "spend": 21683.279999999995, "purch": 34.0, "rev": 8768.5, "ticket": 257.8970588235294}, {"date": "2026-08-18", "spend": 24865.149999999998, "purch": 45.0, "rev": 10808.260000000002, "ticket": 240.1835555555556}, {"date": "2026-08-19", "spend": 22899.989999999998, "purch": 39.0, "rev": 9721.49, "ticket": 249.26897435897436}], "DA": 6, "DB": 6};
+const tip = document.getElementById('tip');
+const cv = s => getComputedStyle(document.documentElement).getPropertyValue(s).trim();
+const brl = n => 'R$ ' + n.toLocaleString('pt-BR',{maximumFractionDigits:0});
+const n1  = n => n.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1});
+const pct = n => (n>=0?'+':'') + n.toFixed(1) + '%';
+const SVGNS = 'http://www.w3.org/2000/svg';
+function el(t,a){const e=document.createElementNS(SVGNS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function showTip(ev,html){tip.innerHTML=html;tip.style.opacity=1;
+  const r=tip.getBoundingClientRect();let x=ev.clientX+14,y=ev.clientY-10;
+  if(x+r.width>innerWidth-8)x=ev.clientX-r.width-14;
+  if(y+r.height>innerHeight-8)y=innerHeight-r.height-8;
+  tip.style.left=x+'px';tip.style.top=y+'px';}
+function hideTip(){tip.style.opacity=0;}
+
+/* ---------- resumo: 6 metricas em colunas, 3 linhas (antes / depois / variacao) ---------- */
+const T=D.tot, DA=D.DA, DB=D.DB;
+const mets=[
+  {lbl:'Compras/dia',      a:T.purch_a/DA, b:T.purch_b/DB, fmt:v=>n1(v), inv:false},
+  {lbl:'Receita/dia',      a:T.rev_a/DA,   b:T.rev_b/DB,   fmt:brl, inv:false},
+  {lbl:'Ticket medio',     a:T.rev_a/T.purch_a, b:T.rev_b/T.purch_b, fmt:brl, inv:false},
+  {lbl:'Custo por compra', a:T.spend_a/T.purch_a, b:T.spend_b/T.purch_b, fmt:brl, inv:true},
+  {lbl:'Gasto/dia',        a:T.spend_a/DA, b:T.spend_b/DB, fmt:brl, inv:true},
+  {lbl:'Cliques/dia',      a:T.clicks_a/DA, b:T.clicks_b/DB, fmt:v=>Math.round(v).toLocaleString('pt-BR'), inv:false},
+];
+document.getElementById('tbl_resumo').innerHTML =
+  `<thead><tr><th>Periodo</th>${mets.map(m=>`<th>${m.lbl}</th>`).join('')}</tr></thead>
+   <tbody>
+     <tr><td class="per">07&ndash;12/08 <span class="ty">antes</span></td>
+       ${mets.map(m=>`<td>${m.fmt(m.a)}</td>`).join('')}</tr>
+     <tr><td class="per">14&ndash;19/08 <span class="ty">depois</span></td>
+       ${mets.map(m=>`<td>${m.fmt(m.b)}</td>`).join('')}</tr>
+     <tr class="varrow"><td class="per">Variacao</td>
+       ${mets.map(m=>{const d=(m.b-m.a)/m.a*100; const good=m.inv?d<0:d>0;
+         return `<td><span class="delta ${good?'up':'down'}">${pct(d)}</span></td>`;}).join('')}</tr>
+   </tbody>`;
+
+/* ---------- grupos ----------
+   D.rows = os 16 que subiram preco. Tudo neste relatorio (tiles, graficos,
+   tabela) sai daqui. D.ctrl = os 3 sem aumento, que aparecem SOMENTE no
+   cartao ao lado e na lista abaixo dele — nunca somados aos demais. */
+const rows=D.rows, ctrl=D.ctrl;
+function gsum(g,k){return g.reduce((s,r)=>s+r[k],0);}
+function med(a){const s=[...a].sort((x,y)=>x-y);const m=s.length>>1;
+  return s.length%2?s[m]:(s[m-1]+s[m])/2;}
+(function(){
+  const pa=gsum(rows,'purch_d_a'), pb=gsum(rows,'purch_d_b');
+  const ra=gsum(rows,'rev_d_a'),   rb=gsum(rows,'rev_d_b');
+  const sa=gsum(rows,'spend_d_a'), sb=gsum(rows,'spend_d_b');
+  const dp=(pb-pa)/pa*100, dr=(rb-ra)/ra*100, dsp=(sb-sa)/sa*100;
+  const mv=med(rows.filter(r=>r.d_purch!==null).map(r=>r.d_purch));
+  const cpa=gsum(ctrl,'purch_d_a'), cpb=gsum(ctrl,'purch_d_b');
+  const cra=gsum(ctrl,'rev_d_a'),   crb=gsum(ctrl,'rev_d_b');
+  const csa=gsum(ctrl,'spend_d_a'), csb=gsum(ctrl,'spend_d_b');
+  const cdp=(cpb-cpa)/cpa*100, cdr=(crb-cra)/cra*100, cds=(csb-csa)/csa*100;
+  document.getElementById('groups').innerHTML=`
+  <div class="grp">
+    <p class="gt"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--s2);margin-right:7px"></span>Subiram preco &middot; ${rows.length} eventos</p>
+    <div class="gv" style="color:var(--bad)">${pct(dp)}</div>
+    <div class="gd">em compras por dia &mdash; de ${n1(pa)} para ${n1(pb)}</div>
+    <div class="gd" style="margin-top:10px">Mediana por evento ${pct(mv)} &middot; todos os ${rows.length} cairam</div>
+    <div class="gd" style="margin-top:10px">Receita/dia ${brl(ra)} &rarr; ${brl(rb)} (<span class="delta ${dr<0?'down':'up'}">${pct(dr)}</span>)<br>
+      Gasto/dia ${brl(sa)} &rarr; ${brl(sb)} (<span class="delta ${dsp>0?'up':'down'}">${pct(dsp)}</span>)</div>
+  </div>
+  <div class="grp">
+    <p class="gt"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--s1);margin-right:7px"></span>Sem aumento de preco &middot; ${ctrl.length} eventos</p>
+    <div class="gv" style="color:${cdp<0?'var(--bad)':'var(--good)'}">${pct(cdp)}</div>
+    <div class="gd">em compras por dia &mdash; de ${n1(cpa)} para ${n1(cpb)}</div>
+    <div class="gd" style="margin-top:10px">Receita/dia ${brl(cra)} &rarr; ${brl(crb)} (<span class="delta ${cdr<0?'down':'up'}">${pct(cdr)}</span>)<br>
+      Gasto/dia ${brl(csa)} &rarr; ${brl(csb)} (<span class="delta ${cds>0?'up':'down'}">${pct(cds)}</span>)</div>
+  </div>`;
+})();
+
+/* ---------- line chart ---------- */
+function lineChart(mount, series, opts){
+  const W=560,H=260,ml=54,mr=18,mt=14,mb=34;
+  const pw=W-ml-mr, ph=H-mt-mb;
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img'});
+  const max=Math.max(...series.map(d=>d.v))*1.14;
+  const x=i=>ml+(pw*i/(series.length-1));
+  const y=v=>mt+ph-(v/max*ph);
+  // faixa da janela "depois" (14/08 em diante) — chrome de fundo, nao dado
+  const bi=series.findIndex(d=>d.date===(opts.bandStart||opts.markDate));
+  if(bi>=0){
+    const bx=x(bi)-(pw/(series.length-1))/2;
+    svg.appendChild(el('rect',{x:bx,y:mt,width:(ml+pw)-bx,height:ph,fill:cv('--grid'),opacity:0.42}));
+  }
+  const ticks=4;
+  for(let i=0;i<=ticks;i++){
+    const v=max*i/ticks, yy=y(v);
+    svg.appendChild(el('line',{x1:ml,x2:ml+pw,y1:yy,y2:yy,stroke:cv('--grid'),'stroke-width':1}));
+    const tx=el('text',{x:ml-9,y:yy+4,'text-anchor':'end','font-size':11,fill:cv('--muted')});
+    tx.textContent=opts.fmtY(v); svg.appendChild(tx);
+  }
+  svg.appendChild(el('line',{x1:ml,x2:ml+pw,y1:mt+ph,y2:mt+ph,stroke:cv('--axis'),'stroke-width':1}));
+  const mi=series.findIndex(d=>d.date===opts.markDate);
+  if(mi>=0){
+    const mx=x(mi);
+    svg.appendChild(el('line',{x1:mx,x2:mx,y1:mt,y2:mt+ph,stroke:cv('--muted'),'stroke-width':1,'stroke-dasharray':'3 3'}));
+    const lb=el('text',{x:mx+6,y:mt+11,'font-size':10.5,fill:cv('--muted')});
+    lb.textContent='13/08 fora da conta'; svg.appendChild(lb);
+  }
+  const pts=series.map((d,i)=>`${x(i)},${y(d.v)}`).join(' ');
+  svg.appendChild(el('polyline',{points:pts,fill:'none',stroke:opts.color,'stroke-width':2,
+    'stroke-linejoin':'round','stroke-linecap':'round'}));
+  series.forEach((d,i)=>{
+    const c=el('circle',{cx:x(i),cy:y(d.v),r:3.4,fill:opts.color,stroke:cv('--surface'),'stroke-width':2});
+    svg.appendChild(c);
+    const hit=el('rect',{x:x(i)-13,y:mt,width:26,height:ph,fill:'transparent',style:'cursor:pointer'});
+    hit.addEventListener('mousemove',e=>showTip(e,`<strong>${d.label}</strong><br>${opts.fmtT(d.v)}`));
+    hit.addEventListener('mouseleave',hideTip);
+    svg.appendChild(hit);
+    if(i%3===0||i===series.length-1){
+      const tx=el('text',{x:x(i),y:mt+ph+18,'text-anchor':'middle','font-size':10.5,fill:cv('--muted')});
+      tx.textContent=d.label; svg.appendChild(tx);
+    }
+  });
+  const last=series[series.length-1];
+  const dl=el('text',{x:x(series.length-1),y:y(last.v)-11,'text-anchor':'end','font-size':11.5,
+    fill:cv('--ink'),'font-weight':600});
+  dl.textContent=opts.fmtY(last.v); svg.appendChild(dl);
+  mount.appendChild(svg);
+}
+const dd=D.daily.map(d=>({date:d.date,label:d.date.slice(8)+'/'+d.date.slice(5,7),
+  purch:d.purch,ticket:d.ticket}));
+lineChart(document.getElementById('c_purch'),
+  dd.map(d=>({date:d.date,label:d.label,v:d.purch})),
+  {color:cv('--s1'),markDate:'2026-08-13',bandStart:'2026-08-14',
+   fmtY:v=>Math.round(v),fmtT:v=>Math.round(v)+' compras'});
+lineChart(document.getElementById('c_ticket'),
+  dd.map(d=>({date:d.date,label:d.label,v:d.ticket})),
+  {color:cv('--s2'),markDate:'2026-08-13',bandStart:'2026-08-14',
+   fmtY:v=>'R$ '+Math.round(v),fmtT:v=>brl(v)});
+
+/* ---------- diverging bars ---------- */
+(function(){
+  const data=rows.filter(r=>r.d_purch!==null).sort((a,b)=>a.d_purch-b.d_purch);
+  const rh=25, W=720, ml=178, mr=64, mt=8;
+  const H=mt+data.length*rh+22, pw=W-ml-mr;
+  const lim=Math.max(100,...data.map(d=>Math.abs(d.d_purch)))*1.06;
+  const x=v=>ml+pw/2+(v/lim*pw/2);
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img'});
+  [-100,-50,0,50].forEach(t=>{
+    if(Math.abs(t)>lim)return;
+    svg.appendChild(el('line',{x1:x(t),x2:x(t),y1:mt,y2:mt+data.length*rh,
+      stroke:t===0?cv('--axis'):cv('--grid'),'stroke-width':1}));
+    const tx=el('text',{x:x(t),y:mt+data.length*rh+16,'text-anchor':'middle','font-size':10.5,fill:cv('--muted')});
+    tx.textContent=t+'%'; svg.appendChild(tx);
+  });
+  data.forEach((d,i)=>{
+    const yy=mt+i*rh, neg=d.d_purch<0;
+    const x0=x(0), x1=x(d.d_purch);
+    const bw=Math.max(2,Math.abs(x1-x0)-2);
+    const bx=neg?Math.min(x0,x1)+ (neg?0:2) : x0+2;
+    const r=el('rect',{x:neg?x1:x0+2,y:yy+6,width:bw,height:rh-13,rx:4,
+      fill:neg?cv('--neg'):cv('--pos')});
+    svg.appendChild(r);
+    const lb=el('text',{x:ml-12,y:yy+rh/2+4,'text-anchor':'end','font-size':11.5,fill:cv('--ink')});
+    lb.textContent=d.cidade; svg.appendChild(lb);
+    const ty=el('text',{x:ml-12,y:yy+rh/2+4,'text-anchor':'end','font-size':11.5,fill:cv('--ink')});
+    const vl=el('text',{x:(neg?x1-7:x1+7),y:yy+rh/2+4,'text-anchor':neg?'end':'start',
+      'font-size':11,fill:cv('--ink2'),'font-weight':600});
+    vl.textContent=pct(d.d_purch); svg.appendChild(vl);
+    const hit=el('rect',{x:ml,y:yy,width:pw,height:rh,fill:'transparent',style:'cursor:pointer'});
+    hit.addEventListener('mousemove',e=>showTip(e,
+      `<strong>${d.cidade}</strong> <span style="color:${cv('--muted')}">${d.tipo}</span><br>
+       Compras/dia ${n1(d.purch_d_a)} &rarr; ${n1(d.purch_d_b)}<br>
+       Ticket ${brl(d.ticket_a)} &rarr; ${brl(d.ticket_b)}<br>
+       ROAS ${d.roas_a.toFixed(2)} &rarr; ${d.roas_b.toFixed(2)}`));
+    hit.addEventListener('mouseleave',hideTip);
+    svg.appendChild(hit);
+  });
+  document.getElementById('c_bars').appendChild(svg);
+})();
+
+/* ---------- scatter ---------- */
+(function(){
+  const data=rows.filter(r=>r.d_purch!==null&&r.d_ticket!==null);
+  const W=980,H=620,ml=64,mr=30,mt=24,mb=52;
+  const pw=W-ml-mr, ph=H-mt-mb;
+  const xs=data.map(d=>d.d_ticket), ys=data.map(d=>d.d_purch);
+  const xmin=Math.min(-50,...xs)*1.05, xmax=Math.max(...xs)*1.08;
+  const ymin=Math.min(...ys)*1.08, ymax=Math.max(20,...ys)*1.1;
+  const X=v=>ml+((v-xmin)/(xmax-xmin))*pw;
+  const Y=v=>mt+ph-((v-ymin)/(ymax-ymin))*ph;
+  const svg=el('svg',{viewBox:`0 0 ${W} ${H}`,role:'img'});
+  for(let i=0;i<=4;i++){
+    const v=ymin+(ymax-ymin)*i/4, yy=Y(v);
+    svg.appendChild(el('line',{x1:ml,x2:ml+pw,y1:yy,y2:yy,stroke:cv('--grid'),'stroke-width':1}));
+    const tx=el('text',{x:ml-9,y:yy+4,'text-anchor':'end','font-size':11,fill:cv('--muted')});
+    tx.textContent=Math.round(v)+'%'; svg.appendChild(tx);
+  }
+  for(let i=0;i<=4;i++){
+    const v=xmin+(xmax-xmin)*i/4;
+    const tx=el('text',{x:X(v),y:mt+ph+20,'text-anchor':'middle','font-size':11,fill:cv('--muted')});
+    tx.textContent=Math.round(v)+'%'; svg.appendChild(tx);
+  }
+  if(0>ymin&&0<ymax) svg.appendChild(el('line',{x1:ml,x2:ml+pw,y1:Y(0),y2:Y(0),stroke:cv('--axis'),'stroke-width':1}));
+  const xl=el('text',{x:ml+pw/2,y:H-6,'text-anchor':'middle','font-size':11.5,fill:cv('--ink2')});
+  xl.textContent='Variacao do ticket medio'; svg.appendChild(xl);
+  const yl=el('text',{x:14,y:mt+ph/2,'text-anchor':'middle','font-size':11.5,fill:cv('--ink2'),
+    transform:`rotate(-90 14 ${mt+ph/2})`});
+  yl.textContent='Variacao das compras por dia'; svg.appendChild(yl);
+  const marks=new Map();
+  data.forEach(d=>{
+    // pointer-events:none — quem escuta o mouse e a camada unica no topo,
+    // senao o ponto destacado (que sobe de nivel) engoliria o proprio hover
+    const c=el('circle',{cx:X(d.d_ticket),cy:Y(d.d_purch),r:6,
+      fill:cv('--s2'),stroke:cv('--surface'),'stroke-width':2,
+      style:'pointer-events:none'});
+    marks.set(d,c); svg.appendChild(c);
+  });
+  // rotulo em TODOS os pontos, escolhendo a posicao livre mais proxima
+  const taken=data.map(d=>({x:X(d.d_ticket)-8,y:Y(d.d_purch)-8,w:16,h:16}));
+  const labelBoxes=[];   // area de cada rotulo, pro hover reconhecer o texto
+  const hit=(a,b)=>!(a.x+a.w<b.x||b.x+b.w<a.x||a.y+a.h<b.y||b.y+b.h<a.y);
+  data.forEach(d=>{
+    const cx=X(d.d_ticket), cy=Y(d.d_purch);
+    const w=d.cidade.length*5.9+4, h=13;
+    const cands=[
+      {x:cx-w/2, y:cy-22, ax:cx,     ay:cy-12, an:'middle'},
+      {x:cx-w/2, y:cy+8,  ax:cx,     ay:cy+18, an:'middle'},
+      {x:cx+10,  y:cy-7,  ax:cx+10,  ay:cy+4,  an:'start'},
+      {x:cx-10-w,y:cy-7,  ax:cx-10,  ay:cy+4,  an:'end'},
+      {x:cx+8,   y:cy-19, ax:cx+8,   ay:cy-9,  an:'start'},
+      {x:cx-8-w, y:cy-19, ax:cx-8,   ay:cy-9,  an:'end'},
+      {x:cx+8,   y:cy+5,  ax:cx+8,   ay:cy+15, an:'start'},
+      {x:cx-8-w, y:cy+5,  ax:cx-8,   ay:cy+15, an:'end'},
+    ];
+    let pick=cands.find(c=>{
+      const box={x:c.x,y:c.y,w:w,h:h};
+      if(box.x<2||box.x+box.w>W-2||box.y<2||box.y+box.h>H-2) return false;
+      return !taken.some(t=>hit(box,t));
+    }) || cands[0];
+    taken.push({x:pick.x,y:pick.y,w:w,h:h});
+    labelBoxes.push({x:pick.x,y:pick.y,w:w,h:h,d:d});
+    const t=el('text',{x:pick.ax,y:pick.ay,'text-anchor':pick.an,'font-size':11,
+      fill:cv('--ink'),'font-weight':600,style:'pointer-events:none'});
+    t.textContent=d.cidade; svg.appendChild(t);
+  });
+
+  // Hover por ponto MAIS PROXIMO do cursor: com pontos sobrepostos, o clique
+  // do mouse nao precisa acertar o circulo certo — vale a menor distancia.
+  // O ponto ativo cresce e ganha anel, pra nao restar duvida de qual e.
+  let cur=null;
+  const layer=el('rect',{x:ml,y:mt,width:pw,height:ph,fill:'transparent',style:'cursor:crosshair'});
+  function clear(){ if(cur){marks.get(cur).setAttribute('r',6);
+    marks.get(cur).setAttribute('stroke',cv('--surface'));
+    marks.get(cur).setAttribute('stroke-width',2); cur=null;} hideTip(); }
+  layer.addEventListener('mousemove',e=>{
+    const b=svg.getBoundingClientRect();
+    const sx=(e.clientX-b.left)/b.width*W, sy=(e.clientY-b.top)/b.height*H;
+    let best=null;
+    // 1) o cursor esta sobre o texto de um rotulo? entao e aquele evento,
+    //    mesmo que a bolinha de outro esteja mais perto do cursor.
+    const onLabel=labelBoxes.find(L=>sx>=L.x&&sx<=L.x+L.w&&sy>=L.y&&sy<=L.y+L.h);
+    if(onLabel){ best=onLabel.d; }
+    else {
+      let bd=Infinity;
+      data.forEach(d=>{
+        const dx=X(d.d_ticket)-sx, dy=Y(d.d_purch)-sy, q=dx*dx+dy*dy;
+        if(q<bd){bd=q;best=d;}
+      });
+    }
+    if(!best){clear();return;}
+    if(best!==cur){
+      if(cur){marks.get(cur).setAttribute('r',6);
+        marks.get(cur).setAttribute('stroke',cv('--surface'));
+        marks.get(cur).setAttribute('stroke-width',2);}
+      cur=best;
+      const m=marks.get(cur);
+      m.setAttribute('r',9); m.setAttribute('stroke',cv('--ink')); m.setAttribute('stroke-width',2);
+      svg.appendChild(m);
+    }
+    showTip(e,`<strong>${best.cidade}</strong> <span style="color:${cv('--muted')}">${best.tipo}</span><br>
+       Ticket ${pct(best.d_ticket)} &middot; Compras ${pct(best.d_purch)}<br>
+       ${brl(best.ticket_a)} &rarr; ${brl(best.ticket_b)}<br>
+       Compras/dia ${n1(best.purch_d_a)} &rarr; ${n1(best.purch_d_b)}`);
+  });
+  layer.addEventListener('mouseleave',clear);
+  svg.appendChild(layer);
+  document.getElementById('c_scatter').appendChild(svg);
+})();
+
+/* ---------- tabela ---------- */
+(function(){
+  const data=[...rows].sort((a,b)=>{
+    if(a.d_purch===null)return 1; if(b.d_purch===null)return -1;
+    return a.d_purch-b.d_purch;});
+  const head=`<thead><tr>
+    <th>Evento</th><th>Compras/dia</th><th>Var.</th>
+    <th>Ticket medio</th><th>Var.</th>
+    <th>Receita/dia</th><th>Var.</th>
+    <th>Gasto/dia</th><th>ROAS</th><th>CPA</th></tr></thead>`;
+  const body=data.map(d=>{
+    const dp=d.d_purch===null?'&mdash;':`<span class="delta ${d.d_purch<0?'down':'up'}">${pct(d.d_purch)}</span>`;
+    const dt=d.d_ticket===null?'&mdash;':`<span class="delta ${d.d_ticket<0?'down':'up'}">${pct(d.d_ticket)}</span>`;
+    const dr=d.d_rev===null?'&mdash;':`<span class="delta ${d.d_rev<0?'down':'up'}">${pct(d.d_rev)}</span>`;
+    return `<tr>
+      <td class="ev">${d.cidade}<span class="ty">${d.tipo}</span></td>
+      <td>${n1(d.purch_d_a)} &rarr; ${n1(d.purch_d_b)}</td><td>${dp}</td>
+      <td>${brl(d.ticket_a)} &rarr; ${brl(d.ticket_b)}</td><td>${dt}</td>
+      <td>${brl(d.rev_d_a)} &rarr; ${brl(d.rev_d_b)}</td><td>${dr}</td>
+      <td>${brl(d.spend_d_a)} &rarr; ${brl(d.spend_d_b)}</td>
+      <td>${d.roas_a.toFixed(2)} &rarr; ${d.roas_b.toFixed(2)}</td>
+      <td>${brl(d.cpa_a)} &rarr; ${brl(d.cpa_b)}</td></tr>`;
+  }).join('');
+  document.getElementById('tbl').innerHTML=head+'<tbody>'+body+'</tbody>';
+})();
+</script>
+</body></html>
