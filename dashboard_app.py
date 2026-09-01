@@ -255,6 +255,50 @@ class MetaFetchError(Exception):
     Quem captura este erro NAO pode chamar set_cached."""
 
 
+def _build_delivery_calendar(acc_ids, days_back=90):
+    """{campaign_id: [dias 'YYYY-MM-DD' com impressao]} lido dos atoms.
+
+    Alimenta a regra de agrupamento por evento: o que separa dois eventos da
+    mesma cidade e ter ficado 14 dias sem NENHUMA veiculacao, e isso so da
+    pra saber olhando dia a dia quem entregou.
+
+    Zero chamada Meta — le apenas o que o backfill de atoms ja gravou. Dias
+    fora da cobertura de atoms simplesmente nao aparecem, e o agrupador cai
+    no fallback quando nao tem dado nenhum de uma campanha.
+    """
+    cache_key = f"delivery_calendar_v1_{'_'.join(sorted(acc_ids))}_{days_back}"
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    to_d = _now_br().date()
+    from_d = to_d - timedelta(days=days_back)
+    out = {}
+    for acc in acc_ids:
+        if not acc:
+            continue
+        try:
+            atoms, _missing = get_atoms_for_range(
+                'acc', acc, from_d.strftime("%Y-%m-%d"), to_d.strftime("%Y-%m-%d")
+            )
+        except Exception as e:
+            print(f"[DELIVERY] Falha lendo atoms {acc}: {e}")
+            continue
+        for a in atoms:
+            day = a.get("date")
+            payload = a.get("payload") or {}
+            for cid, ins in (payload.get("insights_by_id") or {}).items():
+                try:
+                    if float(ins.get("impressions", 0) or 0) > 0:
+                        out.setdefault(cid, set()).add(day)
+                except Exception:
+                    continue
+    result = {k: sorted(v) for k, v in out.items()}
+    # 6h: muda pouco (1 dia novo por dia) e evita reler dezenas de atoms
+    set_cached(cache_key, result, ttl_hours=6)
+    return result
+
+
 def _fetch_type_campaigns(camp_type, fields, effective_status):
     """Busca campanhas de TODAS as contas configuradas para o camp_type,
     aplica o filtro por tipo, e retorna a lista com _account_id tagueado.
@@ -2957,8 +3001,13 @@ def api_campaigns():
             "total_video_p100": total_video_p100,
         }
 
-        # Agrupar por evento
-        events = group_campaigns_by_event(sales_campaigns)
+        # Agrupar por evento — separa por 14 dias sem veiculacao na cidade
+        try:
+            _delivery = _build_delivery_calendar(_get_accounts_for_type(camp_type))
+        except Exception as e:
+            print(f"[EVENTOS] Sem calendario de veiculacao, usando fallback: {e}")
+            _delivery = None
+        events = group_campaigns_by_event(sales_campaigns, delivery_days=_delivery)
         # Mapear campaign_id -> event_id/event_name
         camp_event_map = {}
         for ev in events:

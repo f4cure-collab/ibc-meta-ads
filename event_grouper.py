@@ -366,12 +366,87 @@ def _parse_campaign_name(name):
     return (event_type, best_key, best_city)
 
 
-def group_campaigns_by_event(campaigns, gap_days=60):
+def _segment_by_delivery(items, delivery_days, gap_days):
+    """Separa campanhas do mesmo tipo+cidade em eventos por PAUSA NA VEICULACAO.
+
+    O que define dois eventos e a cidade ter ficado gap_days dias sem NENHUM
+    anuncio rodando — nao a distancia entre as datas de criacao das campanhas.
+    Uma campanha criada no meio de uma veiculacao continua pertence ao evento
+    que ja estava no ar, por mais antiga que seja a primeira campanha dele.
+
+    items: parsed dicts (cada um com 'campaign' e 'start_date')
+    delivery_days: {campaign_id: [datas 'YYYY-MM-DD' com impressao]}
+    Retorna lista de grupos, ou None se nao ha dado de veiculacao (o chamador
+    entao cai na regra antiga em vez de agrupar errado).
+    """
+    per_camp = {}
+    all_days = set()
+    for p in items:
+        cid = (p.get("campaign") or {}).get("id")
+        days = set(delivery_days.get(cid) or []) if cid else set()
+        per_camp[cid] = days
+        all_days |= days
+    if not all_days:
+        return None
+
+    def _d(s):
+        return datetime.strptime(s, "%Y-%m-%d")
+
+    ordered = sorted(_d(x) for x in all_days)
+    # Um bloco = periodo de veiculacao continua. Fecha quando o intervalo ate o
+    # proximo dia com entrega passa de gap_days (ex: rodou dia 1 e so voltou no
+    # dia 16 = 14 dias parado = evento novo).
+    blocks = []
+    b_start = b_prev = ordered[0]
+    for d in ordered[1:]:
+        if (d - b_prev).days > gap_days:
+            blocks.append((b_start, b_prev))
+            b_start = d
+        b_prev = d
+    blocks.append((b_start, b_prev))
+
+    if len(blocks) == 1:
+        return [items]
+
+    groups = [[] for _ in blocks]
+    sem_entrega = []
+    for p in items:
+        cid = (p.get("campaign") or {}).get("id")
+        days = sorted(_d(x) for x in per_camp.get(cid) or [])
+        if not days:
+            sem_entrega.append(p)
+            continue
+        first = days[0]
+        idx = len(blocks) - 1
+        for i, (s, e) in enumerate(blocks):
+            if s <= first <= e:
+                idx = i
+                break
+        groups[idx].append(p)
+
+    # Campanhas sem entrega na janela conhecida: posiciona pela data de inicio
+    for p in sem_entrega:
+        sd = p.get("start_date")
+        idx = len(blocks) - 1
+        if sd:
+            for i, (s, e) in enumerate(blocks):
+                if sd <= e:
+                    idx = i
+                    break
+        groups[idx].append(p)
+
+    return [g for g in groups if g]
+
+
+def group_campaigns_by_event(campaigns, gap_days=14, delivery_days=None, fallback_gap_days=60):
     """Agrupa campanhas por evento.
 
     Args:
         campaigns: lista de dicts com pelo menos 'id', 'name', 'start_time' ou 'created_time'
-        gap_days: se duas campanhas do mesmo tipo+cidade têm gap > N dias, são eventos diferentes
+        gap_days: dias SEM VEICULACAO que separam dois eventos (regra principal)
+        delivery_days: {campaign_id: [datas com impressao]}. Vem dos atoms.
+                       Sem isso, cai na regra antiga por data de criacao.
+        fallback_gap_days: gap entre datas de criacao, usado so no fallback
 
     Returns:
         lista de eventos, cada um com:
@@ -430,13 +505,18 @@ def group_campaigns_by_event(campaigns, gap_days=60):
         # Campanhas sem data válida vão para o final (não criam gaps)
         items.sort(key=lambda x: x["start_date"] if x["start_date"] and x["start_date"] > min_valid_date else datetime.max)
 
-        # Grupos perpetuos (comercial, crescimento, nutricao) nao separam por gap temporal.
-        et0 = items[0]["event_type"]
-        is_perpetuo = et0 in COMERCIAL_PRODUCT_MAP or et0 in ("CRESCIMENTO", "NUTRICAO")
-        if is_perpetuo:
-            sub_events = [items]
-        else:
-            # Separar em sub-eventos por gap (ignorar itens sem data válida)
+        # REGRA PRINCIPAL: separa por pausa na veiculacao (>gap_days sem
+        # nenhum anuncio da cidade rodando). Vale para TODOS os tipos —
+        # antes comercial/crescimento/nutricao nunca separavam evento.
+        sub_events = None
+        if delivery_days:
+            sub_events = _segment_by_delivery(items, delivery_days, gap_days)
+
+        if sub_events is None:
+            # FALLBACK: sem historico de veiculacao pra essas campanhas, usa a
+            # regra antiga (distancia entre datas de criacao). Menos correta —
+            # uma campanha nova criada durante uma veiculacao continua abre
+            # evento novo sem motivo — mas melhor que agrupar as cegas.
             sub_events = []
             current_group = [items[0]]
             for i in range(1, len(items)):
@@ -444,7 +524,7 @@ def group_campaigns_by_event(campaigns, gap_days=60):
                 curr_date = items[i]["start_date"]
                 prev_valid = prev_date and prev_date > min_valid_date
                 curr_valid = curr_date and curr_date > min_valid_date
-                if prev_valid and curr_valid and (curr_date - prev_date).days > gap_days:
+                if prev_valid and curr_valid and (curr_date - prev_date).days > fallback_gap_days:
                     sub_events.append(current_group)
                     current_group = []
                 current_group.append(items[i])
