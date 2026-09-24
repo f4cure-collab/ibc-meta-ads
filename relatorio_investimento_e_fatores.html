@@ -42,7 +42,6 @@ svg{display:block;width:100%;height:auto}
  <li><strong>Exceções:</strong> quando as vendas caem depois de um aumento, a causa é externa — Copa do Mundo, aumento de preço do ingresso ou cidade com público saturado por edições recentes.</li>
  <li><strong>Fatores externos pesam mais que o orçamento:</strong> na Copa, a conversão da página caiu para um terço e o custo por venda dobrou, sem nenhuma mudança nas campanhas.</li>
  <li><strong>Eleições:</strong> em 2024, o custo por mil impressões das campanhas de captação caiu 38% de setembro para outubro, logo depois da votação. Em 2026, setembro já está cerca de 20% acima de maio.</li>
- <li><strong>Um conjunto só vende mais barato:</strong> nas 9 cidades que tiveram uma edição com vários conjuntos e, depois, uma com um conjunto só, a edição concentrada vendeu mais barato em todas — mesmo em condições de mercado piores.</li>
 </ol>
 
 <h2>1. A regra: o que acontece quando aumentamos o investimento</h2>
@@ -70,20 +69,11 @@ svg{display:block;width:100%;height:auto}
 <p><strong>Em 2026</strong>, comparando as mesmas edições de venda, o custo por mil impressões subiu 41% de julho até o período eleitoral. Porém, a maior parte dessa alta veio antes de 16/08, início oficial da propaganda, e coincide com o fim da Copa, que tinha deixado a impressão artificialmente barata. Agosto voltou para perto do nível de maio; <strong>setembro está cerca de 20% acima de maio</strong>, e essa diferença pode ser o efeito eleitoral.</p>
 <p>Conclusão: a eleição encarece a mídia, como em 2024, mas em 2026 o efeito ainda está misturado com a saída da Copa. Vale medir de novo depois do 1º turno (04/10) e, se houver, do 2º turno.</p>
 
-<h2>5. Vários conjuntos de anúncios ou um só</h2>
-<p>Entre novembro de 2025 e janeiro de 2026, a maior parte das edições de venda rodou fragmentada: vários conjuntos e campanhas ao mesmo tempo, com públicos diferentes (mediana de 6,5 conjuntos por dia; 75% das edições com 4 ou mais). A partir de fevereiro, a estrutura passou a ser concentrada: mediana de um conjunto por dia, e só 5% das edições com 4 ou mais.</p>
-<p>Nove cidades tiveram uma edição fragmentada e, depois, uma edição concentrada do mesmo evento. <strong>Nas nove, a edição concentrada vendeu mais barato</strong> — de 16% a 71% a menos por venda —, mesmo sendo a edição seguinte, quando parte do público da cidade já tinha sido impactada.</p>
-<div class="box"><div class="legend"><span><i style="background:var(--s2)"></i>edição com vários conjuntos</span><span><i style="background:var(--s1)"></i>edição seguinte, com um conjunto</span></div><div id="fragchart"></div></div>
-<table><thead><tr><th>Cidade</th><th>Vários conjuntos</th><th>Custo por venda</th><th>Um conjunto</th><th>Custo por venda</th><th>Diferença</th></tr></thead><tbody id="tfrag"></tbody></table>
-<h3>E isso em condições piores</h3>
-<p>Historicamente, de novembro a fevereiro é a época mais barata do ano para anunciar, e de junho a setembro, a mais cara. As edições fragmentadas rodaram justamente em dezembro e janeiro, com impressão mais barata: R$ 41 e R$ 37 por mil nas campanhas de venda. As concentradas rodaram entre abril e julho, com impressão mais cara em abril e maio (R$ 50 a R$ 53) e com a Copa do Mundo derrubando a conversão em junho. Ou seja, a melhora não veio de mídia mais barata, e sim da conversão — a proporção de pessoas que compram depois de ver o anúncio. Mesmo com o mercado jogando contra, a estrutura com um conjunto só vendeu mais barato em todas as cidades comparadas.</p>
-
 <h2>O que fazer com isso</h2>
 <ul>
  <li><strong>Aumentar em degraus:</strong> subir de 10% a 20% por semana rende vendas sem encarecer a venda; saltos grandes de uma vez custam caro.</li>
  <li><strong>Avaliar o aumento pelo cenário certo:</strong> comparar com o que aconteceria mantendo o orçamento, não com a semana anterior — senão o desgaste natural parece culpa do aumento.</li>
  <li><strong>Antes de concluir que uma campanha piorou, olhar o calendário:</strong> jogos e eventos nacionais, mudança de preço do ingresso, eleições e edições recentes na mesma cidade.</li>
- <li><strong>Manter a estrutura concentrada:</strong> uma campanha e um conjunto por objetivo, com os criativos juntos. Criar conjuntos separados só quando houver criativo e chamada específicos para um público personalizado.</li>
  <li><strong>Planejar a verba pela época do ano:</strong> de novembro a fevereiro a mídia costuma ser mais barata; de junho a setembro, mais cara — e ainda mais em ano de eleição, quando o custo só volta ao normal depois da votação.</li>
 </ul>
 
@@ -93,7 +83,6 @@ svg{display:block;width:100%;height:auto}
  <li><strong>Aumento de investimento (seções 1 e 2):</strong> comparação semana a semana dentro de cada edição de evento, só no meio da campanha — pelo menos 7 dias depois do início e 7 dias antes do fim, para excluir a fase de aprendizado e a reta final. Os números típicos são medianas, para que casos extremos não distorçam o resultado.</li>
  <li><strong>Copa do Mundo (seção 3):</strong> todas as edições de venda somadas, semana a semana, de junho a julho de 2026.</li>
  <li><strong>Eleições (seção 4):</strong> custo por mil impressões mês a mês; em 2026, comparando as mesmas edições antes e depois do início da propaganda eleitoral.</li>
- <li><strong>Conjuntos de anúncios (seção 5):</strong> cada edição com vários conjuntos comparada com a edição seguinte do mesmo evento, na mesma cidade, com um conjunto só.</li>
  <li>Limitação: os dados não isolam o efeito de mudanças de lote ou de preço do ingresso.</li>
 </ul>
 </div>
@@ -151,16 +140,4 @@ function copaChart(mount,idx,color,fmt){const W=800,H=170,ml=56,mr=10,mt=16,mb=2
 copaChart(document.getElementById('copa1'),3,cv('--s2'),v=>brl(v));
 copaChart(document.getElementById('copa2'),2,cv('--s3'),v=>v.toFixed(1).replace('.',','));
 
-const F=D.frag;
-document.getElementById('tfrag').innerHTML=F.map(r=>`<tr><td>${r.evento==='Speaker'?'Speaker — ':''}${r.cidade}</td>
- <td>${r.a_mes} · ${String(r.a_conj).replace('.',',')} conj./dia</td><td>${brl(r.a_cpr)}</td>
- <td>${r.b_mes} · 1 conj./dia</td><td>${brl(r.b_cpr)}</td><td class="good">${pct((r.b_cpr/r.a_cpr-1)*100)}</td></tr>`).join('');
-(function(){const W=800,rh=40,ml=190,mr=70,mt=6,H=mt+F.length*rh+6,pw=W-ml-mr,mx=Math.max(...F.map(r=>r.a_cpr))*1.05;
- const svg=el('svg',{viewBox:`0 0 ${W} ${H}`}),X=v=>ml+v/mx*pw;
- F.forEach((r,i)=>{const y=mt+i*rh;
-  const t=el('text',{x:ml-10,y:y+rh/2+4,'text-anchor':'end','font-size':12.5,fill:cv('--ink')});t.textContent=(r.evento==='Speaker'?'Speaker ':'')+r.cidade;svg.appendChild(t);
-  [[r.a_cpr,cv('--s2'),4],[r.b_cpr,cv('--s1'),20]].forEach(([v,c,o])=>{
-   svg.appendChild(el('rect',{x:ml,y:y+o,width:Math.max(2,X(v)-ml),height:14,rx:3,fill:c}));
-   const l=el('text',{x:X(v)+6,y:y+o+11,'font-size':11,'font-weight':600,fill:cv('--ink2')});l.textContent=brl(v);svg.appendChild(l)})});
- document.getElementById('fragchart').appendChild(svg)})();
 </script></body></html>
