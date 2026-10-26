@@ -93,6 +93,11 @@ CITY_MAP = {
     "BALNEARIOCAMBURIU": "Balneário Camboriú",
     "BALNEARIO_CAMBURIU": "Balneário Camboriú",
     "BALNEARIO": "Balneário Camboriú",
+    "MONTESCLAROS": "Montes Claros",
+    "MONTES_CLAROS": "Montes Claros",
+    # Porto de Portugal. Porto Alegre / Porto Velho vencem por serem chaves
+    # mais longas (PORTO_ALEGRE, PORTOVELHO...) na deteccao de cidade.
+    "PORTO": "Porto (Portugal)",
     "RMKT": "Remarketing",
 }
 
@@ -148,6 +153,7 @@ CITY_KEY_NORMALIZE = {
     "BALNEARIOCAMBURIU": "BALNEARIOCAMBORIU",
     "BALNEARIO_CAMBURIU": "BALNEARIOCAMBORIU",
     "BALNEARIO": "BALNEARIOCAMBORIU",
+    "MONTES_CLAROS": "MONTESCLAROS",
 }
 
 
@@ -192,7 +198,7 @@ def _parse_campaign_name(name):
     # Crescimento: agrupa por cidade. Se nao tem cidade, "Brasil" (fallback).
     # Aceita token CRESCIMENTO ou abreviacao CRESC.
     if _primary == "CRESCIMENTO" and ("CRESCIMENTO" in tokens_split or "CRESC" in tokens_split):
-        name_norm = name_upper.replace("-", "_").replace(".", "_")
+        name_norm = name_upper.replace("-", "_").replace(".", "_").replace(" ", "_")
         best_city = None
         best_key = None
         for key, full in CITY_MAP.items():
@@ -231,7 +237,7 @@ def _parse_campaign_name(name):
     # VENDAS_DSP_GYN_ENGAJAMENTO como Nutricao).
     if _primary == "NUTRICAO" and ("NUTRICAO" in tokens_split or "ENGAJAMENTO" in tokens_split
             or "RECONHECIMENTO" in tokens_split):
-        name_norm = name_upper.replace("-", "_").replace(".", "_")
+        name_norm = name_upper.replace("-", "_").replace(".", "_").replace(" ", "_")
         best_city = None
         best_key = None
         for key, full in CITY_MAP.items():
@@ -261,7 +267,7 @@ def _parse_campaign_name(name):
     if _primary == "METEORICO" and ("METEORICO" in tokens_split or "METEORICOS" in tokens_split):
         # name_norm tem '-' e '.' trocados por '_' pra match de chaves compostas
         # tipo 'JOAO_PESSOA' funcionar quando o nome tiver 'JOAO-PESSOA'
-        name_norm = name_upper.replace("-", "_").replace(".", "_")
+        name_norm = name_upper.replace("-", "_").replace(".", "_").replace(" ", "_")
         best_city = None
         best_key = None
         for key, full in CITY_MAP.items():
@@ -289,7 +295,14 @@ def _parse_campaign_name(name):
         return None
 
     # Detectar RMKT
-    if "_RMKT" in name_upper:
+    # Remarketing geral, separado por tipo de evento. Vale tambem para nomes
+    # que COMECAM com RMKT (RMKT_SPEAKER, RMKT_DSP_AL). Remarketing com cidade
+    # no nome (VENDAS_DSP_GOIANIA_RMKT) fica no geral do tipo, nao no evento.
+    if "_RMKT" in name_upper or name_upper.startswith("RMKT"):
+        if "SPK" in tokens_split or "SPEAKER" in tokens_split:
+            return ("RMKT", "SPK", "Speaker")
+        if "DSP" in tokens_split:
+            return ("RMKT", "DSP", "Desperte seu Poder")
         return ("RMKT", "GERAL", "Geral")
 
     # Perpetuo: tratar como SPK (é Speaker, não um tipo separado)
@@ -334,12 +347,15 @@ def _parse_campaign_name(name):
     # "SP" dentro de "SPK"). Se nao achar por token, cai num fallback de
     # substring pra cobrir chaves longas que podem estar sem separadores.
     tokens = set(name_upper.replace("-", "_").split("_"))
+    # Chaves compostas (PORTO_ALEGRE, MONTES_CLAROS) entram junto com os tokens;
+    # a mais longa vence, entao PORTO_ALEGRE ganha de PORTO.
+    name_norm = name_upper.replace("-", "_").replace(".", "_").replace(" ", "_")
     best_city = None
     best_key = None
     for key, full in CITY_MAP.items():
         if key == "RMKT":
             continue
-        if key in tokens:
+        if key in tokens or ("_" in key and key in name_norm):
             if best_key is None or len(key) > len(best_key):
                 best_key = key
                 best_city = full
@@ -552,8 +568,8 @@ def group_campaigns_by_event(campaigns, gap_days=14, delivery_days=None, fallbac
 
             # RMKT não tem cidade
             if et == "RMKT":
-                event_name = "Remarketing Geral"
-                event_id = "RMKT"
+                event_name = "Remarketing Geral" if city_key == "GERAL" else f"Remarketing Geral — {city}"
+                event_id = "RMKT" if city_key == "GERAL" else f"RMKT_{city_key}"
             elif et in COMERCIAL_PRODUCT_MAP:
                 # Comercial: event_name e o proprio nome do produto (ex: "Master Trainer")
                 event_type_name = COMERCIAL_PRODUCT_MAP[et]
