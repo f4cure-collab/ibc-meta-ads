@@ -2557,6 +2557,7 @@ async function loadMultiInsights(force){
         const r=await api(`/api/dashboard/campaigns/multi-insights?ids=${ids}&date_from=${df}&date_to=${dt}&camp_status=${cs}${fq}`);
         if(gen!==_detailGeneration)return;
         multiCampData=r;
+        r._df=df;r._dt=dt; // periodo pedido, para o eixo do grafico cobrir todos os dias
         if(r.aggregated){
             campAggregated.reach=r.aggregated.reach||0;
             campAggregated.frequency=r.aggregated.frequency||0;
@@ -2588,6 +2589,25 @@ async function refreshCampDetail(){
     if(!multiCampData)return;
     renderCampDetailFunnelAndCharts();
 }
+
+// Eixo X dos gr&aacute;ficos di&aacute;rios: todos os dias do per&iacute;odo filtrado.
+// A Meta n&atilde;o devolve linha nos dias sem veicula&ccedil;&atilde;o (campanha pausada), ent&atilde;o
+// montar o eixo s&oacute; com as datas recebidas fazia o gr&aacute;fico pular a pausa.
+function fullDateRange(dates,from,to){
+    const s=new Set(dates);
+    if(from&&to&&from<=to){
+        const d=new Date(from+'T12:00:00'),end=new Date(to+'T12:00:00');
+        const ymd=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+        for(let i=0;d<=end&&i<1500;i++){s.add(ymd(d));d.setDate(d.getDate()+1);}
+    }
+    return Array.from(s).sort();
+}
+// Taxas e custos unit&aacute;rios ficam em branco (null) em dia sem veicula&ccedil;&atilde;o:
+// zero ali viraria "CPA R$ 0" num dia pausado. Volumes (gasto, compras...) ficam 0.
+const RATE_METRIC_KEYS=new Set(['roas','cpa','cpm','ctr','frequency','ticket','share','share_total','cpc_link','avg_watched_pct']);
+function isRateMetric(k){return RATE_METRIC_KEYS.has(k)||k.startsWith('cost_per_')||k.startsWith('rate_');}
+function hasDelivery(d){return !!d&&((d.spend||0)>0||(d.impressions||0)>0);}
+function dayValue(k,d,calc){return(isRateMetric(k)&&!hasDelivery(d))?null:calc(d||{});}
 
 function aggregateDaily(camps){
     // Soma todos os daily de v&aacute;rias campanhas em um array de daily com m&eacute;tricas derivadas
@@ -2876,7 +2896,7 @@ async function renderDetailMetricChart(){
     camps.forEach(c=>(c.daily||[]).forEach(d=>allDates.add(d.date)));
     const aggregated=aggregateDaily(camps);
     aggregated.forEach(d=>allDates.add(d.date));
-    const labels=Array.from(allDates).sort();
+    const labels=fullDateRange(Array.from(allDates),multiCampData._df,multiCampData._dt);
 
     const selectedKeys=Array.from(detailSelectedMetrics);
     const _axOrder=['money','unit_cost','count','big','ratio','pct'];
@@ -2964,7 +2984,7 @@ async function renderDetailMetricChart(){
                 const color=CL[(i*3+ci)%CL.length];
                 datasets.push({
                     label:`${m.label}${isCumulative&&!noAccum.has(k)?' (acum.)':''} — ${shortEvName(c.name)}`,
-                    data:maybeAccum(labels.map(l=>m.calc(mp[l]||{})),k),
+                    data:maybeAccum(labels.map(l=>dayValue(k,mp[l],m.calc)),k),
                     borderColor:color,backgroundColor:color+'20',
                     fill:false,tension:.35,borderWidth:2,pointRadius:0,pointHoverRadius:5,
                     yAxisID:axisByKey[k],
@@ -2974,7 +2994,7 @@ async function renderDetailMetricChart(){
             const mp={};aggregated.forEach(d=>{mp[d.date]=d;});
             datasets.push({
                 label:m.label+(isCumulative&&!noAccum.has(k)?' (acumulado)':''),
-                data:maybeAccum(labels.map(l=>m.calc(mp[l]||{})),k),
+                data:maybeAccum(labels.map(l=>dayValue(k,mp[l],m.calc)),k),
                 borderColor:m.color,
                 backgroundColor:ctx=>makeGradient(ctx,m.color),
                 fill:datasets.length===0,tension:.35,borderWidth:2.5,pointRadius:0,pointHoverRadius:6,
@@ -3100,6 +3120,7 @@ if(_btnRefresh){
 
 // ── Daily Summary (gr&aacute;fico de m&eacute;trica selecionada nos cards da aba campanhas) ──
 let campDailyData=[];
+let campDailyRange={df:'',dt:''};
 
 const CAMP_METRICS={
     spend:{label:'Gasto',color:'#f85149',fmt:fmtM,key:'spend',axis:'money'},
@@ -3129,6 +3150,7 @@ async function loadCampDailySummary(force){
     try{
         const r=await api(`/api/dashboard/daily-summary?date_from=${df}&date_to=${dt}&camp_status=${cs}${fq}`);
         campDailyData=r.data||[];
+        campDailyRange={df,dt};
         campAggregated=r.aggregated||{reach:0,frequency:0};
     }catch(e){console.warn('daily-summary erro:',e.message);campDailyData=[];campAggregated={reach:0,frequency:0};}
 }
@@ -3142,7 +3164,8 @@ function renderCampMetricChart(){
     void viewer.offsetHeight;
 
     const selectedKeys=Array.from(campSelectedMetrics);
-    const labels=campDailyData.map(d=>d.date);
+    const campByDate={};campDailyData.forEach(d=>{campByDate[d.date]=d;});
+    const labels=fullDateRange(campDailyData.map(d=>d.date),campDailyRange.df,campDailyRange.dt);
 
     // Multi-axis: up to 3 axes based on distinct axis types
     const axisOrder=['money','unit_cost','count','big','ratio','pct'];
@@ -3157,7 +3180,7 @@ function renderCampMetricChart(){
     const datasets=[];
     selectedKeys.forEach((k,i)=>{
         const m=CAMP_METRICS[k];
-        const data=campDailyData.map(d=>d[m.key]||0);
+        const data=labels.map(l=>dayValue(k,campByDate[l],d=>d[m.key]||0));
         const fillFirst=i===0&&selectedKeys.length<=2;
         datasets.push({
             label:m.label,data,
@@ -4065,7 +4088,7 @@ async function openCompareModal(){
             });
             return m;
         });
-        const cmpLabels=Array.from(allDates).sort();
+        const cmpLabels=fullDateRange(Array.from(allDates),df,dt);
 
         const COMPARE_METRICS={
             spend:{title:'Gasto',color:'#ff6b6b',fmt:fmtM,axis:'money',calc:d=>d.spend||0},
@@ -4125,7 +4148,7 @@ async function openCompareModal(){
                     const label=selectedKeys.length>1?`${m.title} — ${n}`:n;
                     datasets.push({
                         label,
-                        data:cmpLabels.map(l=>m.calc(map[l]||{})),
+                        data:cmpLabels.map(l=>dayValue(mk,map[l],m.calc)),
                         borderColor:CL[colorIdx%CL.length],
                         backgroundColor:'transparent',
                         fill:false,tension:.35,borderWidth:2.5,pointRadius:0,pointHoverRadius:6,
@@ -4508,7 +4531,7 @@ async function openAdModal(adId,adName,thumbnailUrl){
         const campDaily=r.campaign_daily||[];
         const cmpMap={};campDaily.forEach(d=>{cmpMap[d.date]=d;});
         const allDates=new Set();daily.forEach(d=>allDates.add(d.date));campDaily.forEach(d=>allDates.add(d.date));
-        const mvLabels=Array.from(allDates).sort();
+        const mvLabels=fullDateRange(Array.from(allDates),df,dt);
         const adMap={};daily.forEach(d=>{adMap[d.date]=d;});
 
         // Configura&ccedil;&atilde;o de cada m&eacute;trica — agora com axis type para dual-axis
@@ -4568,9 +4591,10 @@ async function openAdModal(adId,adName,thumbnailUrl){
             const cumSuffix=k=>isCum&&!noAccum.has(k)?' (acum.)':'';
             const datasets=[];
             metricObjs.forEach((m,i)=>{
+                // Participacao: em branco so quando a campanha inteira nao rodou no dia
                 const adSeries=m.isShare
-                    ? mvLabels.map(l=>m.calc(adMap[l]||{},cmpMap[l]||{}))
-                    : mvLabels.map(l=>m.calc(adMap[l]||{}));
+                    ? mvLabels.map(l=>hasDelivery(cmpMap[l])?m.calc(adMap[l]||{},cmpMap[l]):null)
+                    : mvLabels.map(l=>dayValue(m.key,adMap[l],m.calc));
                 datasets.push({
                     label:`${m.title}${cumSuffix(m.key)} — Criativo`,
                     data:maybeAccum(adSeries,m.key),
@@ -4582,7 +4606,7 @@ async function openAdModal(adId,adName,thumbnailUrl){
                     _metric:m,
                 });
                 if(!m.isShare){
-                    const cmpSeries=mvLabels.map(l=>m.calc(cmpMap[l]||{}));
+                    const cmpSeries=mvLabels.map(l=>dayValue(m.key,cmpMap[l],m.calc));
                     datasets.push({
                         label:`${m.title}${cumSuffix(m.key)} — Campanha`,
                         data:maybeAccum(cmpSeries,m.key),
@@ -5475,7 +5499,8 @@ function renderResumoStacked(perType){
     perType.forEach(function(t){
         (t.daily || []).forEach(function(r){ allDates.add(r.date); });
     });
-    var dates = Array.from(allDates).sort();
+    // Todos os dias do periodo (mesmo intervalo usado no carregamento do resumo)
+    var dates = fullDateRange(Array.from(allDates), $('#rs-df').value || dAgo(29), $('#rs-dt').value || yesterday());
 
     var datasets = perType.filter(function(t){ return (t.daily || []).length > 0; }).map(function(t){
         var byDate = {};
